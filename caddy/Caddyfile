@@ -6,7 +6,7 @@
 {
 	# Nivel de log en ERROR. Motivo concreto: en nivel warn, Caddy registra
 	# el `uri` completo del pedido cuando un cliente corta el stream, y si
-	# ese pedido venía con ?t=… el token queda escrito en el log.
+	# ese pedido venía con ?t=... el token queda escrito en el log.
 	# En ERROR seguís viendo las fallas reales, y las credenciales no se
 	# escriben. Sin `output`, sigue yendo a stderr (`docker compose logs`).
 	#

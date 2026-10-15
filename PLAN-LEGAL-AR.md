@@ -11,7 +11,7 @@
 
 ## 1. Qué determina si pagás (y qué no)
 
-> ⚠️ **Corrección.** La versión anterior de este documento afirmaba que "el criterio es que se paga cuando hay facturación o auspicio", apoyándose en un aviso del home de SADAIC. **Eso estaba mal formulado.** El aviso existe, pero dice algo más acotado y es de **mayo de 2020**.
+> OJO: **Corrección.** La versión anterior de este documento afirmaba que "el criterio es que se paga cuando hay facturación o auspicio", apoyándose en un aviso del home de SADAIC. **Eso estaba mal formulado.** El aviso existe, pero dice algo más acotado y es de **mayo de 2020**.
 
 SADAIC publica en su home, como noticia destacada, el aviso *"Para que no haya dudas en el Uso de Música en la Web"*:
 
@@ -22,7 +22,7 @@ SADAIC publica en su home, como noticia destacada, el aviso *"Para que no haya d
 
 La posición de SADAIC para radio por internet es explícita y va en el otro sentido (FAQ de SADAIC, recogida por Radios Libres):
 
-> *Pregunta: Tengo previsto lanzar una Radio por Internet… ¿Necesito contar con algún tipo de autorización para transmitir música en las emisiones? ¿Qué arancel debo abonar?*
+> *Pregunta: Tengo previsto lanzar una Radio por Internet... ¿Necesito contar con algún tipo de autorización para transmitir música en las emisiones? ¿Qué arancel debo abonar?*
 > *Respuesta: **Debe solicitar autorización a SADAIC.** El arancel a abonar [...] es el que se consigna en el Apartado 3 del Anexo 1 del Régimen Autoral y Licencia para el uso del repertorio de Sadaic en Internet o redes análogas vigente. El pago [...] deberá acompañarse con la respectiva **Declaración Jurada Mensual** [...]*
 
 ### El segundo error que hay que desactivar
@@ -33,14 +33,14 @@ La posición de SADAIC para radio por internet es explícita y va en el otro sen
 
 | | **Escenario A — música libre** | **Escenario B — música comercial** |
 |---|---|---|
-| Repertorio | CC · Banco INAMU · propia | Cualquier obra, incluidas las comerciales |
+| Repertorio | CC - Banco INAMU - propia | Cualquier obra, incluidas las comerciales |
 | Licencias de derechos | **Ninguna hace falta** | SADAIC + CAPIF SGC (**siempre**, aun sin ingresos) |
-| Costo de derechos | **$0** | 10% de publicidad + mínimo SADAIC · mínimos CAPIF SGC |
+| Costo de derechos | **$0** | 10% de publicidad + mínimo SADAIC - mínimos CAPIF SGC |
 | Monotributo | No hace falta si no facturás | Obligatorio si facturás |
 | **Total mensual estimado** | **$0** | **~$150.000 – $500.000+** |
 
 > **La regla correcta: no se paga según cuánto facturás, se paga según qué repertorio usás.**
-> Repertorio libre → $0 y en regla. Repertorio comercial → siempre al menos un mínimo.
+> Repertorio libre -> $0 y en regla. Repertorio comercial -> siempre al menos un mínimo.
 
 ---
 
@@ -67,7 +67,7 @@ El DNU 70/2023 además eliminó el límite de multiplicidad de licencias, pero e
 |---|---|---|
 | Registro de la Actividad Musical (INAMU) | **$0** | INAMU |
 | Banco de Música Nacional e Independiente (25.000+ temas) | **$0** | INAMU |
-| Música libre (CC0/CC-BY, FMA, Jamendo, ccMixter, netlabels) · producción propia | **$0** | — |
+| Música libre (CC0/CC-BY, FMA, Jamendo, ccMixter, netlabels) - producción propia | **$0** | — |
 
 ### 3.2 SADAIC — obras musicales (composición / letra)
 
@@ -90,18 +90,18 @@ Mínimo mensual por visitas (mismo anexo):
 | 100.001 – 150.000 | $8.910 |
 | cada tramo adicional de 150.000 | +$10.700 |
 
-> ⚠️ **Ese anexo tiene vigencia desde el 01/02/2020 y nunca se actualizó.** $550 de mínimo no tiene relación con los valores de 2026. Es el único régimen de webcasting que SADAIC tiene publicado, y está congelado hace seis años.
+> OJO: **Ese anexo tiene vigencia desde el 01/02/2020 y nunca se actualizó.** $550 de mínimo no tiene relación con los valores de 2026. Es el único régimen de webcasting que SADAIC tiene publicado, y está congelado hace seis años.
 
 Hay además tres instrumentos posteriores que compiten con él:
 
 | Instrumento | Alícuota | Mínimo mensual | Vigencia |
 |---|---|---|---|
-| **Licencia de Canales de Streaming** (live stream) | 1,5% | $50.000 · $75.000 · $100.000 · **$150.000** según horas semanales (>12 h = $150.000) | 01/07/2025 |
-| **Acuerdo ARPA** (radios comerciales, uso intensivo >70%) | 1,80% alta potencia · 0,90% baja | **23 UVA ≈ $49.573** (alta) · **18 UVA ≈ $38.796** (baja) | Ago 2026 |
+| **Licencia de Canales de Streaming** (live stream) | 1,5% | $50.000 - $75.000 - $100.000 - **$150.000** según horas semanales (>12 h = $150.000) | 01/07/2025 |
+| **Acuerdo ARPA** (radios comerciales, uso intensivo >70%) | 1,80% alta potencia - 0,90% baja | **23 UVA ~ $49.573** (alta) - **18 UVA ~ $38.796** (baja) | Ago 2026 |
 | **Inclusión en Radio** (default radiodifusoras) | — | **$768.000** | 01/09/2026 |
 | Inclusión en Podcast (referencia) | — | $768.000 | 01/09/2026 |
 
-**Lo que hay que resolver con SADAIC por escrito:** cuál de estos cuatro aplica a una radio exclusivamente online. La horquilla realista para el mínimo es **$49.573 (ARPA) → $150.000 (live stream)**.
+**Lo que hay que resolver con SADAIC por escrito:** cuál de estos cuatro aplica a una radio exclusivamente online. La horquilla realista para el mínimo es **$49.573 (ARPA) -> $150.000 (live stream)**.
 
 ### 3.3 CAPIF SGC — fonogramas (grabación)
 
@@ -123,11 +123,11 @@ Si además hay FM/AM con la misma programación, aplica el capítulo 3 (y por la
 | Radio AM comercial | 2,00% | $90.000 | $72.000 | $54.000 |
 | **Radio comunitaria** | — | **$34.000** | | |
 | **Radio FM local no comercial (<50.000 hab.)** | — | **$28.000** | | |
-| **Radio FM regional no comercial (≥50.000 hab.)** | — | **$45.000** | | |
+| **Radio FM regional no comercial (>=50.000 hab.)** | — | **$45.000** | | |
 
-- **Factor de uso** (sólo AM/FM): ×1,00 si >90% música · ×0,90 · ×0,80 · ×0,60 · ×0,40 · ×0,20 si <15%.
+- **Factor de uso** (sólo AM/FM): x1,00 si >90% música - x0,90 - x0,80 - x0,60 - x0,40 - x0,20 si <15%.
 - Los mínimos del capítulo 3 **se actualizan trimestralmente por IPC**. Las alícuotas no.
-- Otros mínimos del reglamento, para referencia: *dubbing* proveedores $150.000 · *dubbing* DJs $125.000 · videocasting no interactivo $290.000.
+- Otros mínimos del reglamento, para referencia: *dubbing* proveedores $150.000 - *dubbing* DJs $125.000 - videocasting no interactivo $290.000.
 
 ### 3.4 Resumen: mínimo mensual total
 
@@ -145,7 +145,7 @@ Más las alícuotas sobre facturación: SADAIC 1,5%–8% según régimen, CAPIF 
 |---|---|---|
 | Monotributo Categoría A (si facturás) | **$49.527/mes** | ARCA, desde 01/08/2026 |
 | Monotributo Categoría B | $56.379/mes | ARCA, desde 01/08/2026 |
-| VPS streaming (Hetzner CPX11, 20 TB) | ~**€4,5/mes** | |
+| VPS streaming (Hetzner CPX11, 20 TB) | ~**EUR4,5/mes** | |
 | Dominio `daza.ar` | ya registrado (vence 19/04/2027) | NIC.ar |
 | DNDA — registrar obra propia (opcional) | tarifario propio | DNDA, Res. 199/2024 |
 | Consulta con abogado (una vez) | a cotizar | — |
@@ -200,7 +200,7 @@ Más las alícuotas sobre facturación: SADAIC 1,5%–8% según régimen, CAPIF 
 
 ## 7. Lo que hay que confirmar (dudas abiertas)
 
-1. **Cuál de los cuatro instrumentos de SADAIC aplica a una radio exclusivamente online.** Los candidatos son: Webcasting no interactivo punto 3.a (2020, 2/5/8% + mínimo $550–$8.910 por visitas), Licencia de Canales de Streaming (2025, 1,5% + $50.000–$150.000), Acuerdo ARPA (2026, 1,8%/0,9% + 23/18 UVA) e Inclusión en Radio (2026, $768.000). La diferencia entre el mínimo más bajo y el más alto es de ~30×. **Preguntar por escrito cuál corresponde.**
+1. **Cuál de los cuatro instrumentos de SADAIC aplica a una radio exclusivamente online.** Los candidatos son: Webcasting no interactivo punto 3.a (2020, 2/5/8% + mínimo $550–$8.910 por visitas), Licencia de Canales de Streaming (2025, 1,5% + $50.000–$150.000), Acuerdo ARPA (2026, 1,8%/0,9% + 23/18 UVA) e Inclusión en Radio (2026, $768.000). La diferencia entre el mínimo más bajo y el más alto es de ~30x. **Preguntar por escrito cuál corresponde.**
 2. **El anexo de webcasting de SADAIC está congelado en febrero de 2020.** $550 de mínimo no tiene relación con 2026. Preguntar si se aplica indexado y con qué índice.
 3. **¿El Acuerdo ARPA alcanza a medios no asociados?** Se titula "acordado con ARPA" (radiodifusoras privadas). Preguntar si una radio online puede adherir y con qué mínimo.
 4. **Los mínimos de CAPIF SGC del capítulo 3 se actualizan trimestralmente por IPC**; los del capítulo 4 (webcasting, $68.000) no dicen con qué periodicidad. Confirmar cuándo se actualizan y si el $68.000 sigue vigente.
@@ -214,11 +214,11 @@ Más las alícuotas sobre facturación: SADAIC 1,5%–8% según régimen, CAPIF 
 
 | Entidad | Contacto |
 |---|---|
-| **INAMU** (Banco de Música) | bancodemusica@inamu.musica.ar · info@inamu.musica.ar · (011) 2150-3865 |
+| **INAMU** (Banco de Música) | bancodemusica@inamu.musica.ar - info@inamu.musica.ar - (011) 2150-3865 |
 | INAMU dirección | Hipólito Yrigoyen 1628, 1° piso, CABA — lun a vie 11–13 y 14–18 |
-| **SADAIC** | Lavalle 1547, CABA · 0800-333-7232 (usuarios) · lun a vie 10–15 |
+| **SADAIC** | Lavalle 1547, CABA - 0800-333-7232 (usuarios) - lun a vie 10–15 |
 | **CAPIF SGC** | capifsgc.org.ar |
-| **DNDA** | Moreno 1230, CABA · (011) 4124-7200 |
+| **DNDA** | Moreno 1230, CABA - (011) 4124-7200 |
 | **ARCA** (monotributo) | arca.gob.ar |
 
 ---
@@ -232,7 +232,7 @@ Todas son descargas directas de los sitios oficiales, obtenidas el 14/10/2026.
 - SADAIC — `pdf-Arancel Radio 01-09-2026.pdf` ($768.000) y `pdf-Arancel Podcast 01-09-2026.pdf` ($768.000).
 - SADAIC — `pdf-Nuevo esquema tarifario acordado con ARPA.pdf` (agosto 2026, mínimos en UVAs).
 - SADAIC — aviso del home *"Para que no haya dudas en el Uso de Música en la Web"* (**mayo 2020**; corroborado por El Tribuno 18/05/2020 y FA-MI, `fami.musica.ar`).
-- SADAIC — FAQ "Tengo previsto lanzar una Radio por Internet…" → *"Debe solicitar autorización a SADAIC"* (citado en Radios Libres; no reconfirmado en vivo).
+- SADAIC — FAQ "Tengo previsto lanzar una Radio por Internet..." -> *"Debe solicitar autorización a SADAIC"* (citado en Radios Libres; no reconfirmado en vivo).
 - **CAPIF SGC** — `capifsgc.org.ar/documentos/reglamento-de-recaudacion-y-aranceles.pdf`, texto **octubre 2026** (capítulo 3 radiodifusión, capítulo 4 webcasting).
 - CAPIF SGC — `disposicion-dnda-1-2026.pdf` (autorización DNDA del 15/01/2026 e incorporación al Registro de Sociedades de Gestión Colectiva).
 - **BCRA / argentinadatos** — UVA = $2.155,36 al 14/10/2026.
@@ -259,7 +259,7 @@ Aclaración: hay **cuatro "listados de música" distintos** y conviene no confun
 ### 10.2 AMA — Agregadora de Música Argentina (INAMU)
 
 - Distribuidora digital pública, con acuerdos con **+50 plataformas**.
-- Relevante para la radio por un detalle: hace **"sincronización con el Banco Nacional de Música Independiente"**. Es decir, el circuito artista → AMA → Banco está integrado.
+- Relevante para la radio por un detalle: hace **"sincronización con el Banco Nacional de Música Independiente"**. Es decir, el circuito artista -> AMA -> Banco está integrado.
 - También asesora a los artistas para **declararse como productores fonográficos en CAPIF** y registrar obras en las entidades de gestión. Es la puerta de entrada del músico al sistema, y por eso es la cantera del Banco.
 - Contacto: consultas@ama.musica.ar — `ama.musica.ar`
 

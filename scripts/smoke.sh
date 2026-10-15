@@ -11,8 +11,8 @@ RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BASE="${BASE:-http://localhost:8090}"
 
 ok=0; mal=0
-pasa() { printf '  \033[32m✓\033[0m %s\n' "$1"; ok=$((ok+1)); }
-falla() { printf '  \033[31m✗\033[0m %s\n' "$1"; mal=$((mal+1)); }
+pasa() { printf '  \033[32mOK\033[0m %s\n' "$1"; ok=$((ok+1)); }
+falla() { printf '  \033[31mFALLA\033[0m %s\n' "$1"; mal=$((mal+1)); }
 codigo() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@" 2>/dev/null || echo 000; }
 
 # Para el stream, `codigo` NO sirve: el stream nunca termina, así que curl
@@ -34,14 +34,14 @@ echo
 
 echo "sin credencial:"
 [[ "$(codigo "$BASE/")" == "404" ]] \
-  && pasa "el reproductor → 404 (no revela que hay una radio)" \
-  || falla "el reproductor → $(codigo "$BASE/") (esperaba 404)"
+  && pasa "el reproductor -> 404 (no revela que hay una radio)" \
+  || falla "el reproductor -> $(codigo "$BASE/") (esperaba 404)"
 [[ "$(codigo_stream "$BASE/stream")" == "404" ]] \
-  && pasa "el stream → 404" || falla "el stream → $(codigo_stream "$BASE/stream")"
+  && pasa "el stream -> 404" || falla "el stream -> $(codigo_stream "$BASE/stream")"
 [[ "$(codigo_stream -H 'Cookie: radio=basura' "$BASE/stream")" == "404" ]] \
-  && pasa "cookie inválida → 404" || falla "cookie inválida no dio 404"
+  && pasa "cookie inválida -> 404" || falla "cookie inválida no dio 404"
 [[ "$(codigo_stream "$BASE/stream?t=basura")" == "404" ]] \
-  && pasa "token inválido → 404" || falla "token inválido no dio 404"
+  && pasa "token inválido -> 404" || falla "token inválido no dio 404"
 
 TOKEN="$(awk 'NF>=2 {print $2; exit}' "$RAIZ/secrets/tokens.txt" 2>/dev/null || true)"
 COOKIE="$(awk 'NF>=3 {print $3; exit}' "$RAIZ/secrets/tokens.txt" 2>/dev/null || true)"
@@ -66,15 +66,15 @@ else
   echo
   echo "con credencial válida:"
   [[ "$(codigo "$BASE/?t=$TOKEN")" == "302" ]] \
-    && pasa "token → canje" || falla "token no canjeó"
+    && pasa "token -> canje" || falla "token no canjeó"
 
   if [[ -n "$COOKIE" ]]; then
     [[ "$(codigo_stream -H "Cookie: radio=$COOKIE" "$BASE/stream")" == "200" ]] \
-      && pasa "cookie → stream 200" || falla "cookie no autenticó el stream"
+      && pasa "cookie -> stream 200" || falla "cookie no autenticó el stream"
     [[ "$(codigo -H "Cookie: radio=$COOKIE" "$BASE/")" == "200" ]] \
-      && pasa "cookie → reproductor 200" || falla "cookie no sirvió el reproductor"
+      && pasa "cookie -> reproductor 200" || falla "cookie no sirvió el reproductor"
     [[ "$(codigo -H "Cookie: radio=$COOKIE" "$BASE/status-json.xsl")" == "200" ]] \
-      && pasa "cookie → status 200" || falla "cookie no sirvió el status"
+      && pasa "cookie -> status 200" || falla "cookie no sirvió el status"
   else
     falla "no hay cookieid: corré scripts/token.sh ls y regenerá con add/rm"
   fi

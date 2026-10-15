@@ -7,7 +7,7 @@
 #
 # Cada persona recibe DOS credenciales:
 #
-#   token    — viaja una sola vez, en el link de invitación (?t=…).
+#   token    — viaja una sola vez, en el link de invitación (?t=...).
 #              El navegador lo canjea por la cookie y lo suelta.
 #              Queda disponible para reproductores (VLC, mpv, ffmpeg),
 #              que no manejan cookies.
@@ -84,7 +84,7 @@ if filas:
         "\texpression `{http.request.uri.query.t} in [%s] || {http.request.cookie.radio} in [%s]`" % (tokens, cookies),
         "}",
         "",
-        "# @canje: la pantalla del reproductor con ?t=… se convierte en cookie",
+        "# @canje: la pantalla del reproductor con ?t=... se convierte en cookie",
         "# y la URL queda limpia. Solo en la raíz, para no romper /stream.",
         "@canje {",
         "\tpath /",
@@ -105,16 +105,16 @@ PY
 
 recargar_caddy() {
   if docker compose -f "$RAIZ/docker-compose.yml" ps --status running --services 2>/dev/null | grep -qx caddy; then
-    echo "→ recargando Caddy (sin cortar a los oyentes)…"
+    echo "-> recargando Caddy (sin cortar a los oyentes)..."
     if "${COMPOSE[@]}" exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-      echo "→ listo."
+      echo "-> listo."
     else
-      echo "→ no se pudo recargar en caliente; reinicio el contenedor." >&2
+      echo "-> no se pudo recargar en caliente; reinicio el contenedor." >&2
       "${COMPOSE[@]}" restart caddy >/dev/null
-      echo "→ listo."
+      echo "-> listo."
     fi
   else
-    echo "→ Caddy no está corriendo; el cambio se aplica al levantarlo."
+    echo "-> Caddy no está corriendo; el cambio se aplica al levantarlo."
   fi
 }
 
@@ -132,7 +132,7 @@ cmd_add() {
   if grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
     local t
     t="$(awk -v n="$nombre" '$1==n {print $2}' "$ARCHIVO_TOKENS")"
-    echo "«$nombre» ya tenía acceso. Su link sigue siendo:" >&2
+    echo ""$nombre" ya tenía acceso. Su link sigue siendo:" >&2
     url_de "$t"
     return 0
   fi
@@ -140,7 +140,7 @@ cmd_add() {
   t="$(aleatorio)"
   printf '%s %s %s\n' "$nombre" "$t" "$(aleatorio)" >> "$ARCHIVO_TOKENS"
   regenerar_matcher
-  echo "✓ acceso dado a «$nombre»"
+  echo "OK acceso dado a "$nombre""
   echo
   echo "  Pasale este link:"
   echo "  $(url_de "$t")"
@@ -154,13 +154,13 @@ cmd_add() {
 cmd_rm() {
   local nombre="${1:?uso: token.sh rm <nombre>}"
   if ! grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
-    echo "«$nombre» no estaba en la lista." >&2
+    echo ""$nombre" no estaba en la lista." >&2
     exit 1
   fi
   grep -vE "^${nombre} " "$ARCHIVO_TOKENS" > "$ARCHIVO_TOKENS.tmp"
   mv "$ARCHIVO_TOKENS.tmp" "$ARCHIVO_TOKENS"
   regenerar_matcher
-  echo "✓ acceso revocado a «$nombre» (token y cookie)"
+  echo "OK acceso revocado a "$nombre" (token y cookie)"
   recargar_caddy
 }
 
@@ -169,16 +169,16 @@ cmd_ls() {
     echo "(nadie tiene acceso todavía)"
     return 0
   fi
-  printf '%-20s %-14s %s\n' "QUIÉN" "TOKEN" "COOKIE"
+  printf '%-20s %-16s %s\n' "QUIEN" "TOKEN" "COOKIE"
   while read -r n t c; do
     [[ -z "${n:-}" ]] && continue
-    printf '%-20s %-14s %s\n' "$n" "${t:0:12}…" "${c:0:12}…"
+    printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "${c:0:12}..."
   done < "$ARCHIVO_TOKENS"
 }
 
 cmd_regen() {
   regenerar_matcher
-  echo "✓ caddy/tokens.caddy regenerado desde secrets/tokens.txt"
+  echo "OK caddy/tokens.caddy regenerado desde secrets/tokens.txt"
   recargar_caddy
 }
 

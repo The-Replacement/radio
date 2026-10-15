@@ -72,26 +72,26 @@ Copiá los archivos a `./music/`. Entran solos, sin reiniciar nada.
 ## Cómo funciona la puerta
 
 ```
-              1. link con ?t=…          2. cookie            3. stream
-                     │                      │                    │
-                     ▼                      ▼                    ▼
-   oyente ────► Caddy :443 ──────────► Caddy :443 ────────► Caddy :443
-                     │                      │                    │
-        Set-Cookie + 302 a /          valida la cookie      rewrite (borra el query)
-                     │                      │                    ▼
-                     ▼                      ▼              Icecast:8000
-              URL limpia, sin token     404 si no hay              │
-                                          credencial         (solo red Docker)
-                                                                    ▲
-                                                              Liquidsoap
-                                                                    ▲
-                                                               ./music
+   1. link con ?t=...         2. cookie               3. stream
+          |                        |                        |
+          v                        v                        v
+  oyente --> Caddy :443 --> Caddy :443 --> Caddy :443
+          |                        |                        |
+  Set-Cookie + 302 a /     valida la cookie       rewrite (borra el query)
+          |                        |                        v
+          v                        v                  Icecast:8000
+  URL limpia sin token     404 si no hay                    |
+                            credencial          (solo red interna Docker)
+                                                             ^
+                                                        Liquidsoap
+                                                             ^
+                                                         ./music
 ```
 
 Cuatro capas, y cada una hace algo distinto:
 
 1. **Caddy valida la credencial** contra `caddy/tokens.caddy` (generado).
-2. **El canje**: el `?t=…` del link se convierte en cookie y la URL se limpia
+2. **El canje**: el `?t=...` del link se convierte en cookie y la URL se limpia
    con un 302. A partir de ahí el token no vuelve a viajar.
 3. **`rewrite` borra el query** antes de proxear: el token nunca llega a
    Icecast, así que no puede aparecer en sus logs.
@@ -115,7 +115,7 @@ Medido, no supuesto. Lo que sigue está verificado en esta instalación.
 - Revocás a una persona sin tocarle el link a las demás.
 - **Las credenciales no quedan escritas en los logs.** Caddy redacta la
   cookie por su cuenta (`"Cookie":["REDACTED"]`) y el nivel de log está en
-  `ERROR`, así que la URL con `?t=…` tampoco se registra. Verificado: 0
+  `ERROR`, así que la URL con `?t=...` tampoco se registra. Verificado: 0
   ocurrencias de ambas tras generar tráfico.
 
 **Lo que NO resuelve**
@@ -196,7 +196,7 @@ Opus o Vorbis. Con MP3 128 debería andar en cualquier lado.
 
 **La redirección manda `Location: 302` en vez de `Location: /`**
 Caddy lee el primer argumento de `redir` como un *matcher*. `redir / 302`
-significa «matcheá `/`, redirigí a `302`». Tiene que ser `redir * / 302`,
+significa "matcheá `/`, redirigí a `302`". Tiene que ser `redir * / 302`,
 con el matcher explícito. Nos pasó construyendo esto.
 
 **Caddy arranca y se muere sin decir por qué**
@@ -233,23 +233,23 @@ te quedás ciego justo cuando necesitás ver el error.
 
 ```
 radio/
-├── docker-compose.yml        los tres servicios
-├── .env.example              plantilla de configuración
-├── icecast/
-│   ├── Dockerfile            alpine + icecast (sin imagen de terceros)
-│   ├── entrypoint.sh         inyecta los secretos desde el entorno
-│   └── icecast.xml           sin <directory>: no nos anunciamos
-├── liquidsoap/
-│   └── radio.liq             la fuente: playlist → icecast
-├── caddy/
-│   ├── Caddyfile             la puerta
-│   └── tokens.caddy          GENERADO por token.sh
-├── web/index.html            el reproductor
-├── music/                    tu música
-├── scripts/
-│   ├── token.sh              alta / baja / listado de accesos
-│   └── smoke.sh              13 verificaciones en 3 grupos
-└── secrets/tokens.txt        QUIÉN tiene acceso. chmod 600.
+|-- docker-compose.yml        los tres servicios
+|-- .env.example              plantilla de configuración
+|-- icecast/
+|   |-- Dockerfile            alpine + icecast (sin imagen de terceros)
+|   |-- entrypoint.sh         inyecta los secretos desde el entorno
+|   `-- icecast.xml           sin <directory>: no nos anunciamos
+|-- liquidsoap/
+|   `-- radio.liq             la fuente: playlist -> icecast
+|-- caddy/
+|   |-- Caddyfile             la puerta
+|   `-- tokens.caddy          GENERADO por token.sh
+|-- web/index.html            el reproductor
+|-- music/                    tu música
+|-- scripts/
+|   |-- token.sh              alta / baja / listado de accesos
+|   `-- smoke.sh              13 verificaciones en 3 grupos
+`-- secrets/tokens.txt        QUIÉN tiene acceso. chmod 600.
                               formato: nombre token cookie
 ```
 
