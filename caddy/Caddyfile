@@ -4,6 +4,20 @@
 # publican puertos. Todo entra por acá. Si el token no está, no se ve nada:
 # ni el stream, ni el player, ni el estado.
 {
+	# Nivel de log en ERROR. Motivo concreto: en nivel warn, Caddy registra
+	# el `uri` completo del pedido cuando un cliente corta el stream, y si
+	# ese pedido venía con ?t=… el token queda escrito en el log.
+	# En ERROR seguís viendo las fallas reales, y las credenciales no se
+	# escriben. Sin `output`, sigue yendo a stderr (`docker compose logs`).
+	#
+	# PARA DEBUGGEAR: cambiá ERROR por INFO y reiniciá caddy. Vas a ver el
+	# arranque y cada request. Volvé a ERROR después: aunque la cookie Caddy
+	# la redacta sola ("Cookie":["REDACTED"]), el token de los reproductores
+	# sí quedaría escrito en la URL.
+	log {
+		level ERROR
+	}
+
 	# La API de admin queda activa pero en localhost DENTRO del contenedor,
 	# y el compose no publica el 2019. Es lo que permite `caddy reload`
 	# (recarga sin cortar a los oyentes) en vez de reiniciar el contenedor.
@@ -19,11 +33,23 @@
 	# email {$ACME_EMAIL}
 }
 
-{$SITE_ADDRESS:http://localhost:8090} {
-	# tokens.caddy lo genera scripts/token.sh — define @gate.
+{$SITE_ADDRESS:http://localhost} {
+	# tokens.caddy lo genera scripts/token.sh — define @gate y @canje.
 	import tokens.caddy
 
+	# ---------------- canje del link por cookie ----------------
+	# Abrís /?t=TOKEN y Caddy te deja una cookie, te limpia la URL y te
+	# devuelve al reproductor. A partir de ahí el token no vuelve a
+	# aparecer ni en la barra de direcciones ni en los logs.
+	handle @canje {
+		header Set-Cookie "radio={http.request.uri.query.t}; Path=/; Max-Age=31536000; {$COOKIE_FLAGS}"
+		# El `*` no es decorativo: sin matcher explícito, Caddy lee el `/`
+		# como matcher y el `302` como destino, y manda "Location: 302".
+		redir * / 302
+	}
+
 	# ---------------- autorizado ----------------
+	# Entra quien traiga el token (VLC, mpv, ffmpeg) o la cookie (navegador).
 	handle @gate {
 		# --- el stream de audio ---
 		# rewrite descarta el query: el token NUNCA llega a Icecast.

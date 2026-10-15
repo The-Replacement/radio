@@ -1,10 +1,15 @@
 # Radio privada con token
 
-Una radio que existe para un círculo cerrado. Sin token, no hay radio.
+Una radio que existe para un círculo cerrado. Sin credencial, no hay radio.
 
 - **Liquidsoap** reproduce `./music` en orden aleatorio.
 - **Icecast** sirve el stream — y **no se anuncia en ningún directorio público**.
-- **Caddy** es la única puerta: sin token válido responde 404, no 401. No le confirma a nadie que acá hay algo.
+- **Caddy** es la única puerta: sin credencial válida responde 404, no 401. No le confirma a nadie que acá hay algo.
+
+Cada persona recibe **dos credenciales**:
+
+- un **token**, que viaja una sola vez en el link de invitación y sirve también para reproductores (VLC, mpv, ffmpeg);
+- una **cookie**, que el navegador recibe al abrir ese link y con la que escucha a partir de ahí. Es lo que evita que el token esté en la barra de direcciones y en los logs en cada reproducción.
 
 Todo open source, todo en un `docker compose up`.
 
@@ -34,21 +39,27 @@ docker compose up -d --build
 ./scripts/smoke.sh
 ```
 
-El paso 4 te imprime el link completo. Ese link es la llave.
+El paso 4 te imprime el link. **Ese link es la llave.** Se abre una vez en
+el navegador: el token se canjea por la cookie, la URL queda limpia y a
+partir de ahí el token ya no vuelve a viajar.
 
 ---
 
 ## Dar y sacar acceso
 
 ```bash
-./scripts/token.sh add juan     # le da un token propio a juan
+./scripts/token.sh add juan     # le da acceso a juan y te imprime su link
 ./scripts/token.sh ls           # quién tiene acceso
-./scripts/token.sh rm juan      # le corta el acceso
+./scripts/token.sh rm juan      # le corta el acceso (token y cookie)
+./scripts/token.sh regen        # regenera los matchers desde secrets/tokens.txt
 ```
 
-**Un token por persona.** Es la razón de hacerlo así y no con una sola
-contraseña compartida: si alguien filtra el link, le cortás el acceso
-a esa persona y no le cambiás el link a todas las demás.
+**Credenciales por persona.** Es la razón de hacerlo así y no con una sola
+contraseña compartida: si alguien filtra su link, le cortás el acceso a esa
+persona y no le cambiás el link a todas las demás.
+
+`regen` sirve si editás `secrets/tokens.txt` a mano, o después de traerte el
+repo a otra máquina.
 
 ---
 
@@ -61,27 +72,30 @@ Copiá los archivos a `./music/`. Entran solos, sin reiniciar nada.
 ## Cómo funciona la puerta
 
 ```
-                 SIN token                    CON token
-                     │                            │
-                     ▼                            ▼
-   oyente ──────► Caddy :443 ─────────────► Caddy :443
-                     │                            │  (rewrite descarta el ?t=)
-                     ▼                            ▼
-                  404                       Icecast:8000
-                                                   │
-                                            (solo red Docker)
-                                                   ▲
-                                             Liquidsoap
-                                                   ▲
-                                              ./music
+              1. link con ?t=…          2. cookie            3. stream
+                     │                      │                    │
+                     ▼                      ▼                    ▼
+   oyente ────► Caddy :443 ──────────► Caddy :443 ────────► Caddy :443
+                     │                      │                    │
+        Set-Cookie + 302 a /          valida la cookie      rewrite (borra el query)
+                     │                      │                    ▼
+                     ▼                      ▼              Icecast:8000
+              URL limpia, sin token     404 si no hay              │
+                                          credencial         (solo red Docker)
+                                                                    ▲
+                                                              Liquidsoap
+                                                                    ▲
+                                                               ./music
 ```
 
-Tres capas, y cada una hace algo distinto:
+Cuatro capas, y cada una hace algo distinto:
 
-1. **Caddy valida el token** contra `caddy/tokens.caddy` (generado).
-2. **`rewrite` borra el `?t=` del query** antes de proxear: el token nunca
-   llega a Icecast, así que no puede aparecer en sus logs.
-3. **Icecast no publica puertos.** Está en la red interna de Docker. Aunque
+1. **Caddy valida la credencial** contra `caddy/tokens.caddy` (generado).
+2. **El canje**: el `?t=…` del link se convierte en cookie y la URL se limpia
+   con un 302. A partir de ahí el token no vuelve a viajar.
+3. **`rewrite` borra el query** antes de proxear: el token nunca llega a
+   Icecast, así que no puede aparecer en sus logs.
+4. **Icecast no publica puertos.** Está en la red interna de Docker. Aunque
    alguien encuentre el contenedor, no lo alcanza desde afuera.
 
 Y la radio **no se anuncia en directorios** (`<directory>` ausente en
@@ -92,28 +106,34 @@ ningún listado de radios.
 
 ## Qué tan privado es esto, de verdad
 
-Con honestidad, porque es tu decisión y necesitás el dato real:
+Medido, no supuesto. Lo que sigue está verificado en esta instalación.
 
 **Lo que sí resuelve**
-- Nadie llega sin token.
-- No aparece en buscadores (noindex), ni en directorios de radios.
-- El contenido va cifrado (TLS).
-- Un token individual se revoca sin afectar a los demás.
+- Nadie llega sin credencial: sin token y sin cookie, todo da 404.
+- No aparece en buscadores (`noindex`), ni en directorios de radios.
+- El contenido va cifrado (TLS) cuando lo publicás con un dominio.
+- Revocás a una persona sin tocarle el link a las demás.
+- **Las credenciales no quedan escritas en los logs.** Caddy redacta la
+  cookie por su cuenta (`"Cookie":["REDACTED"]`) y el nivel de log está en
+  `ERROR`, así que la URL con `?t=…` tampoco se registra. Verificado: 0
+  ocurrencias de ambas tras generar tráfico.
 
 **Lo que NO resuelve**
-- **Caddy registra el token en el access log** (`?t=…` queda en el log de
-  requests). Ver "Endurecer" abajo.
-- El token viaja en la URL: si alguien comparte el link o lo pega en un
-  chat sin cifrar, se filtra. Es el costo de la simplicidad.
+- El token está en el link de invitación: si alguien lo comparte o lo pega
+  en un chat sin cifrar, se filtra. Es el costo de que sea simple.
+- Los reproductores (VLC) siguen mandando el token en la URL. Si a vos te
+  importa eso, escuchá desde el navegador (cookie) y listo.
 - No oculta tu IP ni tu proveedor. Tu VPS sabe que esto existe.
+- Si bajás el nivel de log a `INFO` para debuggear, el token de los
+  reproductores sí se escribe. Volvé a `ERROR` después.
 
 **Endurecer (en orden de costo/beneficio)**
 
-1. **Cookie en vez de query** — el token se canjea una vez por una cookie
-   `HttpOnly`, y después no viaja más en la URL ni queda en los logs.
-   Requiere un endpoint de login chiquito.
-2. **Tokens con vencimiento** — `nombre token fecha`. Se revoca por tiempo.
-3. **Un solo dispositivo por token** — límite de conexiones simultáneas.
+1. **Tokens con vencimiento** — `nombre token cookie vence`. Se revoca por
+   tiempo solo.
+2. **Un dispositivo por credencial** — límite de conexiones simultáneas.
+3. **Firmar la cookie** — que la cookie no sea el valor guardado, sino un
+   HMAC, para que un volcado de `secrets/tokens.txt` no alcance.
 4. **Audio sin costuras** — `crossfade`, jingles, `request.dynamic` para
    pedir temas por chat.
 
@@ -126,12 +146,17 @@ Pedí cualquiera de estas y lo agregamos.
 En `.env`, cambiá:
 
 ```
-SITE_ADDRESS=radio.daza.ar          # dónde sirve Caddy
-PUBLIC_URL=https://radio.daza.ar    # la URL que le pasás a la gente
+SITE_ADDRESS=radio.daza.ar                          # dónde sirve Caddy
+PUBLIC_URL=https://radio.daza.ar                    # la URL que le pasás a la gente
+COOKIE_FLAGS=HttpOnly; SameSite=Lax; Secure         # acá SÍ va el flag Secure
 ```
 
 Y descomentá `email {$ACME_EMAIL}` en `caddy/Caddyfile` (ahí sí sirve el
 `ACME_EMAIL` para los avisos de vencimiento del certificado).
+
+**Ojo con `Secure` en la cookie**: hace que el navegador solo la mande por
+HTTPS. En local (`http://localhost`) tiene que estar fuera, por eso el
+`.env.example` no lo trae. En producción tiene que estar.
 
 En Cloudflare poné el registro **en gris (DNS only)**, nunca en naranja.
 La regla de CDN de Cloudflare restringe el contenido no alojado en
@@ -168,6 +193,11 @@ docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
 **No suena en el iPhone**
 Es la excepción a "MP3 lo reproduce todo" solo si cambiás el encoder a
 Opus o Vorbis. Con MP3 128 debería andar en cualquier lado.
+
+**La redirección manda `Location: 302` en vez de `Location: /`**
+Caddy lee el primer argumento de `redir` como un *matcher*. `redir / 302`
+significa «matcheá `/`, redirigí a `302`». Tiene que ser `redir * / 302`,
+con el matcher explícito. Nos pasó construyendo esto.
 
 **Caddy arranca y se muere sin decir por qué**
 Mirá primero si el bloque global tiene un token suelto. Esto es un error
@@ -218,9 +248,12 @@ radio/
 ├── music/                    tu música
 ├── scripts/
 │   ├── token.sh              alta / baja / listado de accesos
-│   └── smoke.sh              6 verificaciones, incluye "sin token no entra"
+│   └── smoke.sh              13 verificaciones en 3 grupos
 └── secrets/tokens.txt        QUIÉN tiene acceso. chmod 600.
+                              formato: nombre token cookie
 ```
+
+`secrets/`, `.env` y `data/` están en `.gitignore`: no se commitean.
 
 ---
 

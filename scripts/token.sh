@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 # token.sh — gestiona quién puede escuchar la radio.
 #
-#   ./scripts/token.sh add <nombre>     da un token nuevo a esa persona
+#   ./scripts/token.sh add <nombre>     da acceso a esa persona
 #   ./scripts/token.sh rm  <nombre>     le corta el acceso
 #   ./scripts/token.sh ls               lista quién tiene acceso
 #
-# Un token por persona: así podés cortarle el acceso a una sola
-# persona sin cambiarle el link a las demás.
+# Cada persona recibe DOS credenciales:
+#
+#   token    — viaja una sola vez, en el link de invitación (?t=…).
+#              El navegador lo canjea por la cookie y lo suelta.
+#              Queda disponible para reproductores (VLC, mpv, ffmpeg),
+#              que no manejan cookies.
+#
+#   cookieid — lo que el navegador manda en cada request después del
+#              canje. Gracias a esto el token no aparece en la URL ni en
+#              los logs de Caddy en cada reproducción.
+#
+# Las dos se revocan juntas con `rm`.
 
 set -euo pipefail
 
@@ -19,8 +29,7 @@ mkdir -p "$RAIZ/secrets"
 touch "$ARCHIVO_TOKENS"
 chmod 600 "$ARCHIVO_TOKENS"
 
-nuevo_token() {
-  # 32 bytes en hex = 64 caracteres. Adivinarlo no es una opción.
+aleatorio() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex 32
   else
@@ -28,38 +37,64 @@ nuevo_token() {
   fi
 }
 
+# Lee tokens.txt, completa cookieids faltantes (migración de formato viejo),
+# reescribe el archivo normalizado y regenera caddy/tokens.caddy.
 regenerar_matcher() {
-  # Lee "nombre token" por línea y arma el matcher CEL de Caddy.
   python3 - "$ARCHIVO_TOKENS" "$ARCHIVO_CADDY" <<'PY'
-import json, sys
+import json, secrets, sys
 
 entrada, salida = sys.argv[1], sys.argv[2]
-pares = []
+
+filas = []
+cambio = False
 with open(entrada, encoding="utf-8") as fh:
     for linea in fh:
         linea = linea.strip()
         if not linea or linea.startswith("#"):
             continue
         partes = linea.split()
-        if len(partes) >= 2:
-            pares.append((partes[0], partes[1]))
+        nombre, token = partes[0], partes[1]
+        if len(partes) >= 3:
+            cookie = partes[2]
+        else:
+            cookie = secrets.token_hex(32)   # migración: formato viejo de 2 campos
+            cambio = True
+        filas.append((nombre, token, cookie))
 
-lista = ", ".join(json.dumps(t) for _, t in pares)
+# Normaliza el archivo solo si hubo migración.
+if cambio:
+    with open(entrada, "w", encoding="utf-8") as fh:
+        for n, t, c in filas:
+            fh.write("%s %s %s\n" % (n, t, c))
+
+tokens = ", ".join(json.dumps(t) for _, t, _ in filas)
+cookies = ", ".join(json.dumps(c) for _, _, c in filas)
 
 cuerpo = [
     "# GENERADO POR scripts/token.sh — NO EDITAR A MANO.",
-    "# Este archivo define el matcher @gate que usa el Caddyfile.",
-    "# Sin tokens válidos acá, nadie entra.",
+    "# Define los matchers @gate y @canje que usa el Caddyfile.",
+    "# Sin credenciales válidas acá, nadie entra.",
 ]
-if pares:
+
+if filas:
     cuerpo += [
+        "",
+        "# @gate: entra quien tenga el token (reproductores) o la cookie (navegador).",
         "@gate {",
-        "\texpression `{http.request.uri.query.t} in [%s]`" % lista,
+        "\texpression `{http.request.uri.query.t} in [%s] || {http.request.cookie.radio} in [%s]`" % (tokens, cookies),
+        "}",
+        "",
+        "# @canje: la pantalla del reproductor con ?t=… se convierte en cookie",
+        "# y la URL queda limpia. Solo en la raíz, para no romper /stream.",
+        "@canje {",
+        "\tpath /",
+        "\texpression `{http.request.uri.query.t} in [%s]`" % tokens,
         "}",
     ]
 else:
     cuerpo += [
-        "# No hay tokens: todo el sitio responde 404.",
+        "",
+        "# No hay credenciales: todo el sitio responde 404.",
         "@gate expression `false`",
     ]
 
@@ -95,18 +130,23 @@ url_de() {
 cmd_add() {
   local nombre="${1:?uso: token.sh add <nombre>}"
   if grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
-    echo "«$nombre» ya tenía acceso. Token actual:" >&2
-    awk -v n="$nombre" '$1==n {print $2}' "$ARCHIVO_TOKENS"
+    local t
+    t="$(awk -v n="$nombre" '$1==n {print $2}' "$ARCHIVO_TOKENS")"
+    echo "«$nombre» ya tenía acceso. Su link sigue siendo:" >&2
+    url_de "$t"
     return 0
   fi
   local t
-  t="$(nuevo_token)"
-  printf '%s %s\n' "$nombre" "$t" >> "$ARCHIVO_TOKENS"
+  t="$(aleatorio)"
+  printf '%s %s %s\n' "$nombre" "$t" "$(aleatorio)" >> "$ARCHIVO_TOKENS"
   regenerar_matcher
   echo "✓ acceso dado a «$nombre»"
   echo
-  echo "  Link para pasarle:"
+  echo "  Pasale este link:"
   echo "  $(url_de "$t")"
+  echo
+  echo "  Al abrirlo en el navegador, el token se canjea por una cookie y"
+  echo "  desaparece de la URL. Para VLC/mpv sirve el mismo link."
   echo
   recargar_caddy
 }
@@ -120,7 +160,7 @@ cmd_rm() {
   grep -vE "^${nombre} " "$ARCHIVO_TOKENS" > "$ARCHIVO_TOKENS.tmp"
   mv "$ARCHIVO_TOKENS.tmp" "$ARCHIVO_TOKENS"
   regenerar_matcher
-  echo "✓ acceso revocado a «$nombre»"
+  echo "✓ acceso revocado a «$nombre» (token y cookie)"
   recargar_caddy
 }
 
@@ -129,16 +169,23 @@ cmd_ls() {
     echo "(nadie tiene acceso todavía)"
     return 0
   fi
-  printf '%-20s %s\n' "QUIÉN" "TOKEN (primeros 12)"
-  while read -r n t; do
+  printf '%-20s %-14s %s\n' "QUIÉN" "TOKEN" "COOKIE"
+  while read -r n t c; do
     [[ -z "${n:-}" ]] && continue
-    printf '%-20s %s…\n' "$n" "${t:0:12}"
+    printf '%-20s %-14s %s\n' "$n" "${t:0:12}…" "${c:0:12}…"
   done < "$ARCHIVO_TOKENS"
+}
+
+cmd_regen() {
+  regenerar_matcher
+  echo "✓ caddy/tokens.caddy regenerado desde secrets/tokens.txt"
+  recargar_caddy
 }
 
 case "${1:-}" in
   add) shift; cmd_add "$@" ;;
   rm|del|remove) shift; cmd_rm "$@" ;;
+  regen|sync) cmd_regen ;;
   ls|list) cmd_ls ;;
-  *) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

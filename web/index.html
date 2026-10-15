@@ -19,8 +19,9 @@
     display: inline-block; margin-right: .5rem; vertical-align: middle;
     transition: background .3s;
   }
-  .dot.live { background: #35d07f; box-shadow: 0 0 0 0 rgba(53,208,127,.6); animation: pulse 2s infinite; }
+  .dot.live { background: #35d07f; animation: pulse 2s infinite; }
   @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(53,208,127,.6); }
     70% { box-shadow: 0 0 0 .5rem rgba(53,208,127,0); }
     100% { box-shadow: 0 0 0 0 rgba(53,208,127,0); }
   }
@@ -35,7 +36,8 @@
   button:hover { transform: scale(1.05); }
   button:disabled { opacity: .35; cursor: not-allowed; }
   audio { display: none; }
-  .err { margin-top: 1.5rem; color: #ff8a8a; font-size: .9rem; display: none; }
+  .err { margin-top: 1.5rem; color: #ff8a8a; font-size: .9rem; display: none; text-align: left; }
+  .aviso { margin-top: 1.5rem; color: #9a9aa2; font-size: .85rem; display: none; text-align: left; }
   .tel { margin-top: 2rem; color: #55555c; font-size: .72rem; letter-spacing: .06em; }
 </style>
 </head>
@@ -45,53 +47,62 @@
   <h1>Radio</h1>
   <p class="now" id="now">&nbsp;</p>
   <button id="play" aria-label="Reproducir">&#9654;</button>
+  <div class="aviso" id="aviso"></div>
   <div class="err" id="err"></div>
   <div class="tel" id="tel"></div>
   <audio id="audio" preload="none"></audio>
 </main>
 <script>
 (function () {
-  var q = new URLSearchParams(location.search);
-  var t = q.get('t');
   var audio = document.getElementById('audio');
   var btn = document.getElementById('play');
   var dot = document.getElementById('dot');
   var estado = document.getElementById('estado');
   var now = document.getElementById('now');
   var err = document.getElementById('err');
+  var aviso = document.getElementById('aviso');
   var tel = document.getElementById('tel');
 
   tel.textContent = location.host;
 
-  if (!t) {
-    err.style.display = 'block';
-    err.textContent = 'Falta el token. Pedí el link completo con ?t=…';
-    btn.disabled = true;
-    return;
-  }
+  /*
+    Normalmente el token ya no está en la URL: el servidor lo canjeó por
+    una cookie antes de servir esta página. Igual lo leemos, porque sirve
+    para reproductores y como respaldo si el navegador no guarda cookies.
+  */
+  var t = new URLSearchParams(location.search).get('t');
+  var sufijo = t ? '?t=' + encodeURIComponent(t) : '';
 
-  audio.src = '/stream?t=' + encodeURIComponent(t);
+  audio.src = '/stream' + sufijo;
 
   btn.addEventListener('click', function () {
-    if (audio.paused) { audio.play().catch(showErr); } else { audio.pause(); }
+    if (audio.paused) { audio.play().catch(function () { fallo(); }); }
+    else { audio.pause(); }
   });
   audio.addEventListener('playing', function () {
-    btn.innerHTML = '&#10073;&#10073;'; estado.textContent = 'en vivo'; dot.classList.add('live');
+    btn.innerHTML = '&#10073;&#10073;';
+    estado.textContent = 'en vivo';
+    dot.classList.add('live');
+    err.style.display = 'none';
   });
   audio.addEventListener('pause', function () {
-    btn.innerHTML = '&#9654;'; estado.textContent = 'detenido'; dot.classList.remove('live');
+    btn.innerHTML = '&#9654;';
+    estado.textContent = 'detenido';
+    dot.classList.remove('live');
   });
-  audio.addEventListener('error', function () { showErr('No se pudo conectar con el stream.'); });
+  audio.addEventListener('error', fallo);
 
-  function showErr(m) {
+  function fallo() {
     err.style.display = 'block';
-    err.textContent = typeof m === 'string' ? m : 'No se pudo reproducir.';
-    dot.classList.remove('live'); estado.textContent = 'error';
+    err.innerHTML = 'No se pudo conectar con el stream.<br>El acceso puede haber vencido, ' +
+                    'o tu navegador no guardó la cookie. Pedí un link nuevo.';
+    dot.classList.remove('live');
+    estado.textContent = 'error';
   }
 
   // "Sonando ahora": consulta el estado de Icecast cada 15 s.
   function poll() {
-    fetch('/status-json.xsl?t=' + encodeURIComponent(t), { cache: 'no-store' })
+    fetch('/status-json.xsl' + sufijo, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var ic = d && d.icestats && d.icestats.source;
