@@ -205,7 +205,9 @@ cmd_rm() {
     echo "\"$nombre\" no estaba en la lista." >&2
     exit 1
   fi
-  grep -vE "^${nombre} " "$ARCHIVO_TOKENS" > "$ARCHIVO_TOKENS.tmp"
+  # El `|| true` no es decorativo: si es el ULTIMO token, grep -v no devuelve
+  # lineas, sale con 1, y con `set -e` el script moria acá sin avisar.
+  grep -vE "^${nombre} " "$ARCHIVO_TOKENS" > "$ARCHIVO_TOKENS.tmp" || true
   mv "$ARCHIVO_TOKENS.tmp" "$ARCHIVO_TOKENS"
   regenerar_matcher
   echo "OK acceso revocado a \"$nombre\" (token y cookie)"
