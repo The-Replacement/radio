@@ -71,21 +71,41 @@ Copiá los archivos a `./music/`. Entran solos, sin reiniciar nada.
 
 ## Cómo funciona la puerta
 
+Quién puede hablar con quién. La línea punteada del recuadro es todo lo que
+NO está publicado a internet:
+
+```mermaid
+flowchart TB
+    O(["Oyente"])
+    C["Caddy :443<br/>única puerta publicada"]
+    O -->|"HTTPS"| C
+    C -->|"sin credencial"| N["404"]
+
+    subgraph interno["Red interna de Docker - sin puertos publicados"]
+        direction BT
+        M["musica/"] --> L["Liquidsoap"] --> I["Icecast :8000"]
+    end
+
+    C -->|"credencial válida"| I
 ```
-   1. link con ?t=...         2. cookie               3. stream
-          |                        |                        |
-          v                        v                        v
-  oyente --> Caddy :443 --> Caddy :443 --> Caddy :443
-          |                        |                        |
-  Set-Cookie + 302 a /     valida la cookie       rewrite (borra el query)
-          |                        |                        v
-          v                        v                  Icecast:8000
-  URL limpia sin token     404 si no hay                    |
-                            credencial          (solo red interna Docker)
-                                                             ^
-                                                        Liquidsoap
-                                                             ^
-                                                         ./music
+
+Y el canje, paso por paso:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant O as Oyente
+    participant C as Caddy
+    participant I as Icecast
+
+    O->>C: GET /?t=TOKEN   (una sola vez, desde el link)
+    C-->>O: Set-Cookie + 302 a /
+    O->>C: GET /   (ya manda la cookie)
+    C-->>O: el reproductor
+    O->>C: GET /stream   (cookie)
+    C->>I: GET /stream   (el rewrite borró el token)
+    I-->>C: bytes de audio
+    C-->>O: audio en vivo
 ```
 
 Cuatro capas, y cada una hace algo distinto:

@@ -31,6 +31,23 @@ La posición de SADAIC para radio por internet es explícita y va en el otro sen
 
 ### Entonces la decisión real es esta
 
+```mermaid
+flowchart TD
+    Q{"¿Qué repertorio vas a emitir?"}
+    Q -->|"libre: CC, Banco INAMU,<br/>producción propia"| A["$0 y en regla"]
+    Q -->|"comercial: cualquier obra,<br/>incluidas las de las grandes"| B["Siempre hay un mínimo mensual"]
+
+    A --> A1["Registrate en el INAMU<br/>y pedí acceso al Banco"]
+    A --> A2["No hace falta monotributo<br/>si no facturás"]
+
+    B --> B1["SADAIC: 1,5%-8% de ingresos<br/>+ mínimo de $49.573 a $150.000"]
+    B --> B2["CAPIF SGC: $68.000/mes<br/>por canal de audio"]
+    B --> B3["Monotributo si facturás"]
+
+    B1 --> T["Total: $117.573 a $218.000/mes"]
+    B2 --> T
+```
+
 | | **Escenario A — música libre** | **Escenario B — música comercial** |
 |---|---|---|
 | Repertorio | CC - Banco INAMU - propia | Cualquier obra, incluidas las comerciales |
