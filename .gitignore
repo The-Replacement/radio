@@ -1,8 +1,11 @@
-# Secretos — NUNCA al repo
+# Secretos - NUNCA al repo
 .env
 secrets/
 data/
 logs/
+
+# Herramientas de desarrollo de scripts/docs.sh
+.tools/
 
 # Tonos de prueba generados por el README
 music/_prueba-*

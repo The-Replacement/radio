@@ -186,6 +186,50 @@ Caddy saca el certificado solito.
 
 ---
 
+## Validar los diagramas
+
+Los diagramas de este README (y del plan legal) son Mermaid. Un error de
+sintaxis no se nota hasta que alguien abre el archivo, así que hay un
+chequeo:
+
+```bash
+./scripts/docs.sh
+```
+
+Renderiza cada bloque ` ```mermaid ` de cada `.md` y falla si alguno está
+roto, señalando la línea:
+
+```
+  OK    PLAN-LEGAL-AR.md       1 diagrama(s)
+  FALLA README.md
+        Error: Parse error on line 4:
+        ...ublicada"]    O -->>|"HTTPS"| C    C -
+        ----------------------^
+```
+
+Códigos de salida: `0` todo bien, `1` diagrama roto, `2` faltan
+dependencias.
+
+La primera vez instala `mermaid-cli` en `.tools/` (que está en
+`.gitignore`) y usa el Chrome del sistema a propósito: si no, bajaría
+~300 MB de Chromium.
+
+**Para que no se te escape en un commit:**
+
+```bash
+cat > .git/hooks/pre-commit <<'EOF'
+#!/bin/sh
+if [ -x ./scripts/docs.sh ]; then
+  ./scripts/docs.sh || exit 1
+fi
+EOF
+chmod +x .git/hooks/pre-commit
+```
+
+(Ojo con el `|| exit 0`: si lo ponés, el hook *siempre* pasa y no bloquea nada.)
+
+---
+
 ## Problemas comunes
 
 **El stream entrega 0 bytes**
@@ -268,7 +312,8 @@ radio/
 |-- music/                    tu música
 |-- scripts/
 |   |-- token.sh              alta / baja / listado de accesos
-|   `-- smoke.sh              13 verificaciones en 3 grupos
+|   |-- smoke.sh              13 verificaciones en 3 grupos
+|   `-- docs.sh               valida los diagramas Mermaid
 `-- secrets/tokens.txt        QUIÉN tiene acceso. chmod 600.
                               formato: nombre token cookie
 ```
