@@ -1,0 +1,14 @@
+Poné acá los archivos de audio que quieras emitir.
+
+Formatos: mp3, ogg, flac, m4a, wav — los que entienda ffmpeg.
+Liquidsoap los toma solos (reload_mode="watch"), no hace falta reiniciar.
+
+Mientras la carpeta esté vacía, el stream emite silencio en vez de morirse.
+
+De dónde sacar música sin drama legal (ver PLAN-LEGAL-AR.md, sección 10):
+  · Tu propia música
+  · Banco de Música del INAMU  → bancodemusica@inamu.musica.ar
+  · Free Music Archive         → freemusicarchive.org
+  · Jamendo                    → jamendo.com
+  · ccMixter                   → ccmixter.org
+  · Bandcamp con filtro CC     → bandcamp.com/tag/creative-commons

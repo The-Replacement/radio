@@ -1,0 +1,6 @@
+# GENERADO POR scripts/token.sh — NO EDITAR A MANO.
+# Este archivo define el matcher @gate que usa el Caddyfile.
+# Sin tokens válidos acá, nadie entra.
+@gate {
+	expression `{http.request.uri.query.t} in ["852fc7c92802c903936302701e9658e77e8b727f632b106b6eaef9d501c0279b"]`
+}

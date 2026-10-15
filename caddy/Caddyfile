@@ -1,0 +1,58 @@
+# Caddy — la ÚNICA puerta de la radio.
+#
+# Arquitectura: Icecast y Liquidsoap viven en la red interna de Docker y no
+# publican puertos. Todo entra por acá. Si el token no está, no se ve nada:
+# ni el stream, ni el player, ni el estado.
+{
+	# La API de admin queda activa pero en localhost DENTRO del contenedor,
+	# y el compose no publica el 2019. Es lo que permite `caddy reload`
+	# (recarga sin cortar a los oyentes) en vez de reiniciar el contenedor.
+	# No la apagues con `admin off`: perderías el reload en caliente.
+	#
+	# Producción: descomentá la línea de abajo y poné tu email real para
+	# recibir avisos de vencimiento del certificado. Caddy funciona igual
+	# sin email, así que por defecto no se usa.
+	#
+	# OJO: NO dejes un token suelto acá. `{$ACME_EMAIL}` sin la palabra
+	# `email` adelante es un error que Caddy sólo reporta al arrancar.
+	#
+	# email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESS:http://localhost:8090} {
+	# tokens.caddy lo genera scripts/token.sh — define @gate.
+	import tokens.caddy
+
+	# ---------------- autorizado ----------------
+	handle @gate {
+		# --- el stream de audio ---
+		# rewrite descarta el query: el token NUNCA llega a Icecast.
+		# flush_interval -1 desactiva el buffering de Caddy: sin esto
+		# el audio se acumula y la radio suena con segundos de retraso.
+		handle /stream* {
+			reverse_proxy icecast:8000 {
+				rewrite /stream
+				flush_interval -1
+			}
+		}
+
+		# --- estado / "sonando ahora" ---
+		handle /status-json.xsl {
+			reverse_proxy icecast:8000 {
+				rewrite /status-json.xsl
+			}
+		}
+
+		# --- el reproductor ---
+		handle {
+			root * /srv
+			file_server
+		}
+	}
+
+	# ---------------- sin autorización ----------------
+	# 404 y no 401: no le confirmamos a nadie que acá hay una radio.
+	handle {
+		respond 404
+	}
+}

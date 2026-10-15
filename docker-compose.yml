@@ -1,0 +1,58 @@
+# Radio privada con token — Icecast + Liquidsoap + Caddy
+#
+# Principio de diseño: Icecast y Liquidsoap NO publican puertos.
+# Lo único expuesto al host es Caddy, que hace de única puerta.
+# Sin el token correcto, no se ve ni el stream ni el player.
+
+services:
+  icecast:
+    build: ./icecast
+    container_name: radio-icecast
+    restart: unless-stopped
+    environment:
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?falta en .env}
+      ICECAST_RELAY_PASSWORD: ${ICECAST_RELAY_PASSWORD:?falta en .env}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:?falta en .env}
+    networks:
+      - radio
+    # Sin sección "ports": Icecast es inalcanzable desde fuera de esta red.
+    # Sin volúmenes de log: escribe a stdout (ver <logging> en icecast.xml).
+
+  liquidsoap:
+    image: savonet/liquidsoap:v2.4.6
+    container_name: radio-liquidsoap
+    restart: unless-stopped
+    depends_on:
+      - icecast
+    environment:
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?falta en .env}
+    volumes:
+      - ./liquidsoap/radio.liq:/etc/radio.liq:ro
+      - ./music:/music:ro
+    command: ["--verbose", "/etc/radio.liq"]
+    networks:
+      - radio
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: radio-caddy
+    restart: unless-stopped
+    depends_on:
+      - icecast
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost:8090}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "${HTTP_PORT:-8090}:80"
+      - "${HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/tokens.caddy:/etc/caddy/tokens.caddy:ro
+      - ./web:/srv:ro
+      - ./data/caddy:/data
+    networks:
+      - radio
+
+networks:
+  radio:
+    driver: bridge

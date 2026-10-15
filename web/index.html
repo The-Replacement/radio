@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<title>Radio</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #0b0b0d; color: #e8e8ea;
+    font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { width: min(92vw, 26rem); padding: 2rem; text-align: center; }
+  .dot {
+    width: .6rem; height: .6rem; border-radius: 50%; background: #555;
+    display: inline-block; margin-right: .5rem; vertical-align: middle;
+    transition: background .3s;
+  }
+  .dot.live { background: #35d07f; box-shadow: 0 0 0 0 rgba(53,208,127,.6); animation: pulse 2s infinite; }
+  @keyframes pulse {
+    70% { box-shadow: 0 0 0 .5rem rgba(53,208,127,0); }
+    100% { box-shadow: 0 0 0 0 rgba(53,208,127,0); }
+  }
+  .estado { font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: #9a9aa2; }
+  h1 { font-size: 1.4rem; margin: 1.2rem 0 .3rem; letter-spacing: -.01em; }
+  .now { color: #9a9aa2; font-size: .95rem; min-height: 1.5em; margin: 0 0 1.6rem; }
+  button {
+    width: 4.2rem; height: 4.2rem; border-radius: 50%; border: 0; cursor: pointer;
+    background: #e8e8ea; color: #0b0b0d; font-size: 1.5rem; line-height: 1;
+    display: inline-grid; place-items: center; transition: transform .15s;
+  }
+  button:hover { transform: scale(1.05); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  audio { display: none; }
+  .err { margin-top: 1.5rem; color: #ff8a8a; font-size: .9rem; display: none; }
+  .tel { margin-top: 2rem; color: #55555c; font-size: .72rem; letter-spacing: .06em; }
+</style>
+</head>
+<body>
+<main>
+  <div class="estado"><span class="dot" id="dot"></span><span id="estado">detenido</span></div>
+  <h1>Radio</h1>
+  <p class="now" id="now">&nbsp;</p>
+  <button id="play" aria-label="Reproducir">&#9654;</button>
+  <div class="err" id="err"></div>
+  <div class="tel" id="tel"></div>
+  <audio id="audio" preload="none"></audio>
+</main>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var t = q.get('t');
+  var audio = document.getElementById('audio');
+  var btn = document.getElementById('play');
+  var dot = document.getElementById('dot');
+  var estado = document.getElementById('estado');
+  var now = document.getElementById('now');
+  var err = document.getElementById('err');
+  var tel = document.getElementById('tel');
+
+  tel.textContent = location.host;
+
+  if (!t) {
+    err.style.display = 'block';
+    err.textContent = 'Falta el token. Pedí el link completo con ?t=…';
+    btn.disabled = true;
+    return;
+  }
+
+  audio.src = '/stream?t=' + encodeURIComponent(t);
+
+  btn.addEventListener('click', function () {
+    if (audio.paused) { audio.play().catch(showErr); } else { audio.pause(); }
+  });
+  audio.addEventListener('playing', function () {
+    btn.innerHTML = '&#10073;&#10073;'; estado.textContent = 'en vivo'; dot.classList.add('live');
+  });
+  audio.addEventListener('pause', function () {
+    btn.innerHTML = '&#9654;'; estado.textContent = 'detenido'; dot.classList.remove('live');
+  });
+  audio.addEventListener('error', function () { showErr('No se pudo conectar con el stream.'); });
+
+  function showErr(m) {
+    err.style.display = 'block';
+    err.textContent = typeof m === 'string' ? m : 'No se pudo reproducir.';
+    dot.classList.remove('live'); estado.textContent = 'error';
+  }
+
+  // "Sonando ahora": consulta el estado de Icecast cada 15 s.
+  function poll() {
+    fetch('/status-json.xsl?t=' + encodeURIComponent(t), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var ic = d && d.icestats && d.icestats.source;
+        if (!ic) return;
+        var s = Array.isArray(ic) ? ic[0] : ic;
+        var titulo = s.title || s.yp_currently_playing || s.server_name || '';
+        now.textContent = titulo || '\u00a0';
+        if (titulo) document.title = titulo + ' — Radio';
+      })
+      .catch(function () { /* silencio: es solo el cartel */ });
+  }
+  poll();
+  setInterval(poll, 15000);
+})();
+</script>
+</body>
+</html>

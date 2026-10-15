@@ -1,0 +1,8 @@
+# Secretos — NUNCA al repo
+.env
+secrets/
+data/
+logs/
+
+# Tonos de prueba generados por el README
+music/_prueba-*
