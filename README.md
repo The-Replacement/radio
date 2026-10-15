@@ -210,9 +210,15 @@ roto, señalando la línea:
 Códigos de salida: `0` todo bien, `1` diagrama roto, `2` faltan
 dependencias.
 
-La primera vez instala `mermaid-cli` en `.tools/` (que está en
-`.gitignore`) y usa el Chrome del sistema a propósito: si no, bajaría
-~300 MB de Chromium.
+La primera vez instala `mermaid-cli` en `~/.cache/radio-docs`, **no en el
+proyecto**: son ~450 MB y no tienen por qué vivir acá. Usa el Chrome del
+sistema a propósito; si no, además bajaría ~300 MB de Chromium.
+
+Si querés recuperar ese espacio:
+
+```bash
+rm -rf ~/.cache/radio-docs
+```
 
 **Para que no se te escape en un commit:**
 

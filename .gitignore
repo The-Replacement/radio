@@ -4,8 +4,9 @@ secrets/
 data/
 logs/
 
-# Herramientas de desarrollo de scripts/docs.sh
-.tools/
+# Nota: las dependencias de scripts/docs.sh NO van acá. Se instalan en
+# el cache del usuario ($XDG_CACHE_HOME/radio-docs) para no meterle
+# ~450 MB al proyecto.
 
 # Tonos de prueba generados por el README
 music/_prueba-*

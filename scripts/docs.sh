@@ -17,8 +17,10 @@
 set -uo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-HERRAMIENTAS="$RAIZ/.tools"
-MMDC="$HERRAMIENTAS/node_modules/.bin/mmdc"
+# Dependencias de validacion. Van al cache del usuario, NO al repo:
+# mermaid-cli ocupa ~450 MB y no tiene por que vivir dentro del proyecto.
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/radio-docs"
+MMDC="$CACHE/node_modules/.bin/mmdc"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -42,11 +44,11 @@ done
 [ -n "$NAVEGADOR" ] || faltan "mermaid necesita un navegador; no encontre Chrome ni Chromium"
 
 if [ ! -x "$MMDC" ]; then
-  echo "Instalando mermaid-cli en .tools/ (solo la primera vez)..."
-  mkdir -p "$HERRAMIENTAS"
-  [ -f "$HERRAMIENTAS/package.json" ] \
-    || printf '{"name":"radio-docs","private":true}\n' > "$HERRAMIENTAS/package.json"
-  if ! ( cd "$HERRAMIENTAS" && PUPPETEER_SKIP_DOWNLOAD=1 \
+  echo "Instalando mermaid-cli en $CACHE (solo la primera vez)..."
+  mkdir -p "$CACHE"
+  [ -f "$CACHE/package.json" ] \
+    || printf '{"name":"radio-docs","private":true}\n' > "$CACHE/package.json"
+  if ! ( cd "$CACHE" && PUPPETEER_SKIP_DOWNLOAD=1 \
            npm install --no-audit --no-fund @mermaid-js/mermaid-cli >/dev/null 2>&1 ); then
     faltan "no se pudo instalar mermaid-cli (¿sin red?)"
   fi
@@ -58,7 +60,7 @@ fi
 # Todos los .md, menos los que no nos interesan.
 mapfile -t ARCHIVOS < <(
   find "$RAIZ" -name '*.md' -type f \
-    -not -path '*/.git/*' -not -path '*/.tools/*' -not -path '*/node_modules/*' \
+    -not -path '*/.git/*' -not -path '*/node_modules/*' \
     -not -path '*/data/*' -not -path '*/data' -not -path '*/secrets/*' 2>/dev/null | sort
 )
 
