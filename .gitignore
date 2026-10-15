@@ -10,3 +10,15 @@ logs/
 
 # Tonos de prueba generados por el README
 music/_prueba-*
+
+# Restos de herramientas
+__pycache__/
+.ruff_cache/
+
+# El matcher generado. Contiene credenciales reales: NO va al repo.
+# La plantilla sin credenciales sí: caddy/tokens.caddy.example
+caddy/tokens.caddy
+
+# Archivos temporales del generador de matchers
+caddy/tokens.caddy.nuevo
+caddy/tokens.caddy.previo

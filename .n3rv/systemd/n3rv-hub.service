@@ -1,0 +1,21 @@
+[Unit]
+Description=N3RV A2A Hub for radio
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/estrocondoso/Work/radio
+ExecStart=/home/estrocondoso/.local/share/mise/installs/python/3.14.8/bin/n3rv hub start
+# Hardening: keep these in the template. A re-render overwrites the installed
+# unit, so anything added only to ~/.config/systemd/user is lost on update.
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+TimeoutStopSec=30s
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/estrocondoso/Work/radio/.n3rv/logs/hub.log
+StandardError=append:/home/estrocondoso/Work/radio/.n3rv/logs/hub.log
+
+[Install]
+WantedBy=default.target

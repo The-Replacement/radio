@@ -29,19 +29,24 @@ sed -i "s|^ICECAST_ADMIN_PASSWORD=.*|ICECAST_ADMIN_PASSWORD=$(openssl rand -hex 
 # 2. Permisos de los scripts
 chmod +x scripts/*.sh
 
-# 3. Levantar
-docker compose up -d --build
-
-# 4. Darte acceso a vos
+# 3. Generar el matcher y darte acceso
+#    (crea caddy/tokens.caddy, que NO se versiona porque tiene credenciales)
 ./scripts/token.sh add yo
+
+# 4. Levantar
+docker compose up -d --build
 
 # 5. Verificar que la puerta cierre bien
 ./scripts/smoke.sh
 ```
 
-El paso 4 te imprime el link. **Ese link es la llave.** Se abre una vez en
+El paso 3 te imprime el link. **Ese link es la llave.** Se abre una vez en
 el navegador: el token se canjea por la cookie, la URL queda limpia y a
 partir de ahí el token ya no vuelve a viajar.
+
+Si en cambio arrancás de un clon y querés levantar antes de dar acceso,
+copiá la plantilla: `cp caddy/tokens.caddy.example caddy/tokens.caddy`
+(no dejes que Docker cree el archivo: crearía un directorio).
 
 ---
 

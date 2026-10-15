@@ -1,0 +1,115 @@
+---
+name: sdd-verify
+description: "Verify the implementation against the spec's acceptance criteria. Produces a pass/fail verdict."
+compatibility: opencode
+when_to_use: "After sdd-apply. Reads spec and implementation from memory, checks each acceptance criterion."
+allowed-tools:
+  - Read
+  - Bash
+  - Glob
+  - Grep
+  - mcp__n3rv-memory__memory_recall
+  - mcp__n3rv-memory__memory_save
+  - mcp__n3rv-exec__exec_lint
+  - mcp__n3rv-exec__exec_test
+  - mcp__n3rv-exec__exec_typecheck
+  - mcp__n3rv-exec__exec_affected
+  - mcp__n3rv-exec__exec_history
+  - mcp__n3rv-exec__exec_diff
+  - mcp__n3rv-exec__exec_cache_stats
+  - mcp__n3rv-exec__exec_timeline
+  - mcp__n3rv-code-graph__code_graph_symbols
+  - mcp__n3rv-code-graph__code_graph_explore
+model: medium
+effort: medium
+user-invocable: false
+hub-skill-ids: [review]
+---
+
+## Goal
+
+Determine whether the implementation satisfies every acceptance criterion in the spec.
+Produce a structured verdict that can be acted on.
+Also supports "converge" mode: if criteria are not met, generates remediation tasks.
+
+## Steps
+
+1. Load spec: `memory_recall(topic_key="sdd-<change_id>-spec")`
+2. Load implementation notes: `memory_recall(topic_key="sdd-<change_id>-impl")`
+3. For each acceptance criterion:
+    a. Read the relevant code
+    b. Run tests where applicable — prefer `mcp__n3rv-exec__exec_test` / `exec_lint` over bash for typed PASS/FAIL + evidence (file:line); on PRs prefer `mcp__n3rv-exec__exec_affected` then `exec_test(affected=true, base_ref="main")` for 50-75% prune (T5), check `exec_diff` for Evidence: file:line delta
+    c. Mark as PASS, FAIL, or PARTIAL with evidence (watch for ⚠️ Stale banner — pending sync means re-read file directly, per `_inject_staleness` T6)
+4. Check for regressions: run the full test suite (via exec MCP if available); use `exec_cache_stats` to confirm hit_rate>0.6 and `exec_history` for delta
+5. Save verdict to memory:
+   - title: `SDD Verify: <change_id>`
+   - topic_key: `sdd-<change_id>-verify`
+   - type: `context`
+   - content (structured):
+     ```
+     ## Acceptance Criteria Check
+
+     | Criterion | Status | Evidence |
+     |-----------|--------|----------|
+     | <criterion 1> | PASS/FAIL/PARTIAL | <file:line or test name> |
+     ...
+
+     ## Regression Check
+     <test suite result>
+
+     ## Verdict
+     APPROVED / NEEDS_WORK
+
+     ## Blocking Issues (if NEEDS_WORK)
+     <what must be fixed before approval>
+     ```
+
+## Converge Mode
+
+When verdict is NEEDS_WORK, an optional **converge** mode can be invoked to generate remediation tasks that close the gap between spec and implementation:
+
+1. **Analyze blocking issues** from the verdict
+2. **Create atomic tasks** for each gap (using sdd-tasks pattern)
+3. **Order tasks** so earlier ones unblock later ones
+4. **Save task list** to memory: `sdd-<change_id>-tasks`
+5. **Update project board**: set convergent tasks to "In Progress"
+
+Converge is invoked by adding `converge=true` to the verification request, and it produces a task list that the orchestrator can feed into `sdd-apply` to close the gap.
+
+### Converge Output
+
+```
+## Converge Tasks
+
+### T1: <title>
+Files: <file paths>
+What: <what to change to address blocking issue>
+Done when: <acceptance criterion now PASS>
+
+### T2: <title>
+Files: <file paths>
+What: <what to change to address blocking issue>
+Done when: <acceptance criterion now PASS>
+
+...
+
+## Order Rationale
+<why these tasks are sequenced this way to close the gap>
+
+## Verification Plan
+<how each task will be verified against the spec acceptance criteria>
+
+## Output
+
+If verdict is APPROVED, the workflow proceeds to sdd-archive.
+If NEEDS_WORK, the blocking issues are returned to the orchestrator for remediation.
+
+## Board Update
+
+**After saving the verdict to memory**, update the project board. Check your prompt for an issue number (look for `for issue #N` or `#<number>`). If found, execute the commands below with `<ISSUE_NUMBER>` replaced by that number. **If no issue number is present in your prompt, skip this entire section.**
+
+```bash
+ITEM_ID=$(gh api graphql -f query='query{organization(login:"The-Replacement"){projectV2(number:2){items(first:100){nodes{id content{...on Issue{number}}}}}}}' --jq '.data.organization.projectV2.items.nodes[] | select(.content.number == <ISSUE_NUMBER>) | .id')
+[ -n "$ITEM_ID" ] && gh project item-edit --id "$ITEM_ID" --field-id PVTSSF_lADOEeFGTc4Bc5CtzhXejII --project-id PVT_kwDOEeFGTc4Bc5Ct --single-select-option-id 47fc9ee4
+[ -n "$ITEM_ID" ] && gh project item-edit --id "$ITEM_ID" --field-id PVTSSF_lADOEeFGTc4Bc5CtzhYUpaI --project-id PVT_kwDOEeFGTc4Bc5Ct --single-select-option-id 8242b830
+```
