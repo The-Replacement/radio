@@ -22,3 +22,13 @@ caddy/tokens.caddy
 # Archivos temporales del generador de matchers
 caddy/tokens.caddy.nuevo
 caddy/tokens.caddy.previo
+
+# N3RV — NEVER COMMIT (template-controlled)
+.n3rv/
+.opencode/
+.githooks/
+.specify/
+AGENTS.md
+constitution.md
+opencode.json
+opencode.template.json
