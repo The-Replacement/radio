@@ -60,7 +60,7 @@ while :; do
     -hls_time 1 \
     -hls_init_time 1 \
     -hls_list_size 6 \
-    -hls_flags delete_segments+independent_segments+omit_endlist+temp_file \
+    -hls_flags delete_segments+independent_segments+omit_endlist+temp_file+program_date_time \
     -hls_segment_type fmp4 \
     -hls_fmp4_init_filename init.mp4 \
     -hls_segment_filename "$OUT/seg%03d.m4s" \

@@ -41,6 +41,10 @@
     background: #000; line-height: 0; box-shadow: 0 0 0 1px #1d1d22;
   }
   .cam video { display: block; width: 100%; height: auto; }
+  .debug {
+    margin-top: .8rem; font: 12px/1.4 ui-monospace, monospace;
+    color: #6f6f78; white-space: pre-line; text-align: left;
+  }
   .err { margin-top: 1.5rem; color: #ff8a8a; font-size: .9rem; display: none; text-align: left; }
   .aviso { margin-top: 1.5rem; color: #9a9aa2; font-size: .85rem; display: none; text-align: left; }
   .tel { margin-top: 2rem; color: #55555c; font-size: .72rem; letter-spacing: .06em; }
@@ -61,6 +65,9 @@
   <div class="cam" id="cam-caja" hidden>
     <video id="cam" muted playsinline autoplay></video>
   </div>
+  <!-- Sólo se llena con ?debug=1. Sirve para saber si el retraso es del
+       reproductor o del pipeline, sin abrir DevTools. -->
+  <p class="debug" id="debug"></p>
   <audio id="audio" preload="none"></audio>
 </main>
 <script>
@@ -140,57 +147,90 @@
   */
   var caja = document.getElementById('cam-caja');
   var cam = document.getElementById('cam');
+  var hlsCam = null;
 
   function mostrar() { caja.hidden = false; }
 
   function arrancar() {
-    // Safari e iOS reproducen HLS solos. Chrome, Firefox y Android no.
-    if (cam.canPlayType('application/vnd.apple.mpegurl')) {
-      cam.src = '/cam/index.m3u8';
-      cam.addEventListener('loadedmetadata', mostrar);
-      cam.play().catch(function () { /* autoplay bloqueado: da igual, es mudo */ });
-      return;
-    }
+    /*
+      hls.js PRIMERO, aunque el navegador diga que reproduce HLS nativo.
 
+      Esto costó dos diagnósticos equivocados, así que queda escrito: Chrome
+      154 responde "maybe" a canPlayType('application/vnd.apple.mpegurl').
+      La detección anterior (nativo si canPlayType) mandaba a la
+      implementación nativa de Chrome, que bufferea varios segundos y no
+      expone ninguna perilla. Medido con Chrome headless: servidor 50 ms de
+      pipeline, reproductor ~10s. No era el server.
+
+      hls.js sí respeta liveSyncDuration. Safari/iOS no soportan hls.js y
+      caen a nativo, que ahí es la única vía.
+    */
     var s = document.createElement('script');
     s.src = '/vendor/hls.light.min.js';
     s.onload = function () {
-      if (!window.Hls || !Hls.isSupported()) return;
-      /*
-        El retraso acá no es la red: es cuánto espera el reproductor detrás
-        del borde vivo. `new Hls()` a secas usa liveSyncDurationCount: 3, o
-        sea 3 segmentos de colchón: con segmentos de 1s, 3s.
-
-        liveSyncDuration está en SEGUNDOS (hls.js: liveSyncPosition =
-        liveEdge - targetLatency), así que no depende del tamaño del
-        segmento. Con 2s el primer cuadro aparece ~2-3s después de la
-        realidad, en vez de ~10s.
-
-        maxLiveSyncPlaybackRate: si se atrasa, acelera hasta 1.5x para
-        alcanzar el borde en vez de quedarse atrás para siempre.
-        liveMaxLatencyDuration: pasado ese techo, salta al vivo de nuevo.
-      */
-      var hls = new window.Hls({
-        liveSyncDuration: 2,
-        liveMaxLatencyDuration: 5,
-        maxLiveSyncPlaybackRate: 1.5,
-        backBufferLength: 15
-      });
-      hls.loadSource('/cam/index.m3u8');
-      hls.attachMedia(cam);
-      hls.on(window.Hls.Events.MANIFEST_PARSED, function () { mostrar(); });
-      hls.on(window.Hls.Events.ERROR, function (nada, datos) {
-        // Fatal = no hay forma de seguir. Se esconde la caja en vez de
-        // dejar un rectángulo negro congelado.
-        if (datos && datos.fatal) { caja.hidden = true; hls.destroy(); }
-      });
+      if (window.Hls && window.Hls.isSupported()) { porHls(); return; }
+      nativo();
     };
+    s.onerror = nativo;
     document.head.appendChild(s);
+  }
+
+  function nativo() {
+    if (!cam.canPlayType('application/vnd.apple.mpegurl')) return;
+    cam.src = '/cam/index.m3u8';
+    cam.addEventListener('loadedmetadata', mostrar);
+    cam.play().catch(function () { /* autoplay bloqueado: da igual, es mudo */ });
+  }
+
+  function porHls() {
+    /*
+      liveSyncDuration en SEGUNDOS (hls.js: liveSyncPosition = liveEdge -
+      targetLatency), así que no depende del tamaño del segmento.
+
+      Por qué 1.5 y no menos: medido con Chrome headless sobre este stream,
+      1.0 daba 1.1s pero con hipos (readyState caía a 2 de vez en cuando: se
+      quedaba sin buffer en el borde). 1.5 da 1.56s sostenidos, sin un solo
+      hipo en 30s. Ese es el piso de HLS con segmentos de 1s.
+    */
+    var hls = new window.Hls({
+      liveSyncDuration: 1.5,
+      liveMaxLatencyDuration: 5,
+      maxLiveSyncPlaybackRate: 1.5,
+      backBufferLength: 15
+    });
+    hlsCam = hls;
+    hls.loadSource('/cam/index.m3u8');
+    hls.attachMedia(cam);
+    hls.on(window.Hls.Events.MANIFEST_PARSED, function () { mostrar(); });
+    hls.on(window.Hls.Events.ERROR, function (nada, datos) {
+      // Fatal = no hay forma de seguir. Se esconde la caja en vez de
+      // dejar un rectángulo negro congelado.
+      if (datos && datos.fatal) { caja.hidden = true; hls.destroy(); }
+    });
+    cam.play().catch(function () {});
   }
 
   fetch('/cam/index.m3u8', { method: 'HEAD', cache: 'no-store' })
     .then(function (r) { if (r.ok) arrancar(); })
     .catch(function () { /* sin cámara */ });
+
+  /*
+    ?debug=1 muestra cuánto está atrasado el reproductor respecto del vivo.
+    Es la única forma de distinguir "el pipeline tarda" de "el player espera"
+    sin abrir DevTools. Si el número es ~2, el servidor está bien y el vídeo
+    se ve con 2s de retraso; si es 10, la config no se aplicó.
+  */
+  if (new URLSearchParams(location.search).has('debug')) {
+    var dbg = document.getElementById('debug');
+    setInterval(function () {
+      if (!hlsCam) { dbg.textContent = 'latencia: (hls.js no está en uso: HLS nativo)'; return; }
+      dbg.textContent =
+        'latencia: ' + hlsCam.latency.toFixed(2) + 's' +
+        '  |  objetivo: ' + (hlsCam.targetLatency === null ? '?' : hlsCam.targetLatency.toFixed(2)) + 's' +
+        '  |  max: ' + hlsCam.maxLatency.toFixed(2) + 's' +
+        '  |  velocidad: ' + cam.playbackRate.toFixed(2) + 'x';
+    }, 1000);
+  }
 })();
 </script>
 </body>
