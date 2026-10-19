@@ -156,7 +156,26 @@
     s.src = '/vendor/hls.light.min.js';
     s.onload = function () {
       if (!window.Hls || !Hls.isSupported()) return;
-      var hls = new window.Hls();
+      /*
+        El retraso acá no es la red: es cuánto espera el reproductor detrás
+        del borde vivo. `new Hls()` a secas usa liveSyncDurationCount: 3, o
+        sea 3 segmentos de colchón: con segmentos de 1s, 3s.
+
+        liveSyncDuration está en SEGUNDOS (hls.js: liveSyncPosition =
+        liveEdge - targetLatency), así que no depende del tamaño del
+        segmento. Con 2s el primer cuadro aparece ~2-3s después de la
+        realidad, en vez de ~10s.
+
+        maxLiveSyncPlaybackRate: si se atrasa, acelera hasta 1.5x para
+        alcanzar el borde en vez de quedarse atrás para siempre.
+        liveMaxLatencyDuration: pasado ese techo, salta al vivo de nuevo.
+      */
+      var hls = new window.Hls({
+        liveSyncDuration: 2,
+        liveMaxLatencyDuration: 5,
+        maxLiveSyncPlaybackRate: 1.5,
+        backBufferLength: 15
+      });
       hls.loadSource('/cam/index.m3u8');
       hls.attachMedia(cam);
       hls.on(window.Hls.Events.MANIFEST_PARSED, function () { mostrar(); });

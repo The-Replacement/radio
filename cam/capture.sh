@@ -5,6 +5,13 @@
 # segmentos .m4s + un índice .m3u8 en /out. Caddy sirve esos archivos; no
 # hay servidor de video propio.
 #
+# Sobre el retraso: en HLS, el piso lo pone el tamaño del segmento. ffmpeg no
+# publica un segmento hasta que lo terminó de escribir, así que con
+# -hls_time 1 el mínimo es ~1s. Con 2s eran 2s, y encima el reproductor suma
+# su propio colchón. Por eso 1s y keyframe cada 1s: si el GOP es más largo
+# que el segmento, los segmentos no son independientes y el reproductor no
+# puede arrancar en cualquiera de ellos.
+#
 # El audio del webcam NO se toca (`-an`). La radio sigue siendo la fuente
 # de audio: acá sólo viaja imagen.
 #
@@ -47,11 +54,12 @@ while :; do
     -c:v libx264 -preset veryfast -tune zerolatency \
     -profile:v baseline -pix_fmt yuv420p \
     -b:v 600k -maxrate 700k -bufsize 1200k \
-    -g 30 -keyint_min 30 -sc_threshold 0 \
-    -force_key_frames "expr:gte(t,n_forced*2)" \
+    -g 15 -keyint_min 15 -sc_threshold 0 \
+    -force_key_frames "expr:gte(t,n_forced*1)" \
     -f hls \
-    -hls_time 2 \
-    -hls_list_size 5 \
+    -hls_time 1 \
+    -hls_init_time 1 \
+    -hls_list_size 6 \
     -hls_flags delete_segments+independent_segments+omit_endlist+temp_file \
     -hls_segment_type fmp4 \
     -hls_fmp4_init_filename init.mp4 \

@@ -48,6 +48,9 @@ services:
       - "${CAM_DEVICE:-/dev/v4l/by-id/usb-KYE_Systems_Corp._FaceCam_1000X-video-index0}:/dev/video0"
     volumes:
       - ./data/cam:/out
+      # Montado y no sólo horneado: así editar capture.sh es un `restart`,
+      # no un rebuild. Igual que radio.liq en liquidsoap y el Caddyfile.
+      - ./cam/capture.sh:/usr/local/bin/capture.sh:ro
     networks:
       - radio
     # Si la cámara está desenchufada al levantar, este contenedor NO arranca.

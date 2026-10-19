@@ -137,7 +137,7 @@ debajo del botón de play. **Video mudo**: el audio sigue siendo el de la radio.
 
 ```
 webcam USB
-   |  ffmpeg: MJPEG 640x480 -> H.264, segmentos de 2s
+   |  ffmpeg: MJPEG 640x480 -> H.264, segmentos de 1s
    v
 ./data/cam/ (index.m3u8 + seg*.m4s)
    |  Caddy los sirve como cualquier otro archivo
@@ -152,7 +152,7 @@ puerto nuevo, y el gate es el mismo que ya filtraba el audio. Sin credencial,
 Tres decisiones que no son obvias:
 
 **HLS y no MJPEG directo.** Un `<img>` con MJPEG sería más simple y tendría
-~0.3s de retraso en vez de ~5s, pero pesa 3-5 Mbps *por oyente* y Safari no
+~0.3s de retraso en vez de ~2.5s, pero pesa 3-5 Mbps *por oyente* y Safari no
 lo reproduce. HLS manda ~600 kbps y no le importa cuántos miren, porque Caddy
 sirve los mismos archivos para todos; Safari y iOS lo reproducen de fábrica.
 
@@ -165,6 +165,27 @@ navegadores que rechazan el segmento por MIME. Los `.m4s` salen como
 Firefox y Android no. hls.js es el puente, y vive en `web/vendor/` y no en un
 CDN: si la página le pide un script a un CDN, ese CDN ve quién entra, cuándo y
 desde qué IP. Ver `web/vendor/README.md`.
+
+### Por qué hay ~2.5s de retraso (y por qué no baja mucho más)
+
+Local no significa instantáneo. El formato es por segmentos, y el presupuesto
+es este:
+
+| Etapa | Costo |
+|---|---|
+| ffmpeg cierra y publica el segmento | 0-1s (`-hls_time 1`) |
+| colchón del reproductor detrás del vivo | 2s (`liveSyncDuration: 2`) |
+| decodificar el primer cuadro | ~0.3s |
+
+Ese colchón es lo que se paga por poder arrancar en cualquier momento sin
+pedirle nada a un servidor. `new Hls()` sin configurar usa 3 **segmentos** de
+colchón; con segmentos de 2s eso eran 6s, y de ahí salían los 10s.
+
+HLS **no puede** bajar de un segmento: ffmpeg no publica nada hasta cerrarlo.
+Para menos de 1s hay que cambiar de transporte: WebRTC (~0.3s, pero suma un
+servicio tipo MediaMTX) o MJPEG (~0.3s, pero 3-5 Mbps por oyente y Safari no
+lo reproduce). En Safari el colchón lo decide Safari, no hls.js: ahí queda
+en ~3-4s.
 
 ### Cambiar de cámara o de calidad
 
