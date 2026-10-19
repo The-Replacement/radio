@@ -96,7 +96,7 @@ def main() -> int:
 
     lineas = [
         "# GENERADO POR scripts/token.sh - NO EDITAR A MANO.",
-        "# Define los matchers @gate y @canje que usa el Caddyfile.",
+        "# Define el matcher @gate, el puente y el matcher @canje.",
         "#",
         f"# {len(vigentes)} credencial(es) vigente(s).",
     ]
@@ -105,6 +105,24 @@ def main() -> int:
             f"# {len(vencidos)} vencida(s), omitida(s) del matcher:"
             f" {', '.join(vencidos)}"
         )
+
+    # El puente: token de la URL -> cookieid de esa persona.
+    #
+    # Sólo las vigentes. Si un token venció, no está en el map ni en @canje:
+    # el link no canjea y el token tampoco abre el gate.
+    puente = [f"\t{json.dumps(f[1])} {json.dumps(f[2])}" for f in vigentes]
+
+    # @cam_ok: el token viajando en el CAMINO, para reproductores.
+    #
+    # /cam/<token>/index.m3u8 . El playlist apunta a archivos relativos, así
+    # que el reproductor hereda el token en cada segmento y no hay que
+    # reescribir nada. Con el token en el query eso NO funciona: el
+    # reproductor pide /cam/seg123.m4s sin query y come 404 (verificado).
+    #
+    # {re.cam.1} lo captura el matcher @cam_path del Caddyfile, que se evalúa
+    # ANTES. Si esta condición se evaluara primero, compararía contra "".
+    cam = [clausula("{re.cam.1}", f[1], f[3]) for f in vigentes]
+
     lineas += [
         "",
         "# @gate: token (reproductores) o cookie (navegador), y ademas vigente.",
@@ -112,10 +130,39 @@ def main() -> int:
         f"\texpression `{o(tk + ck)}`",
         "}",
         "",
-        "# @canje: el link con ?t=... se vuelve cookie y la URL queda limpia.",
+        "# El puente token -> cookieid, que usa @canje para dejar la cookie.",
+        "#",
+        "# POR QUE EXISTE: las dos columnas de tokens.txt son credenciales",
+        "# DISTINTAS. Si el canje escribiera el token dentro de la cookie, el",
+        "# @gate de arriba compararia esa cookie contra la columna cookieid y",
+        "# no coincidiria nunca: TODA peticion posterior daria 404. El canje",
+        "# no puede copiar, tiene que traducir.",
+        "map {http.request.uri.query.t} {radio_cookie} {",
+        *puente,
+        "}",
+        "",
+        "# @canje: el link con ?t=... deja la cookie y la URL queda limpia.",
+        "#",
+        '# El guardia `{radio_cookie} != ""` no es decorativo. Si el map no',
+        "# llegara a resolver, sin el guardia la cookie se setearia VACIA y el",
+        "# oyente perderia la sesion en silencio. Con el guardia, el canje no",
+        "# matchea, la peticion cae a @gate (que YA acepta el token en la URL)",
+        "# y la radio sigue andando. Falla visible antes que sesion rota.",
         "@canje {",
         "\tpath /",
-        f"\texpression `{o(tk)}`",
+        "\texpression `(" + '{radio_cookie} != ""' + f" && ({o(tk)}))`",
+        "}",
+        "",
+        "# @cam_ok: token en el CAMINO (/cam/<token>/index.m3u8), para VLC/mpv.",
+        "#",
+        "# El playlist apunta a archivos RELATIVOS: con el token en el camino,",
+        "# el reproductor lo hereda solo en cada segmento. Con el token en el",
+        "# query no funciona, porque los pedidos de segmento van sin query.",
+        "#",
+        "# {re.cam.1} lo captura @cam_path en el Caddyfile, que se evalua ANTES",
+        "# que este matcher. El anidado de handles no es adorno: obliga al orden.",
+        "@cam_ok {",
+        f"\texpression `{o(cam)}`",
         "}",
     ]
 

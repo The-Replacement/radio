@@ -156,6 +156,21 @@ url_de() {
   printf '%s/?t=%s\n' "$public" "$t"
 }
 
+# URL de la camara para reproductores (VLC, mpv, ffmpeg).
+#
+# El token va en el CAMINO, no en el query, y no es capricho: el playlist de
+# HLS apunta a los segmentos con rutas relativas, y el reproductor las pide
+# sin el query. Con ?t=... el playlist baja y los segmentos dan 404. Con el
+# token en un segmento del camino, cada pedido relativo lo hereda solo.
+url_cam_de() {
+  local t="$1"
+  local public
+  public="$(grep -E '^PUBLIC_URL=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
+  public="${public:-http://localhost:8090}"
+  public="${public%/}"
+  printf '%s/cam/%s/index.m3u8\n' "$public" "$t"
+}
+
 cmd_add() {
   local nombre="${1:?uso: token.sh add <nombre> [vencimiento]}"
   local pedido="${2:-}"
@@ -180,6 +195,7 @@ cmd_add() {
     echo "\"$nombre\" ya tenía acceso. Su link sigue siendo:" >&2
     url_de "$t"
     [[ -n "$v" ]] && echo "(vence el $v)" >&2
+    echo "Cámara (VLC/mpv): $(url_cam_de "$t")" >&2
     return 0
   fi
 
@@ -194,7 +210,12 @@ cmd_add() {
   echo "  $(url_de "$t")"
   echo
   echo "  Al abrirlo en el navegador, el token se canjea por una cookie y"
-  echo "  desaparece de la URL. Para VLC/mpv sirve el mismo link."
+  echo "  desaparece de la URL."
+  echo
+  echo "  Para VLC/mpv, el audio va con ese mismo link. La cámara no: los"
+  echo "  segmentos de HLS no heredan el query, así que el token va en el"
+  echo "  camino."
+  echo "  $(url_cam_de "$t")"
   echo
   recargar_caddy
 }

@@ -5,6 +5,7 @@ Una radio que existe para un círculo cerrado. Sin credencial, no hay radio.
 - **Liquidsoap** reproduce `./music` en orden aleatorio.
 - **Icecast** sirve el stream — y **no se anuncia en ningún directorio público**.
 - **Caddy** es la única puerta: sin credencial válida responde 404, no 401. No le confirma a nadie que acá hay algo.
+- **ffmpeg** convierte el webcam USB en HLS, para que además de escuchar se pueda ver. Video mudo: el audio es el de la radio.
 
 Cada persona recibe **dos credenciales**:
 
@@ -129,6 +130,70 @@ ningún listado de radios.
 
 ---
 
+## La cámara
+
+El webcam entra por la misma puerta que la radio y se ve en un recuadro chico
+debajo del botón de play. **Video mudo**: el audio sigue siendo el de la radio.
+
+```
+webcam USB
+   |  ffmpeg: MJPEG 640x480 -> H.264, segmentos de 2s
+   v
+./data/cam/ (index.m3u8 + seg*.m4s)
+   |  Caddy los sirve como cualquier otro archivo
+   v
+navegador (<video> + hls.js)
+```
+
+No hay un servicio de video: hay **archivos**. Caddy no proxea nada, no hay
+puerto nuevo, y el gate es el mismo que ya filtraba el audio. Sin credencial,
+`/cam/index.m3u8` da 404 igual que todo lo demás.
+
+Tres decisiones que no son obvias:
+
+**HLS y no MJPEG directo.** Un `<img>` con MJPEG sería más simple y tendría
+~0.3s de retraso en vez de ~5s, pero pesa 3-5 Mbps *por oyente* y Safari no
+lo reproduce. HLS manda ~600 kbps y no le importa cuántos miren, porque Caddy
+sirve los mismos archivos para todos; Safari y iOS lo reproducen de fábrica.
+
+**fMP4 (`.m4s`) y no MPEG-TS (`.ts`).** Verificado con curl: Caddy sirve los
+`.ts` como `text/vnd.trolltech.linguist` —colisión de extensión con Qt— y hay
+navegadores que rechazan el segmento por MIME. Los `.m4s` salen como
+`video/iso.segment` sin configurar nada.
+
+**hls.js servido desde acá.** Safari e iOS reproducen HLS solos; Chrome,
+Firefox y Android no. hls.js es el puente, y vive en `web/vendor/` y no en un
+CDN: si la página le pide un script a un CDN, ese CDN ve quién entra, cuándo y
+desde qué IP. Ver `web/vendor/README.md`.
+
+### Cambiar de cámara o de calidad
+
+`CAM_DEVICE` en `.env` viene apuntando al symlink `by-id` de la FaceCam, que
+no cambia aunque reconectes el equipo (el número de `/dev/videoN`, en cambio,
+depende del orden en que el kernel enumera las cámaras). Resolución y bitrate
+están en `cam/capture.sh`: 640x480 a 15 fps, H.264 a 600 kbps.
+
+Si la cámara está desconectada, el contenedor reintenta con backoff y la
+página **no muestra el recuadro**: nada de rectángulos negros ni carteles de
+error. El audio sigue andando como si nada.
+
+### La cámara en VLC, mpv o ffmpeg
+
+El playlist de HLS apunta a otros archivos, y los reproductores los piden
+como rutas relativas: si el token va en el query, esos pedidos salen **sin**
+el token y comen 404. Por eso la cámara, para reproductores, se pide con el
+token en el camino:
+
+```bash
+vlc "http://localhost:8090/cam/<TOKEN>/index.m3u8"
+```
+
+Los segmentos heredan el prefijo solos. El navegador no necesita esto: usa la
+cookie, y así el token no aparece en cada pedido. `token.sh add` te imprime
+las dos URLs.
+
+---
+
 ## Qué tan privado es esto, de verdad
 
 Medido, no supuesto. Lo que sigue está verificado en esta instalación.
@@ -138,6 +203,8 @@ Medido, no supuesto. Lo que sigue está verificado en esta instalación.
 - No aparece en buscadores (`noindex`), ni en directorios de radios.
 - El contenido va cifrado (TLS) cuando lo publicás con un dominio.
 - Revocás a una persona sin tocarle el link a las demás.
+- **El video está detrás del mismo gate que el audio.** Sin credencial,
+  `/cam/index.m3u8` y cada segmento dan 404. Verificado en el smoke test.
 - **Las credenciales no quedan escritas en los logs.** Caddy redacta la
   cookie por su cuenta (`"Cookie":["REDACTED"]`) y el nivel de log está en
   `ERROR`, así que la URL con `?t=...` tampoco se registra. Verificado: 0
@@ -148,6 +215,9 @@ Medido, no supuesto. Lo que sigue está verificado en esta instalación.
   en un chat sin cifrar, se filtra. Es el costo de que sea simple.
 - Los reproductores (VLC) siguen mandando el token en la URL. Si a vos te
   importa eso, escuchá desde el navegador (cookie) y listo.
+- La cámara, en reproductores, necesita el token en el camino
+  (`/cam/<token>/...`) y no en el query. No es una concesión: es cómo funciona
+  HLS con rutas relativas.
 - No oculta tu IP ni tu proveedor. Tu VPS sabe que esto existe.
 - Si bajás el nivel de log a `INFO` para debuggear, el token de los
   reproductores sí se escribe. Volvé a `ERROR` después.
@@ -265,6 +335,41 @@ Caddy no recargó. `./scripts/token.sh add yo` lo hace solo; si no:
 docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
+**El link de invitación deja el navegador en 404 para siempre**
+Si tu navegador todavía tiene una cookie vieja del tiempo en que el canje
+copiaba el token dentro de la cookie, esa cookie no valida nunca más y **no se
+pisa sola**: el link nuevo la reemplaza, pero hay que abrir el link una vez.
+Abrilo. Si el 404 sigue, entonces sí es lo de arriba (Caddy sin recargar).
+
+**El recuadro de la cámara no aparece**
+La página pregunta primero si existe el playlist; si no existe, no muestra
+nada (es el caso normal de "cámara desenchufada"). Para saber cuál es:
+```bash
+docker compose ps cam                      # ¿está arriba?
+ls -l data/cam/                            # ¿hay index.m3u8 y seg*.m4s?
+curl -s -o /dev/null -w '%{http_code}\n' -H "Cookie: radio=$CK" localhost:8090/cam/index.m3u8
+```
+Si el contenedor `cam` no arranca al levantar, la cámara está desenchufada:
+Docker no puede crear el device y falla fuerte en vez de darte un video vacío.
+El audio arranca igual (el error es de ese servicio, no del stack). Sin cámara,
+levantá sólo el resto: `docker compose up -d caddy icecast liquidsoap`.
+
+**`failed to create mountpoint for /srv/...: Read-only file system`**
+Docker monta los volúmenes ordenados por ruta, así que `./web:/srv:ro` entra
+antes que cualquier `/srv/algo`. Después no puede crear el subdirectorio
+dentro de un mount de sólo lectura. Por eso los segmentos de la cámara van a
+`/srv-cam` y el Caddyfile usa `handle_path`. Nos pasó construyendo esto.
+
+**El video arranca pero se congela**
+Buscá `corrupted data` en los logs del contenedor `cam`:
+```bash
+docker compose logs cam | grep -i corrupto
+```
+Si aparece en ráfagas cortas y el video fluye, es ruido del driver UVC: se
+mide con `ffprobe -count_frames` y el stream entrega los 15 fps igual. Si es
+continuo y el video se traba, el problema es de ancho de banda USB: bajá a
+320x240 o compartí el puerto con otra cámara que no estés usando.
+
 **No suena en el iPhone**
 Es la excepción a "MP3 lo reproduce todo" solo si cambiás el encoder a
 Opus o Vorbis. Con MP3 128 debería andar en cualquier lado.
@@ -308,7 +413,7 @@ te quedás ciego justo cuando necesitás ver el error.
 
 ```
 radio/
-|-- docker-compose.yml        los tres servicios
+|-- docker-compose.yml        los cuatro servicios
 |-- .env.example              plantilla de configuración
 |-- icecast/
 |   |-- Dockerfile            alpine + icecast (sin imagen de terceros)
@@ -316,17 +421,23 @@ radio/
 |   `-- icecast.xml           sin <directory>: no nos anunciamos
 |-- liquidsoap/
 |   `-- radio.liq             la fuente: playlist -> icecast
+|-- cam/
+|   |-- Dockerfile            debian + ffmpeg (alpine no trae libx264)
+|   `-- capture.sh            webcam -> segmentos HLS, con reintentos
 |-- caddy/
 |   |-- Caddyfile             la puerta
 |   `-- tokens.caddy          GENERADO por token.sh
-|-- web/index.html            el reproductor
+|-- web/
+|   |-- index.html            el reproductor
+|   `-- vendor/               hls.js y su licencia. Nada sale a internet
 |-- music/                    tu música
+|-- data/cam/                 segmentos HLS. Se regeneran solos
 |-- scripts/
 |   |-- token.sh              alta / baja / listado de accesos
-|   |-- smoke.sh              13 verificaciones en 3 grupos
+|   |-- smoke.sh              27 verificaciones en 4 grupos
 |   `-- docs.sh               valida los diagramas Mermaid
 `-- secrets/tokens.txt        QUIÉN tiene acceso. chmod 600.
-                              formato: nombre token cookie
+                              formato: nombre token cookie [vence]
 ```
 
 `secrets/`, `.env` y `data/` están en `.gitignore`: no se commitean.

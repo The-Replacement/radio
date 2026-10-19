@@ -41,11 +41,44 @@
 	# Abrís /?t=TOKEN y Caddy te deja una cookie, te limpia la URL y te
 	# devuelve al reproductor. A partir de ahí el token no vuelve a
 	# aparecer ni en la barra de direcciones ni en los logs.
+	#
+	# `{radio_cookie}` y no `{http.request.uri.query.t}`: son credenciales
+	# distintas y el gate valida la cookie contra la columna cookieid. El
+	# puente `map` de tokens.caddy hace la traducción. Copiar el token acá
+	# dejaría una cookie que el gate rechaza: 404 en cada request. Ya pasó.
 	handle @canje {
-		header Set-Cookie "radio={http.request.uri.query.t}; Path=/; Max-Age=31536000; {$COOKIE_FLAGS}"
+		header Set-Cookie "radio={radio_cookie}; Path=/; Max-Age=31536000; {$COOKIE_FLAGS}"
 		# El `*` no es decorativo: sin matcher explícito, Caddy lee el `/`
 		# como matcher y el `302` como destino, y manda "Location: 302".
 		redir * / 302
+	}
+
+	# ---------------- la cámara, para reproductores ----------------
+	# /cam/<token>/index.m3u8
+	#
+	# Por qué el token va en el CAMINO y no en el query. El playlist de HLS
+	# apunta a otros archivos con rutas relativas, y el reproductor las pide
+	# sin el query: verificado, ffmpeg pedía /cam/seg116.m4s y comía 404. Con
+	# el token como un segmento del camino, cada pedido relativo lo hereda.
+	#
+	# Dos handles anidados en vez de un matcher con path_regexp + expression
+	# en el mismo bloque: dentro de un matcher nombrado, el orden en que se
+	# evalúan las condiciones no es el orden en que las escribís. Si la
+	# expresión corre primero, {re.cam.1} todavía no existe, compara contra ""
+	# y la cámara nunca matchea. El handle externo obliga al orden.
+	@cam_path path_regexp cam ^/cam/([A-Za-z0-9][A-Za-z0-9._-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)$
+	handle @cam_path {
+		handle @cam_ok {
+			@lista path *.m3u8
+			header @lista Cache-Control "no-store"
+			rewrite * /{re.cam.2}
+			root * /srv-cam
+			file_server
+		}
+		# Token vencido, inválido o inventado: 404, igual que el resto.
+		handle {
+			respond 404
+		}
 	}
 
 	# ---------------- autorizado ----------------
@@ -67,6 +100,30 @@
 			reverse_proxy icecast:8000 {
 				rewrite /status-json.xsl
 			}
+		}
+
+		# --- la cámara ---
+		# No es un servicio nuevo ni un proxy: son archivos que deja ffmpeg
+		# en /srv-cam. El gate ya filtró, así que acá sólo se sirven.
+		#
+		# handle_path y no handle: saca el prefijo /cam, así el pedido
+		# /cam/index.m3u8 busca /srv-cam/index.m3u8 y no
+		# /srv-cam/cam/index.m3u8.
+		#
+		# no-store SÓLO en el playlist, y por un motivo concreto: si un
+		# caché intermedio se queda con un .m3u8 viejo, el video se congela
+		# y no hay forma de saber por qué. Los segmentos van sin no-store:
+		# una vez escritos son inmutables y conviene que se cacheen.
+		#
+		# Los .m4s salen con Content-Type video/iso.segment (lo trae Caddy
+		# de fábrica). NO se usa .ts: Caddy lo sirve como
+		# text/vnd.trolltech.linguist y algunos navegadores rechazan el
+		# segmento por MIME. Verificado con curl.
+		handle_path /cam/* {
+			@playlist path *.m3u8
+			header @playlist Cache-Control "no-store"
+			root * /srv-cam
+			file_server
 		}
 
 		# --- el reproductor ---

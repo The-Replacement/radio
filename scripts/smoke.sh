@@ -63,6 +63,34 @@ else
     && pasa "la redirección no arrastra el token" \
     || falla "la redirección arrastra el token"
 
+  # LA CADENA COMPLETA, no las mitades.
+  #
+  # Esto es lo único que prueba que el canje SIRVE: tomar la cookie que el
+  # servidor acaba de entregar y usarla. Antes acá sólo se miraba que la
+  # cabecera existiera y, por separado, que la cookie de tokens.txt
+  # funcionara; el canje podía entregar cualquier basura y las pruebas
+  # pasaban igual. Entregaba el token, el gate lo comparaba contra la
+  # columna cookieid, y todo el mundo terminaba en 404.
+  COOKIE_ENTREGADA="$(sed -nE 's/^[Ss]et-[Cc]ookie: radio=([^;]*).*/\1/p' <<<"$CABECERAS" | head -n1)"
+
+  if [[ -z "$COOKIE_ENTREGADA" ]]; then
+    falla "no pude leer la cookie que entregó el canje"
+  else
+    [[ "$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/")" == "200" ]] \
+      && pasa "la cookie que ENTREGA el canje sirve el reproductor" \
+      || falla "la cookie que ENTREGA el canje no sirve: ¿el canje copia el token en vez de traducirlo? (map token->cookieid en caddy/tokens.caddy)"
+    [[ "$(codigo_stream -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/stream")" == "200" ]] \
+      && pasa "la cookie que ENTREGA el canje sirve el stream" \
+      || falla "la cookie del canje no autenticó el stream"
+  fi
+
+  # Un token inválido no debe pisar una sesión válida con una cookie vacía.
+  if [[ -n "$COOKIE" ]]; then
+    [[ "$(codigo -b /dev/null -H "Cookie: radio=$COOKIE" "$BASE/?t=basura")" == "200" ]] \
+      && pasa "un token inválido no rompe una sesión válida" \
+      || falla "un token inválido pisó la cookie válida"
+  fi
+
   echo
   echo "con credencial válida:"
   [[ "$(codigo "$BASE/?t=$TOKEN")" == "302" ]] \
@@ -94,6 +122,92 @@ else
       falla "el token aparece en los logs de Icecast (el rewrite no está filtrando)"
     else
       pasa "el token NO llega a Icecast"
+    fi
+  fi
+
+  # ---------------------------------------------------------- la cámara
+  # Opcional: si no hay segmentos, no hay cámara que probar.
+  #
+  # Ojo con lo que se prueba acá. El playlist de HLS es un archivo que
+  # apunta a otros archivos: una URL con ?t=... sirve el playlist pero NO
+  # los segmentos, porque los reproductores piden las rutas relativas sin
+  # el query. Por eso la cámara se prueba CON COOKIE. Para el navegador es
+  # transparente (el canje ya dejó la cookie); un reproductor suelto como
+  # VLC, en cambio, no puede ver la cámara sólo con el token.
+  if [[ -f "$RAIZ/data/cam/index.m3u8" ]]; then
+    echo
+    echo "cámara (HLS):"
+
+    [[ "$(codigo "$BASE/cam/index.m3u8")" == "404" ]] \
+      && pasa "playlist sin credencial -> 404" \
+      || falla "playlist sin credencial -> $(codigo "$BASE/cam/index.m3u8")"
+    [[ "$(codigo "$BASE/cam/init.mp4")" == "404" ]] \
+      && pasa "init sin credencial -> 404" \
+      || falla "init sin credencial -> $(codigo "$BASE/cam/init.mp4")"
+
+    if [[ -n "$COOKIE_ENTREGADA" ]]; then
+      [[ "$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/index.m3u8")" == "200" ]] \
+        && pasa "playlist con cookie -> 200" \
+        || falla "playlist con cookie -> $(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/index.m3u8")"
+
+      # init.mp4 y no un segmento: los segmentos rotan (delete_segments) y
+      # un nombre leído hace un segundo puede ya no existir. Los 404 por
+      # rotación son ruido, no fallas.
+      tipo="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_ENTREGADA" \
+              "$BASE/cam/init.mp4" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-type:" {print $2}')"
+      [[ "$tipo" == "video/mp4" ]] \
+        && pasa "init con cookie -> 200 ($tipo)" \
+        || falla "init con cookie sirvió '$tipo' (esperaba video/mp4)"
+
+      # Un segmento real, con un reintento por si rotó.
+      seg="$(grep -v '^#' "$RAIZ/data/cam/index.m3u8" | grep -m1 . || true)"
+      if [[ -n "$seg" ]]; then
+        c="$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/$seg")"
+        if [[ "$c" != "200" ]]; then
+          seg="$(grep -v '^#' "$RAIZ/data/cam/index.m3u8" | grep -m1 . || true)"
+          c="$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/$seg")"
+        fi
+        [[ "$c" == "200" ]] && pasa "segmento con cookie -> 200 ($seg)" \
+                           || falla "segmento con cookie -> $c ($seg)"
+      fi
+
+      tipo="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_ENTREGADA" \
+              "$BASE/cam/${seg:-nada}" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-type:" {print $2}')"
+      [[ "$tipo" == "video/iso.segment" ]] \
+        && pasa "el segmento sale como $tipo" \
+        || falla "el segmento salió como '$tipo' (esperaba video/iso.segment; ¿cambiaste a .ts?)"
+    fi
+
+    # --- el token en el CAMINO, que es como lo ven los reproductores ---
+    # Con ?t=... baja el playlist y los segmentos dan 404: los pedidos
+    # relativos no arrastran el query. Esto prueba la vía que sí funciona.
+    echo
+    echo "  token en el camino (VLC, mpv, ffmpeg):"
+
+    [[ "$(codigo "$BASE/cam/$TOKEN/index.m3u8")" == "200" ]] \
+      && pasa "playlist con token en el camino -> 200" \
+      || falla "playlist con token en el camino -> $(codigo "$BASE/cam/$TOKEN/index.m3u8")"
+    [[ "$(codigo "$BASE/cam/token-inventado/index.m3u8")" == "404" ]] \
+      && pasa "token inventado en el camino -> 404" \
+      || falla "token inventado pasó el gate"
+    [[ "$(codigo "$BASE/cam/$TOKEN/..%2fweb%2findex.html")" == "404" ]] \
+      && pasa "no se puede salir del directorio -> 404" \
+      || falla "el path con .. no fue rechazado"
+
+    if [[ -n "${seg:-}" ]]; then
+      [[ "$(codigo "$BASE/cam/$TOKEN/$seg")" == "200" ]] \
+        && pasa "el segmento relativo hereda el token -> 200 ($seg)" \
+        || falla "el segmento relativo no heredó el token ($seg)"
+    fi
+
+    # La prueba que importa: un reproductor de verdad bajando todo.
+    if command -v ffmpeg >/dev/null 2>&1; then
+      if timeout 25 ffmpeg -hide_banner -v error -i "$BASE/cam/$TOKEN/index.m3u8" \
+           -t 4 -f null - >/dev/null 2>&1; then
+        pasa "ffmpeg baja y decodifica la cámara con el token"
+      else
+        falla "ffmpeg NO pudo bajar la cámara con el token"
+      fi
     fi
   fi
 fi

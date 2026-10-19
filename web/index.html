@@ -36,6 +36,11 @@
   button:hover { transform: scale(1.05); }
   button:disabled { opacity: .35; cursor: not-allowed; }
   audio { display: none; }
+  .cam {
+    margin-top: 1.8rem; border-radius: .6rem; overflow: hidden;
+    background: #000; line-height: 0; box-shadow: 0 0 0 1px #1d1d22;
+  }
+  .cam video { display: block; width: 100%; height: auto; }
   .err { margin-top: 1.5rem; color: #ff8a8a; font-size: .9rem; display: none; text-align: left; }
   .aviso { margin-top: 1.5rem; color: #9a9aa2; font-size: .85rem; display: none; text-align: left; }
   .tel { margin-top: 2rem; color: #55555c; font-size: .72rem; letter-spacing: .06em; }
@@ -50,6 +55,12 @@
   <div class="aviso" id="aviso"></div>
   <div class="err" id="err"></div>
   <div class="tel" id="tel"></div>
+  <!-- `hidden` de entrada: sin cámara, la caja no existe. Aparece sola
+       cuando hay playlist. `muted` no es opcional: un video con audio no
+       puede arrancar solo en ningún navegador. -->
+  <div class="cam" id="cam-caja" hidden>
+    <video id="cam" muted playsinline autoplay></video>
+  </div>
   <audio id="audio" preload="none"></audio>
 </main>
 <script>
@@ -116,6 +127,51 @@
   }
   poll();
   setInterval(poll, 15000);
+
+  /*
+    ------------------------------------------------------------------
+    La cámara. Video mudo: el audio es el de la radio y nada más.
+    ------------------------------------------------------------------
+
+    Se pregunta primero si hay playlist (HEAD). Si no la hay, la caja no
+    aparece y no se carga hls.js siquiera. Eso cubre el caso normal de
+    "la cámara está desenchufada" sin que el usuario vea un recuadro negro
+    ni un error.
+  */
+  var caja = document.getElementById('cam-caja');
+  var cam = document.getElementById('cam');
+
+  function mostrar() { caja.hidden = false; }
+
+  function arrancar() {
+    // Safari e iOS reproducen HLS solos. Chrome, Firefox y Android no.
+    if (cam.canPlayType('application/vnd.apple.mpegurl')) {
+      cam.src = '/cam/index.m3u8';
+      cam.addEventListener('loadedmetadata', mostrar);
+      cam.play().catch(function () { /* autoplay bloqueado: da igual, es mudo */ });
+      return;
+    }
+
+    var s = document.createElement('script');
+    s.src = '/vendor/hls.light.min.js';
+    s.onload = function () {
+      if (!window.Hls || !Hls.isSupported()) return;
+      var hls = new window.Hls();
+      hls.loadSource('/cam/index.m3u8');
+      hls.attachMedia(cam);
+      hls.on(window.Hls.Events.MANIFEST_PARSED, function () { mostrar(); });
+      hls.on(window.Hls.Events.ERROR, function (nada, datos) {
+        // Fatal = no hay forma de seguir. Se esconde la caja en vez de
+        // dejar un rectángulo negro congelado.
+        if (datos && datos.fatal) { caja.hidden = true; hls.destroy(); }
+      });
+    };
+    document.head.appendChild(s);
+  }
+
+  fetch('/cam/index.m3u8', { method: 'HEAD', cache: 'no-store' })
+    .then(function (r) { if (r.ok) arrancar(); })
+    .catch(function () { /* sin cámara */ });
 })();
 </script>
 </body>

@@ -33,6 +33,26 @@ services:
     networks:
       - radio
 
+  # La cámara. No habla con nadie: escribe segmentos HLS en ./data/cam y
+  # Caddy los sirve como archivos. No publica puertos ni tiene red propia.
+  cam:
+    build: ./cam
+    container_name: radio-cam
+    restart: unless-stopped
+    devices:
+      # by-id y NO /dev/videoN a propósito: el número depende del orden en
+      # que el kernel enumera las cámaras. Si reconectás la FaceCam o
+      # enchufás otra, /dev/video2 puede pasar a ser /dev/video4.
+      # Este path apunta siempre a la FaceCam (index0 = nodo de captura;
+      # index1 es metadata y no sirve para capturar).
+      - "${CAM_DEVICE:-/dev/v4l/by-id/usb-KYE_Systems_Corp._FaceCam_1000X-video-index0}:/dev/video0"
+    volumes:
+      - ./data/cam:/out
+    networks:
+      - radio
+    # Si la cámara está desenchufada al levantar, este contenedor NO arranca.
+    # Es correcto: mejor un `up` que falla que un video vacío sin explicación.
+
   caddy:
     image: caddy:2-alpine
     container_name: radio-caddy
@@ -49,6 +69,14 @@ services:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/tokens.caddy:/etc/caddy/tokens.caddy:ro
       - ./web:/srv:ro
+      # Los segmentos de la cámara. Caddy los sirve como archivos: no hay
+      # proxy, no hay otro puerto, no hay otro lugar donde autenticar.
+      #
+      # OJO con la ruta: NO puede ser /srv/cam. Docker monta ./web:/srv:ro
+      # primero (ordena por ruta) y después no puede crear /srv/cam dentro
+      # de un mount de sólo lectura: "Read-only file system (os error 30)".
+      # Por eso el directorio va a /srv-cam y el Caddyfile usa handle_path.
+      - ./data/cam:/srv-cam:ro
       - ./data/caddy:/data
     networks:
       - radio
