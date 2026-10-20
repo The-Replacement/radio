@@ -1,0 +1,41 @@
+# MediaMTX — el tramo de WebRTC.
+#
+# No toca la cámara: ffmpeg sigue siendo el único que abre /dev/video0 y le
+# empuja el H.264 ya codificado por RTSP. Acá sólo se reempaqueta a RTP.
+#
+# Por qué existe: HLS es por segmentos y no baja de ~1.5s de colchón. WebRTC
+# manda los frames apenas salen, con un jitter buffer de decenas de ms.
+#
+# La consecuencia que hay que tener presente: el pedido de señalización (SDP)
+# sí pasa por Caddy y por el gate, pero el video NO. Viaja por UDP directo
+# del navegador a este contenedor, y Caddy no lo ve. Ver docker-compose.yml.
+logLevel: info
+
+# Entrada desde ffmpeg (red interna de Docker, sin publicar).
+rtsp: yes
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+# Salidas que no usamos: menos superficie, menos puertos.
+rtmp: no
+hls: no
+srt: no
+api: no
+playback: no
+
+# Salida WebRTC.
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+
+# Sin esto MediaMTX anuncia las IPs internas del contenedor (172.x), que el
+# navegador no puede alcanzar. Los candidatos ICE tienen que ser direcciones
+# que el navegador sí vea. Para LAN o internet se agrega acá la IP pública o
+# el dominio, y se publica el UDP en 0.0.0.0.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: [127.0.0.1]
+
+paths:
+  cam:
+    # ffmpeg publica; nadie más escribe en este path.
+    source: publisher

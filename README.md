@@ -136,40 +136,53 @@ El webcam entra por la misma puerta que la radio y se ve en un recuadro chico
 debajo del botón de play. **Video mudo**: el audio sigue siendo el de la radio.
 
 ```
-webcam USB
-   |  ffmpeg: MJPEG 640x480 -> H.264, segmentos de 1s
-   v
-./data/cam/ (index.m3u8 + seg*.m4s)
-   |  Caddy los sirve como cualquier otro archivo
-   v
-navegador (<video> + hls.js)
+webcam USB (MJPEG 640x480)
+   |
+   |  ffmpeg: un solo encode a H.264 600 kbps, 15 fps
+   +--> RTSP --> MediaMTX --> WebRTC (WHEP)   <- camino principal, <1s
+   |
+   `--> ./data/cam/ (index.m3u8 + seg*.m4s) --> Caddy --> HLS  <- fallback
 ```
 
-No hay un servicio de video: hay **archivos**. Caddy no proxea nada, no hay
-puerto nuevo, y el gate es el mismo que ya filtraba el audio. Sin credencial,
-`/cam/index.m3u8` da 404 igual que todo lo demás.
+WebRTC es el camino principal porque HLS no puede ser "en vivo": espera a que
+se cierre un segmento. WebRTC manda los frames apenas salen.
 
-Tres decisiones que no son obvias:
+### Por qué WebRTC y no seguir con HLS
 
-**HLS y no MJPEG directo.** Un `<img>` con MJPEG sería más simple y tendría
-~0.3s de retraso en vez de ~1.6s, pero pesa 3-5 Mbps *por oyente* y Safari no
-lo reproduce. HLS manda ~600 kbps y no le importa cuántos miren, porque Caddy
-sirve los mismos archivos para todos; Safari y iOS lo reproducen de fábrica.
+Medido en esta instalación, no leído en un blog:
+
+| Transporte | Retraso | Cómo se midió |
+|---|---|---|
+| WebRTC (WHEP) | **<1s** | hora quemada en el cuadro vs reloj real, en una captura del navegador. El jitter buffer solo medía 13-37 ms |
+| HLS con hls.js | 1.56s | `hls.latency` estable en 30s |
+| HLS nativo de Chrome | ~10s | el mismo stream, sin hls.js |
+| MJPEG directo | ~0.2s | descartado: 47 KB por frame = **5.8 Mbps por oyente** |
+
+El piso de HLS es el segmento: ffmpeg no publica nada hasta cerrarlo. Por eso
+existe MediaMTX: recibe el H.264 por RTSP desde ffmpeg y lo reparte por RTP.
+
+**La contrapartida, y es real:** la señalización (el SDP) pasa por Caddy y por
+el gate como cualquier request, pero **el video no**. Viaja por UDP directo del
+navegador a MediaMTX, y Caddy no lo ve. El puerto va atado a `127.0.0.1` en
+`docker-compose.yml`: hoy sólo esta máquina. Para LAN hay que publicarlo en
+`0.0.0.0` y agregar la IP al `webrtcAdditionalHosts` de `mediamtx/mediamtx.yml`.
+Si el UDP no llega, la página **cae sola a HLS**: se ve con 1.5s en vez de
+fallar.
+
+Decisiones del fallback, que sigue existiendo para navegadores sin WebRTC:
 
 **fMP4 (`.m4s`) y no MPEG-TS (`.ts`).** Verificado con curl: Caddy sirve los
 `.ts` como `text/vnd.trolltech.linguist` —colisión de extensión con Qt— y hay
 navegadores que rechazan el segmento por MIME. Los `.m4s` salen como
 `video/iso.segment` sin configurar nada.
 
-**hls.js servido desde acá.** Safari e iOS reproducen HLS solos; Chrome,
-Firefox y Android no. hls.js es el puente, y vive en `web/vendor/` y no en un
-CDN: si la página le pide un script a un CDN, ese CDN ve quién entra, cuándo y
-desde qué IP. Ver `web/vendor/README.md`.
+**hls.js servido desde acá.** Vive en `web/vendor/` y no en un CDN: si la
+página le pide un script a un CDN, ese CDN ve quién entra, cuándo y desde qué
+IP. Ver `web/vendor/README.md`. Y se carga siempre que haya MSE, aunque el
+navegador diga que reproduce HLS nativo: Chrome responde `"maybe"` a
+`canPlayType` y su implementación nativa bufferea ~10s sin perilla.
 
-### Por qué hay ~1.6s de retraso (y por qué no baja mucho más)
-
-Local no significa instantáneo. El formato es por segmentos, y el presupuesto
-es este:
+### El presupuesto del fallback HLS
 
 | Etapa | Costo |
 |---|---|
@@ -177,21 +190,14 @@ es este:
 | colchón del reproductor detrás del vivo | 1.5s (`liveSyncDuration: 1.5`) |
 | decodificar el primer cuadro | ~0.3s |
 
-Ese colchón es lo que se paga por poder arrancar en cualquier momento sin
-pedirle nada a un servidor. `new Hls()` sin configurar usa 3 **segmentos** de
-colchón; con segmentos de 2s eso eran 6s, y de ahí salían los 10s.
+`new Hls()` sin configurar usa 3 **segmentos** de colchón; con segmentos de 2s
+eso eran 6s. Por qué 1.5 y no menos: con 1.0 el `readyState` caía a 2 en
+alguna muestra (se quedaba sin buffer en el borde); 1.5 da 1.56s sostenidos,
+sin un hipo en 30s.
 
-Ojo con la detección del reproductor: Chrome 154 responde `"maybe"` a
-`canPlayType('application/vnd.apple.mpegurl')`, así que hay que cargar hls.js
-por MSE y no fiarse de esa respuesta. Si se usa el HLS nativo de Chrome, el
-colchón lo decide Chrome (~10s) y no hay perilla. Medido con Chrome headless:
-1.56s con hls.js contra ~10s con el nativo.
-
-HLS **no puede** bajar de un segmento: ffmpeg no publica nada hasta cerrarlo.
-Para menos de 1s hay que cambiar de transporte: WebRTC (~0.3s, pero suma un
-servicio tipo MediaMTX) o MJPEG (~0.3s, pero 3-5 Mbps por oyente y Safari no
-lo reproduce). En Safari el colchón lo decide Safari, no hls.js: ahí queda
-en ~3-4s.
+El pipeline en sí (captura -> encode -> publicar) agrega **50 ms**, medido con
+`EXT-X-PROGRAM-DATE-TIME`: el fin del último segmento publicado está 50 ms
+atrás del reloj. Todo el resto del retraso es reproductor.
 
 ### Cambiar de cámara o de calidad
 
@@ -203,6 +209,10 @@ están en `cam/capture.sh`: 640x480 a 15 fps, H.264 a 600 kbps.
 Si la cámara está desconectada, el contenedor reintenta con backoff y la
 página **no muestra el recuadro**: nada de rectángulos negros ni carteles de
 error. El audio sigue andando como si nada.
+
+`CAM_CLOCK=1` quema la hora real en el cuadro. No es un adorno: es lo que
+permite medir retraso vidrio a vidrio (se compara la hora del video con el
+reloj). Apagado por defecto.
 
 ### La cámara en VLC, mpv o ffmpeg
 
@@ -218,6 +228,11 @@ vlc "http://localhost:8090/cam/<TOKEN>/index.m3u8"
 Los segmentos heredan el prefijo solos. El navegador no necesita esto: usa la
 cookie, y así el token no aparece en cada pedido. `token.sh add` te imprime
 las dos URLs.
+
+Esto es el **fallback HLS**, con 1.5s. Si querés el stream sin retraso, RTSP
+directo a MediaMTX (el puerto 8554 no está publicado: desde esta máquina,
+`rtsp://localhost:8554/cam`; para afuera hay que publicarlo y decidir si eso
+rompe el "una sola puerta").
 
 ---
 
@@ -440,7 +455,7 @@ te quedás ciego justo cuando necesitás ver el error.
 
 ```
 radio/
-|-- docker-compose.yml        los cuatro servicios
+|-- docker-compose.yml        los cinco servicios
 |-- .env.example              plantilla de configuración
 |-- icecast/
 |   |-- Dockerfile            alpine + icecast (sin imagen de terceros)
@@ -450,10 +465,12 @@ radio/
 |   `-- radio.liq             la fuente: playlist -> icecast
 |-- cam/
 |   |-- Dockerfile            debian + ffmpeg (alpine no trae libx264)
-|   `-- capture.sh            webcam -> segmentos HLS, con reintentos
+|   `-- capture.sh            webcam -> RTSP (WebRTC) + HLS, con reintentos
 |-- caddy/
 |   |-- Caddyfile             la puerta
 |   `-- tokens.caddy          GENERADO por token.sh
+|-- mediamtx/
+|   `-- mediamtx.yml          recibe RTSP y publica WebRTC (WHEP)
 |-- web/
 |   |-- index.html            el reproductor
 |   `-- vendor/               hls.js y su licencia. Nada sale a internet
@@ -461,7 +478,7 @@ radio/
 |-- data/cam/                 segmentos HLS. Se regeneran solos
 |-- scripts/
 |   |-- token.sh              alta / baja / listado de accesos
-|   |-- smoke.sh              27 verificaciones en 4 grupos
+|   |-- smoke.sh              29 verificaciones en 4 grupos
 |   `-- docs.sh               valida los diagramas Mermaid
 `-- secrets/tokens.txt        QUIÉN tiene acceso. chmod 600.
                               formato: nombre token cookie [vence]

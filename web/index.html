@@ -148,27 +148,81 @@
   var caja = document.getElementById('cam-caja');
   var cam = document.getElementById('cam');
   var hlsCam = null;
+  var pcWebrtc = null;
 
   function mostrar() { caja.hidden = false; }
 
-  function arrancar() {
+  function porWebrtc() {
     /*
-      hls.js PRIMERO, aunque el navegador diga que reproduce HLS nativo.
+      WebRTC primero: es el único transporte de navegador que no espera a
+      que se cierre un segmento. El jitter buffer son decenas de ms, no
+      segundos.
 
-      Esto costó dos diagnósticos equivocados, así que queda escrito: Chrome
-      154 responde "maybe" a canPlayType('application/vnd.apple.mpegurl').
-      La detección anterior (nativo si canPlayType) mandaba a la
-      implementación nativa de Chrome, que bufferea varios segundos y no
-      expone ninguna perilla. Medido con Chrome headless: servidor 50 ms de
-      pipeline, reproductor ~10s. No era el server.
+      El pedido de señalización (POST del SDP) va por Caddy y pasa el gate
+      como cualquier otro request. El video NO: viaja por UDP directo a
+      mediamtx. Si el UDP no llega, no hay track y se cae a HLS.
+    */
+    var pc = new RTCPeerConnection();
+    pcWebrtc = pc;
+    pc.addTransceiver('video', { direction: 'recvonly' });
 
-      hls.js sí respeta liveSyncDuration. Safari/iOS no soportan hls.js y
-      caen a nativo, que ahí es la única vía.
+    var primerFrame = new Promise(function (listo, fallo) {
+      pc.addEventListener('track', function (e) {
+        cam.srcObject = e.streams[0] || new MediaStream([e.track]);
+        cam.play().catch(function () {});
+        mostrar();
+        listo();
+      });
+      // Sin track no hay video: mejor fallback que un rectángulo negro.
+      setTimeout(function () { fallo(new Error('sin track')); }, 6000);
+    });
+
+    return pc.createOffer()
+      .then(function (of) { return pc.setLocalDescription(of); })
+      .then(function () { return esperarIce(pc); })
+      .then(function () {
+        return fetch('/cam/whep', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp' },
+          body: pc.localDescription.sdp
+        });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error('whep ' + r.status);
+        return r.text();
+      })
+      .then(function (sdp) {
+        return pc.setRemoteDescription({ type: 'answer', sdp: sdp });
+      })
+      .then(function () { return primerFrame; })
+      .catch(function (e) {
+        pc.close();
+        pcWebrtc = null;
+        throw e;
+      });
+  }
+
+  // WHEP sin trickle: hay que mandar el SDP con los candidatos ya juntados.
+  function esperarIce(pc) {
+    return new Promise(function (listo) {
+      if (pc.iceGatheringState === 'complete') return listo();
+      var corte = setTimeout(listo, 2000);
+      pc.addEventListener('icegatheringstatechange', function () {
+        if (pc.iceGatheringState === 'complete') { clearTimeout(corte); listo(); }
+      });
+    });
+  }
+
+  function porHls() {
+    /*
+      Fallback. hls.js PRIMERO, aunque el navegador diga que reproduce HLS
+      nativo: Chrome 154 responde "maybe" a canPlayType y su implementación
+      nativa bufferea ~10s sin perilla. Costó dos diagnósticos equivocados.
     */
     var s = document.createElement('script');
     s.src = '/vendor/hls.light.min.js';
     s.onload = function () {
-      if (window.Hls && window.Hls.isSupported()) { porHls(); return; }
+      if (window.Hls && window.Hls.isSupported()) { hlsConLib(); return; }
       nativo();
     };
     s.onerror = nativo;
@@ -182,7 +236,7 @@
     cam.play().catch(function () { /* autoplay bloqueado: da igual, es mudo */ });
   }
 
-  function porHls() {
+  function hlsConLib() {
     /*
       liveSyncDuration en SEGUNDOS (hls.js: liveSyncPosition = liveEdge -
       targetLatency), así que no depende del tamaño del segmento.
@@ -210,9 +264,12 @@
     cam.play().catch(function () {});
   }
 
-  fetch('/cam/index.m3u8', { method: 'HEAD', cache: 'no-store' })
-    .then(function (r) { if (r.ok) arrancar(); })
-    .catch(function () { /* sin cámara */ });
+  function arrancar() {
+    if (!window.RTCPeerConnection) { porHls(); return; }
+    porWebrtc().catch(function () { porHls(); });
+  }
+
+  arrancar();
 
   /*
     ?debug=1 muestra cuánto está atrasado el reproductor respecto del vivo.
@@ -223,11 +280,27 @@
   if (new URLSearchParams(location.search).has('debug')) {
     var dbg = document.getElementById('debug');
     setInterval(function () {
-      if (!hlsCam) { dbg.textContent = 'latencia: (hls.js no está en uso: HLS nativo)'; return; }
+      if (pcWebrtc) {
+        // En WebRTC no hay "posición en la playlist": lo que se mide es el
+        // jitter buffer del receptor, que es casi todo el retraso del tramo.
+        pcWebrtc.getStats().then(function (stats) {
+          var ms = null;
+          stats.forEach(function (r) {
+            if (r.type === 'inbound-rtp' && r.kind === 'video' &&
+                r.jitterBufferEmittedCount) {
+              ms = (r.jitterBufferDelay / r.jitterBufferEmittedCount) * 1000;
+            }
+          });
+          dbg.textContent = 'transporte: webrtc  |  jitter buffer: ' +
+            (ms === null ? '?' : ms.toFixed(0) + ' ms') +
+            '  |  t: ' + cam.currentTime.toFixed(1) + 's';
+        });
+        return;
+      }
+      if (!hlsCam) { dbg.textContent = 'transporte: HLS nativo'; return; }
       dbg.textContent =
-        'latencia: ' + hlsCam.latency.toFixed(2) + 's' +
+        'transporte: hls.js  |  latencia: ' + hlsCam.latency.toFixed(2) + 's' +
         '  |  objetivo: ' + (hlsCam.targetLatency === null ? '?' : hlsCam.targetLatency.toFixed(2)) + 's' +
-        '  |  max: ' + hlsCam.maxLatency.toFixed(2) + 's' +
         '  |  velocidad: ' + cam.playbackRate.toFixed(2) + 'x';
     }, 1000);
   }

@@ -44,18 +44,37 @@ reintento=3
 while :; do
   limpiar
 
+  # Las opciones de encode están en un array porque hay DOS salidas y en
+  # ffmpeg los -c:v aplican sólo al próximo output: si no se repiten, la
+  # segunda salida se va con el encoder por defecto.
+  ENC=(
+    -an
+    -c:v libx264 -preset veryfast -tune zerolatency
+    -profile:v baseline -pix_fmt yuv420p
+    -b:v 600k -maxrate 700k -bufsize 1200k
+    -g 15 -keyint_min 15 -sc_threshold 0
+    -force_key_frames "expr:gte(t,n_forced*1)"
+  )
+
+  # CAM_CLOCK=1 quema la hora en el cuadro. Es para medir retraso de verdad
+  # (vidrio a vidrio): se mira la hora del video y se compara con el reloj.
+  # Apagado por defecto; no lo dejes prendido en uso normal.
+  if [[ "${CAM_CLOCK:-0}" == "1" ]]; then
+    ENC+=(
+      -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='%{localtime\:%H%M%S}':fontsize=32:fontcolor=white:box=1:boxcolor=black@0.5:x=10:y=10"
+    )
+  fi
+
   ffmpeg -hide_banner -loglevel warning -nostdin \
     -f v4l2 \
     -input_format mjpeg \
     -video_size 640x480 \
     -framerate 15 \
     -i "$DEV" \
-    -an \
-    -c:v libx264 -preset veryfast -tune zerolatency \
-    -profile:v baseline -pix_fmt yuv420p \
-    -b:v 600k -maxrate 700k -bufsize 1200k \
-    -g 15 -keyint_min 15 -sc_threshold 0 \
-    -force_key_frames "expr:gte(t,n_forced*1)" \
+    "${ENC[@]}" \
+    -f rtsp -rtsp_transport tcp \
+    "rtsp://mediamtx:8554/cam" \
+    "${ENC[@]}" \
     -f hls \
     -hls_time 1 \
     -hls_init_time 1 \

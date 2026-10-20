@@ -102,9 +102,21 @@
 			}
 		}
 
-		# --- la cámara ---
-		# No es un servicio nuevo ni un proxy: son archivos que deja ffmpeg
-		# en /srv-cam. El gate ya filtró, así que acá sólo se sirven.
+		# --- la cámara: WebRTC (WHEP) ---
+		# Acá pasa sólo el pedido de señalización (el SDP). El video NO pasa
+		# por Caddy: viaja por UDP directo del navegador a mediamtx. Es el
+		# precio de 0.2-0.4s en vez de 1.5s, y por eso ese puerto UDP va
+		# atado a loopback en docker-compose.yml.
+		#
+		# El path no se reescribe: mediamtx espera /<stream>/whep y el stream
+		# se llama cam, así que /cam/whep le llega igual.
+		handle /cam/whep {
+			reverse_proxy mediamtx:8889
+		}
+
+		# --- la cámara: HLS (fallback) ---
+		# No es un servicio ni un proxy: son archivos que deja ffmpeg en
+		# /srv-cam. El gate ya filtró, así que acá sólo se sirven.
 		#
 		# handle_path y no handle: saca el prefijo /cam, así el pedido
 		# /cam/index.m3u8 busca /srv-cam/index.m3u8 y no

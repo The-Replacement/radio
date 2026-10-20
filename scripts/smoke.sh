@@ -178,6 +178,21 @@ else
         || falla "el segmento salió como '$tipo' (esperaba video/iso.segment; ¿cambiaste a .ts?)"
     fi
 
+    # --- WebRTC: el gate se aplica a la señalización ---
+    # El SDP pasa por Caddy y por el gate; el video no (va por UDP directo).
+    # Sin credencial, la señalización tiene que dar 404 como todo lo demás.
+    [[ "$(codigo -X POST --data 'v=0' -H 'Content-Type: application/sdp' "$BASE/cam/whep")" == "404" ]] \
+      && pasa "whep sin credencial -> 404" \
+      || falla "whep sin credencial pasó el gate"
+    if [[ -n "$COOKIE_ENTREGADA" ]]; then
+      # 400 = llegó a mediamtx, que rechaza el SDP de prueba. 404 sería que
+      # Caddy nunca lo ruteó.
+      [[ "$(codigo -X POST --data 'v=0' -H 'Content-Type: application/sdp' \
+            -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/whep")" == "400" ]] \
+        && pasa "whep con credencial llega a mediamtx (400 = SDP inválido)" \
+        || falla "whep con credencial no llegó a mediamtx"
+    fi
+
     # --- el token en el CAMINO, que es como lo ven los reproductores ---
     # Con ?t=... baja el playlist y los segmentos dan 404: los pedidos
     # relativos no arrastran el query. Esto prueba la vía que sí funciona.

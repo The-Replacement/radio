@@ -33,12 +33,31 @@ services:
     networks:
       - radio
 
+  # MediaMTX: reempaqueta el H.264 como RTP/WebRTC. No abre la cámara.
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.2
+    container_name: radio-mediamtx
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      # El video WebRTC va por UDP directo del navegador al contenedor: NO
+      # pasa por Caddy. Atado a loopback a propósito: hoy sólo esta máquina.
+      # Para LAN: cambiar a "8189:8189/udp" Y agregar la IP al
+      # webrtcAdditionalHosts de mediamtx.yml. Para internet: además abrir
+      # el puerto en el router.
+      - "127.0.0.1:${WEBRTC_UDP_PORT:-8189}:8189/udp"
+    networks:
+      - radio
+
   # La cámara. No habla con nadie: escribe segmentos HLS en ./data/cam y
-  # Caddy los sirve como archivos. No publica puertos ni tiene red propia.
+  # empuja RTSP a mediamtx. Caddy sirve los archivos; el WebRTC va aparte.
   cam:
     build: ./cam
     container_name: radio-cam
     restart: unless-stopped
+    depends_on:
+      - mediamtx
     devices:
       # by-id y NO /dev/videoN a propósito: el número depende del orden en
       # que el kernel enumera las cámaras. Si reconectás la FaceCam o
@@ -46,6 +65,9 @@ services:
       # Este path apunta siempre a la FaceCam (index0 = nodo de captura;
       # index1 es metadata y no sirve para capturar).
       - "${CAM_DEVICE:-/dev/v4l/by-id/usb-KYE_Systems_Corp._FaceCam_1000X-video-index0}:/dev/video0"
+    environment:
+      # CAM_CLOCK=1 quema la hora en el cuadro, para medir retraso. Apagado.
+      CAM_CLOCK: ${CAM_CLOCK:-0}
     volumes:
       - ./data/cam:/out
       # Montado y no sólo horneado: así editar capture.sh es un `restart`,
