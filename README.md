@@ -412,6 +412,14 @@ mide con `ffprobe -count_frames` y el stream entrega los 15 fps igual. Si es
 continuo y el video se traba, el problema es de ancho de banda USB: bajá a
 320x240 o compartí el puerto con otra cámara que no estés usando.
 
+**El audio se corta solo a los pocos segundos**
+La página reconecta sola (hasta 5 intentos) y distingue dos casos: si
+`/status-json.xsl` también da 404, es la credencial y reintentar no sirve; si
+responde, es red o servidor. Si el cartel dice "respondió 404", pedí un link
+nuevo. Si dice "se cortó la conexión", mirá la red. El watchdog vigila que
+`currentTime` avance: un corte de red no siempre dispara `error`, el
+navegador se queda esperando datos para siempre.
+
 **No suena en el iPhone**
 Es la excepción a "MP3 lo reproduce todo" solo si cambiás el encoder a
 Opus o Vorbis. Con MP3 128 debería andar en cualquier lado.

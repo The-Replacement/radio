@@ -91,13 +91,63 @@
   var t = new URLSearchParams(location.search).get('t');
   var sufijo = t ? '?t=' + encodeURIComponent(t) : '';
 
-  audio.src = '/stream' + sufijo;
+  /*
+    Reconexión automática. Un stream en vivo se corta: cambia la red, el
+    equipo suspende, el proxy recicla una conexión. Antes de eso la página
+    daba el error definitivo al primer hipo, que es lo que se veía: el
+    audio conectaba, sonaba unos segundos y al cortarse quedaba un cartel
+    de "pedí un link nuevo" — cuando el link estaba perfecto.
+  */
+  var reintentos = 0;
+  var MAX_REINTENTOS = 5;
+  var ultimoCodigo = 0;
+  var sinCredencial = false;
+
+  function conectar(autoplay) {
+    audio.src = '/stream' + sufijo;
+    if (!autoplay) return;
+    audio.play().catch(function () {
+      // play() rechaza si el pedido falla o si el navegador bloquea el
+      // autoplay. El segundo caso no se arregla reintentando: lo resuelve
+      // el click.
+    });
+  }
+
+  /*
+    Antes de decidir si vale la pena reintentar, se le pregunta al mismo
+    gate por otro recurso. Si /status-json.xsl también da 404, la credencial
+    es el problema y reintentar no sirve. Si responde, el corte fue de red o
+    del servidor, y reintentar sí sirve. Sin esto, un Caddy reiniciándose se
+    confundía con un token vencido: el navegador recibe 404 en los dos casos.
+  */
+  function alFallar() {
+    fetch('/status-json.xsl' + sufijo, { cache: 'no-store' })
+      .then(function (r) { sinCredencial = r.status === 404; })
+      .catch(function () { sinCredencial = false; })
+      .then(function () {
+        if (sinCredencial) { falloDefinitivo(); return; }
+        reintentar();
+      });
+  }
+
+  function reintentar() {
+    reintentos++;
+    if (reintentos > MAX_REINTENTOS) { falloDefinitivo(); return; }
+    err.style.display = 'block';
+    err.textContent = 'Se cortó el stream. Reconectando (' + reintentos +
+                      '/' + MAX_REINTENTOS + ')...';
+    estado.textContent = 'reconectando';
+    dot.classList.remove('live');
+    setTimeout(function () { conectar(true); }, 800 * reintentos);
+  }
 
   btn.addEventListener('click', function () {
-    if (audio.paused) { audio.play().catch(function () { fallo(); }); }
+    if (audio.paused) { conectar(true); }
     else { audio.pause(); }
   });
   audio.addEventListener('playing', function () {
+    reintentos = 0;
+    reproduciendo = true;
     btn.innerHTML = '&#10073;&#10073;';
     estado.textContent = 'en vivo';
     dot.classList.add('live');
@@ -108,15 +158,56 @@
     estado.textContent = 'detenido';
     dot.classList.remove('live');
   });
-  audio.addEventListener('error', fallo);
+  audio.addEventListener('error', function () {
+    ultimoCodigo = audio.error ? audio.error.code : 0;
+    reproduciendo = false;
+    alFallar();
+  });
 
-  function fallo() {
+  function falloDefinitivo() {
     err.style.display = 'block';
-    err.innerHTML = 'No se pudo conectar con el stream.<br>El acceso puede haber vencido, ' +
-                    'o tu navegador no guardó la cookie. Pedí un link nuevo.';
+    err.innerHTML = sinCredencial
+      ? 'El servidor respondió 404.<br>El acceso venció o el navegador no guardó ' +
+        'la cookie. Pedí un link nuevo.'
+      : 'No se pudo conectar con el stream' +
+        (ultimoCodigo ? ' (error ' + ultimoCodigo + ')' : '') + '.<br>' +
+        'Se cortó la conexión y no volvió. Revisá la red.';
     dot.classList.remove('live');
     estado.textContent = 'error';
   }
+
+  /*
+    Watchdog. Un corte de red no siempre dispara `error`: Chrome se queda en
+    readyState 2 con `paused:false` esperando datos que no llegan, para
+    siempre. Verificado cortando Caddy en medio de la reproducción.
+
+    OJO con el arranque: al principio currentTime es 0 mientras bufferea, y
+    eso NO es un corte. Por eso sólo vigila después del primer `playing`; si
+    contara desde el principio, cortaría toda reproducción sana a los 3s.
+  */
+  var ultimoT = 0;
+  var quieto = 0;
+  var reproduciendo = false;
+
+  setInterval(function () {
+    if (!reproduciendo || audio.paused) {
+      ultimoT = audio.currentTime;
+      quieto = 0;
+      return;
+    }
+    if (audio.currentTime > ultimoT + 0.01) {
+      ultimoT = audio.currentTime;
+      quieto = 0;
+      return;
+    }
+    quieto++;
+    if (quieto >= 3) {
+      quieto = 0;
+      reproduciendo = false;
+      ultimoT = audio.currentTime;
+      alFallar();
+    }
+  }, 1000);
 
   // "Sonando ahora": consulta el estado de Icecast cada 15 s.
   function poll() {
