@@ -141,9 +141,24 @@
     setTimeout(function () { conectar(true); }, 800 * reintentos);
   }
 
+  /*
+    ¿Está sonando de verdad? `audio.paused` miente durante un corte: Chrome
+    queda en readyState 2 con paused:false esperando datos que no llegan
+    (el mismo estado que describe el watchdog abajo). Si el botón confía en
+    paused, un corte deja el elemento "no pausado" y el click llama a
+    pause() en vez de reconectar: botón muerto hasta recargar a mano.
+
+    Sonando real es !paused Y con datos frescos para seguir (readyState >= 3,
+    HAVE_FUTURE_DATA). Con un stream en vivo eso sólo se da cuando de verdad
+    fluyen datos; si está en 0-2, no está sonando y conviene reconectar.
+  */
+  function sonando() {
+    return !audio.paused && audio.readyState >= 3;
+  }
+
   btn.addEventListener('click', function () {
-    if (audio.paused) { conectar(true); }
-    else { audio.pause(); }
+    if (sonando()) { audio.pause(); }
+    else { conectar(true); }
   });
   audio.addEventListener('playing', function () {
     reintentos = 0;
