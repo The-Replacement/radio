@@ -147,13 +147,18 @@ recargar_caddy() {
   fi
 }
 
-url_de() {
-  local t="$1"
+# PUBLIC_URL desde .env, con default. Es lo único que comparten las dos
+# funciones de abajo: el formato de cada URL es distinto (token en el query
+# vs. token en el camino), así que sólo se extrae la lectura, no la forma.
+public_url() {
   local public
   public="$(grep -E '^PUBLIC_URL=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
   public="${public:-http://localhost:8090}"
-  public="${public%/}"
-  printf '%s/?t=%s\n' "$public" "$t"
+  printf '%s' "${public%/}"
+}
+
+url_de() {
+  printf '%s/?t=%s\n' "$(public_url)" "$1"
 }
 
 # URL de la camara para reproductores (VLC, mpv, ffmpeg).
@@ -163,18 +168,40 @@ url_de() {
 # sin el query. Con ?t=... el playlist baja y los segmentos dan 404. Con el
 # token en un segmento del camino, cada pedido relativo lo hereda solo.
 url_cam_de() {
-  local t="$1"
-  local public
-  public="$(grep -E '^PUBLIC_URL=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
-  public="${public:-http://localhost:8090}"
-  public="${public%/}"
-  printf '%s/cam/%s/index.m3u8\n' "$public" "$t"
+  printf '%s/cam/%s/index.m3u8\n' "$(public_url)" "$1"
+}
+
+# El nombre se usa dentro de expresiones ERE (^nombre ) y como archivo de
+# trabajo. Restringirlo a un charset sin metacaracteres cierra la superficie
+# de inyección de regex: si no hay ., *, +, (, ), [, ] en el nombre, el patrón
+# `^${nombre} ` matchea sólo esa persona.
+validar_nombre() {
+  if ! [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "Nombre inválido: '$1'. Usá sólo letras, números, guion o guion bajo." >&2
+    exit 1
+  fi
+}
+
+# Coherencia entre el sitio y la cookie. No puedo reiniciar Caddy acá, así que
+# es un aviso alto en las operaciones que sí tocan el .env: https sin Secure
+# deja la cookie viajando por HTTP claro.
+validar_entorno() {
+  local sitio flags
+  sitio="$(grep -E '^SITE_ADDRESS=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
+  flags="$(grep -E '^COOKIE_FLAGS=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
+  if [[ "$sitio" == https://* && "$flags" != *Secure* ]]; then
+    echo "AVISO: SITE_ADDRESS usa https pero COOKIE_FLAGS no tiene 'Secure'." >&2
+    echo "       La cookie de sesión se mandará por HTTP. Agregá '; Secure' a COOKIE_FLAGS." >&2
+  fi
 }
 
 cmd_add() {
   local nombre="${1:?uso: token.sh add <nombre> [vencimiento]}"
   local pedido="${2:-}"
   local vence
+
+  validar_nombre "$nombre"
+  validar_entorno
 
   # OJO: despues de `if ! cmd`, $? es el de la negacion (siempre 0).
   # Hay que guardar el codigo antes de negarlo.
@@ -222,6 +249,7 @@ cmd_add() {
 
 cmd_rm() {
   local nombre="${1:?uso: token.sh rm <nombre>}"
+  validar_nombre "$nombre"
   if ! grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
     echo "\"$nombre\" no estaba en la lista." >&2
     exit 1

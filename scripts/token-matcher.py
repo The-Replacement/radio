@@ -17,6 +17,7 @@ archivo no crezca con credenciales muertas. No se borran de tokens.txt.
 """
 
 import json
+import os
 import secrets
 import sys
 from datetime import date, datetime, timedelta
@@ -62,11 +63,17 @@ def main() -> int:
     filas: list[list[str]] = []
     migrado = False
     with open(entrada, encoding="utf-8") as fh:
-        for linea in fh:
+        for nro, linea in enumerate(fh, start=1):
             linea = linea.strip()
             if not linea or linea.startswith("#"):
                 continue
             partes = linea.split()
+            if len(partes) < 2:
+                print(
+                    f"tokens.txt linea {nro}: se esperaba 'nombre token ...'",
+                    file=sys.stderr,
+                )
+                return 1
             nombre, token = partes[0], partes[1]
             if len(partes) >= 3:
                 cookie = partes[2]
@@ -74,13 +81,31 @@ def main() -> int:
                 cookie = secrets.token_hex(32)  # formato viejo de 2 campos
                 migrado = True
             vence = partes[3] if len(partes) >= 4 else ""
+            # Se valida ANTES de cualquier escritura: un vencimiento mal
+            # formado aborta limpio y no deja tokens.txt a medias.
+            if vence:
+                try:
+                    date.fromisoformat(vence)
+                except ValueError:
+                    print(
+                        f"tokens.txt linea {nro}: vencimiento inválido: {vence!r}"
+                        " (usá YYYY-MM-DD)",
+                        file=sys.stderr,
+                    )
+                    return 1
             filas.append([nombre, token, cookie, vence])
 
     if migrado:
-        with open(entrada, "w", encoding="utf-8") as fh:
+        # Escritura atómica: tmp + os.replace. Si el proceso muere a mitad
+        # de camino, tokens.txt no queda truncado.
+        tmp = entrada + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
             fh.writelines(
                 " ".join(x for x in (n, t, c, v) if x) + "\n" for n, t, c, v in filas
             )
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, entrada)
 
     hoy = date.today()
     vigentes: list[list[str]] = []
