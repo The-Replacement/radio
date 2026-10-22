@@ -53,7 +53,6 @@ while :; do
     -profile:v baseline -pix_fmt yuv420p
     -b:v 600k -maxrate 700k -bufsize 1200k
     -g 15 -keyint_min 15 -sc_threshold 0
-    -force_key_frames "expr:gte(t,n_forced*1)"
   )
 
   # CAM_CLOCK=1 quema la hora en el cuadro. Es para medir retraso de verdad
