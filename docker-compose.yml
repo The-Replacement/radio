@@ -19,7 +19,8 @@ services:
     # Sin volúmenes de log: escribe a stdout (ver <logging> en icecast.xml).
 
   liquidsoap:
-    image: savonet/liquidsoap:v2.4.6
+    # Fijado por digest: reproducibilidad de la imagen exacta que corre hoy.
+    image: savonet/liquidsoap:v2.4.6@sha256:1d4ecfc1b53851c5f018d1ada430302a0678f789a6e96f6de5264255f679689c
     container_name: radio-liquidsoap
     restart: unless-stopped
     depends_on:
@@ -35,7 +36,7 @@ services:
 
   # MediaMTX: reempaqueta el H.264 como RTP/WebRTC. No abre la cámara.
   mediamtx:
-    image: bluenviron/mediamtx:1.21.2
+    image: bluenviron/mediamtx:1.21.2@sha256:c7540465f868a02652118bea5a0daab12a29ac0f6cb8485abd535939ecddf886
     container_name: radio-mediamtx
     restart: unless-stopped
     volumes:
@@ -79,7 +80,7 @@ services:
     # Es correcto: mejor un `up` que falla que un video vacío sin explicación.
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     container_name: radio-caddy
     restart: unless-stopped
     depends_on:
