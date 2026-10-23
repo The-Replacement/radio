@@ -102,6 +102,8 @@
   var MAX_REINTENTOS = 5;
   var ultimoCodigo = 0;
   var sinCredencial = false;
+  // ¿Hay una cadena de reconexión en vuelo? Ver alFallar().
+  var reintentando = false;
 
   function conectar(autoplay) {
     audio.src = '/stream' + sufijo;
@@ -121,6 +123,24 @@
     confundía con un token vencido: el navegador recibe 404 en los dos casos.
   */
   function alFallar() {
+    /*
+      Una sola cadena por corte. Para el MISMO incidente pueden apilarse
+      varios disparadores — el watchdog (tiempo congelado), un `ended`
+      (Icecast patea la conexión), el `error` del reintento — y cada uno
+      llamaría a reintentar() por su cuenta: sin esta guarda el
+      presupuesto de 5 se quema en ~5s en vez de los ~12s del backoff, y
+      una fuente que vuelve a los 8s llega con el contador agotado.
+      Medido: kick a los 11s con watchdog+ended disparando juntos ->
+      fallo definitivo antes de que la fuente volviera.
+
+      OJO: la cadena AVANZA por los eventos de cada intento (falla ->
+      error/ended -> alFallar -> siguiente intento), así que la guarda no
+      puede quedarse puesta: se abre apenas corre el reintento agendado
+      (ver reintentar()). Si no, la cadena muere clavada en (1/5) —
+      medido también.
+    */
+    if (reintentando) return;
+    reintentando = true;
     fetch('/status-json.xsl' + sufijo, { cache: 'no-store' })
       .then(function (r) { sinCredencial = r.status === 404; })
       .catch(function () { sinCredencial = false; })
@@ -138,7 +158,14 @@
                       '/' + MAX_REINTENTOS + ')...';
     estado.textContent = 'reconectando';
     dot.classList.remove('live');
-    setTimeout(function () { conectar(true); }, 800 * reintentos);
+    setTimeout(function () {
+      // El intento corre: con esto, los eventos del SU fallo (error o
+      // ended) vuelven a abrir alFallar() y la cadena sigue. Mientras
+      // estaba agendado, la guarda cohibía a los disparadores duplicados
+      // del mismo corte.
+      reintentando = false;
+      conectar(true);
+    }, 800 * reintentos);
   }
 
   /*
@@ -162,6 +189,7 @@
   });
   audio.addEventListener('playing', function () {
     reintentos = 0;
+    reintentando = false;
     reproduciendo = true;
     btn.innerHTML = '&#10073;&#10073;';
     estado.textContent = 'en vivo';
@@ -170,7 +198,10 @@
   });
   audio.addEventListener('pause', function () {
     btn.innerHTML = '&#9654;';
-    estado.textContent = 'detenido';
+    // El `pause` que dispara cada intento fallido no debe pisar el cartel:
+    // mientras hay cadena en vuelo la página está reconectando, no
+    // detenido (sin esto la UI contradecía al cartel "Reconectando (n/5)").
+    if (!reintentando) estado.textContent = 'detenido';
     dot.classList.remove('live');
   });
   audio.addEventListener('error', function () {
@@ -179,7 +210,29 @@
     alFallar();
   });
 
+  /*
+    Cierre limpio del servidor: si Icecast pateó la conexión (fuente ausente
+    más de su timeout), Chrome ve fin de stream y NO un error. Sin este
+    listener la página queda muda en "detenido" para siempre: no hay error
+    que llame a alFallar() y el watchdog se corta en cuanto paused pasa a
+    true. Medido con pause de liquidsoap: ended a los 11s y la página no
+    volvió sola ni con la fuente restaurada.
+
+    Un fin de stream entra por la misma pregunta que un error: ¿se cayó la
+    credencial o fue la red? alFallar() ya lo decide. ultimoCodigo=0 porque
+    un cierre limpio no trae código de error (el stale de un corte anterior
+    confundiría el mensaje final).
+  */
+  audio.addEventListener('ended', function () {
+    ultimoCodigo = 0;
+    reproduciendo = false;
+    alFallar();
+  });
+
   function falloDefinitivo() {
+    // Se libera la cadena: si el usuario reintenta a mano y vuelve a
+    // fallar, eso debe empezar un presupuesto nuevo, no quedar bloqueado.
+    reintentando = false;
     err.style.display = 'block';
     err.innerHTML = sinCredencial
       ? 'El servidor respondió 404.<br>El acceso venció o el navegador no guardó ' +
