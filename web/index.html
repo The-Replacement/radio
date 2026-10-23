@@ -452,6 +452,7 @@
 
   function nativo() {
     if (!cam.canPlayType('application/vnd.apple.mpegurl')) return;
+    cam.crossOrigin = 'use-credentials';
     cam.src = BACKEND_URL + '/cam/index.m3u8';
     cam.addEventListener('loadedmetadata', mostrar);
     cam.play().catch(function () { /* autoplay bloqueado: da igual, es mudo */ });
@@ -468,6 +469,7 @@
       hipo en 30s. Ese es el piso de HLS con segmentos de 1s.
     */
     var hls = new window.Hls({
+      withCredentials: true,
       liveSyncDuration: 1.5,
       liveMaxLatencyDuration: 5,
       maxLiveSyncPlaybackRate: 1.5,
