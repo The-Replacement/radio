@@ -66,7 +66,9 @@
 		# Tras el split, el player vive en Cloudflare Pages (radio.daza.ar).
 		# El canje ocurre en el backend (stream.daza.ar): se deja la cookie
 		# (Domain=.daza.ar, asi que llega al frontend) y se redirige allá.
-		redir * https://radio.daza.ar 302
+		# El token se conserva en la URL: así el frontend puede usarlo como
+		# respaldo si el navegador bloquea la cookie (Safari ITP, etc.).
+		redir * https://radio.daza.ar/?t={http.request.uri.query.t} 302
 	}
 
 	# ---------------- la cámara, para reproductores ----------------

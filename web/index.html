@@ -400,7 +400,7 @@
       .then(function (of) { return pc.setLocalDescription(of); })
       .then(function () { return esperarIce(pc); })
       .then(function () {
-        return fetch(BACKEND_URL + '/cam/whep', {
+        return fetch(BACKEND_URL + '/cam/whep' + sufijo, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/sdp' },
@@ -452,7 +452,9 @@
   function nativo() {
     if (!cam.canPlayType('application/vnd.apple.mpegurl')) return;
     cam.crossOrigin = 'use-credentials';
-    cam.src = BACKEND_URL + '/cam/index.m3u8';
+    cam.src = t
+      ? BACKEND_URL + '/cam/' + encodeURIComponent(t) + '/index.m3u8'
+      : BACKEND_URL + '/cam/index.m3u8';
     cam.addEventListener('loadedmetadata', mostrar);
     cam.play().catch(function () { /* autoplay bloqueado: da igual, es mudo */ });
   }
@@ -476,7 +478,9 @@
       backBufferLength: 15
     });
     hlsCam = hls;
-    hls.loadSource(BACKEND_URL + '/cam/index.m3u8');
+    hls.loadSource(t
+      ? BACKEND_URL + '/cam/' + encodeURIComponent(t) + '/index.m3u8'
+      : BACKEND_URL + '/cam/index.m3u8');
     hls.attachMedia(cam);
     hls.on(window.Hls.Events.MANIFEST_PARSED, function () { mostrar(); });
     hls.on(window.Hls.Events.ERROR, function (nada, datos) {
