@@ -282,6 +282,56 @@
   }, 1000);
 
   // "Sonando ahora": consulta el estado de Icecast cada 15 s.
+  function actualizarEstado() {
+    fetch('/status-json.xsl' + sufijo, { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function (text) {
+        // Parse Icecast status JSON/XML para obtener listeners
+        var listeners = (text.match(/<listener>\s*(\d+)/) || [])[1];
+        var title = (text.match(/<title>([^<]+)<\/title>/) || [''])[1] || 'Radio';
+
+        if (listeners && parseInt(listeners) > 0) {
+          // ESTADO EN VIVO
+          dot.classList.add('live');
+          estado.textContent = 'en vivo';
+          now.textContent = title || '\u00a0';
+          playBtn.disabled = false;
+          aviso.style.display = 'none';
+          // Cambiar texto del botón si está paused
+          if (sonando()) {
+            btn.innerHTML = '&#10073;&#10073;';
+          }
+        } else {
+          // ESTADO DETENIDO (sin listeners)
+          dot.classList.remove('live');
+          estado.textContent = 'detenido';
+          now.textContent = '';
+          playBtn.disabled = true;
+          aviso.style.display = 'block';
+          aviso.textContent = 'La transmisión está detenida';
+        }
+      })
+      .catch(function () {
+        // FALLBACK: backend inalcanzable (box off, tunnel down, o error de red)
+        dot.classList.remove('live');
+        estado.textContent = 'detenido';
+        now.textContent = '';
+        playBtn.disabled = true;
+        aviso.style.display = 'block';
+        aviso.textContent = 'Radio fuera del aire';
+      });
+  }
+
+  // Verificación inmediata al cargar la página
+  actualizarEstado();
+
+  // Luego cada 15 s (mismo intervalo que el poll original)
+  setInterval(actualizarEstado, 15000);
+
+  // "Sonando ahora" - también actualiza el título cada 15 s (código existente, sin modificar)
   function poll() {
     fetch('/status-json.xsl' + sufijo, { cache: 'no-store' })
       .then(function (r) { return r.json(); })

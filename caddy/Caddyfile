@@ -95,8 +95,11 @@
 			}
 		}
 
-		# --- estado / "sonando ahora" ---
+		# --- estado / "sonando ahora" (CORS para frontend) ---
 		handle /status-json.xsl {
+			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Methods GET, OPTIONS
+			header Access-Control-Allow-Headers Content-Type
 			reverse_proxy icecast:8000 {
 				rewrite /status-json.xsl
 			}
@@ -114,24 +117,12 @@
 			reverse_proxy mediamtx:8889
 		}
 
-		# --- la cámara: HLS (fallback) ---
-		# No es un servicio ni un proxy: son archivos que deja ffmpeg en
-		# /srv-cam. El gate ya filtró, así que acá sólo se sirven.
-		#
-		# handle_path y no handle: saca el prefijo /cam, así el pedido
-		# /cam/index.m3u8 busca /srv-cam/index.m3u8 y no
-		# /srv-cam/cam/index.m3u8.
-		#
-		# no-store SÓLO en el playlist, y por un motivo concreto: si un
-		# caché intermedio se queda con un .m3u8 viejo, el video se congela
-		# y no hay forma de saber por qué. Los segmentos van sin no-store:
-		# una vez escritos son inmutables y conviene que se cacheen.
-		#
-		# Los .m4s salen con Content-Type video/iso.segment (lo trae Caddy
-		# de fábrica). NO se usa .ts: Caddy lo sirve como
-		# text/vnd.trolltech.linguist y algunos navegadores rechazan el
-		# segmento por MIME. Verificado con curl.
+		# --- la cámara: HLS con CORS para reproductores remotos ---
 		handle_path /cam/* {
+			# CORS para playlists .m3u8 y segmentos .m4S (hls.js los pide cross-origin)
+			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Methods GET, OPTIONS
+			header Access-Control-Allow-Headers Content-Type
 			@playlist path *.m3u8
 			header @playlist Cache-Control "no-store"
 			root * /srv-cam
