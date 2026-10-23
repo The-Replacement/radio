@@ -50,7 +50,10 @@
 		header Set-Cookie "radio={radio_cookie}; Path=/; Max-Age=31536000; {$COOKIE_FLAGS}"
 		# El `*` no es decorativo: sin matcher explícito, Caddy lee el `/`
 		# como matcher y el `302` como destino, y manda "Location: 302".
-		redir * / 302
+		# Tras el split, el player vive en Cloudflare Pages (radio.daza.ar).
+		# El canje ocurre en el backend (stream.daza.ar): se deja la cookie
+		# (Domain=.daza.ar, asi que llega al frontend) y se redirige allá.
+		redir * https://radio.daza.ar 302
 	}
 
 	# ---------------- la cámara, para reproductores ----------------
@@ -100,6 +103,7 @@
 			header Access-Control-Allow-Origin https://radio.daza.ar
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
+			header Access-Control-Allow-Credentials true
 			reverse_proxy icecast:8000 {
 				rewrite /status-json.xsl
 			}
@@ -123,6 +127,7 @@
 			header Access-Control-Allow-Origin https://radio.daza.ar
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
+			header Access-Control-Allow-Credentials true
 			@playlist path *.m3u8
 			header @playlist Cache-Control "no-store"
 			root * /srv-cam

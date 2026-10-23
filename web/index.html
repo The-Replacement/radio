@@ -95,6 +95,12 @@
   var t = new URLSearchParams(location.search).get('t');
   var sufijo = t ? '?t=' + encodeURIComponent(t) : '';
 
+  // Backend (Icecast/Caddy) vive en otro origen tras el split: el frontend
+  // está en Cloudflare Pages (radio.daza.ar) y el backend en el tunnel
+  // (stream.daza.ar). Las cookies usan Domain=.daza.ar, así que el gate
+  // sigue funcionando cross-origin.
+  var BACKEND_URL = 'https://stream.daza.ar';
+
   /*
     Reconexión automática. Un stream en vivo se corta: cambia la red, el
     equipo suspende, el proxy recicla una conexión. Antes de eso la página
@@ -110,7 +116,8 @@
   var reintentando = false;
 
   function conectar(autoplay) {
-    audio.src = '/stream' + sufijo;
+    audio.crossOrigin = 'use-credentials';
+    audio.src = BACKEND_URL + '/stream' + sufijo;
     if (!autoplay) return;
     audio.play().catch(function () {
       // play() rechaza si el pedido falla o si el navegador bloquea el
@@ -145,7 +152,7 @@
     */
     if (reintentando) return;
     reintentando = true;
-    fetch('/status-json.xsl' + sufijo, { cache: 'no-store' })
+    fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
       .then(function (r) { sinCredencial = r.status === 404; })
       .catch(function () { sinCredencial = false; })
       .then(function () {
@@ -283,7 +290,7 @@
 
   // "Sonando ahora": consulta el estado de Icecast cada 15 s.
   function actualizarEstado() {
-    fetch('/status-json.xsl' + sufijo, { cache: 'no-store' })
+    fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.text();
@@ -333,7 +340,7 @@
 
   // "Sonando ahora" - también actualiza el título cada 15 s (código existente, sin modificar)
   function poll() {
-    fetch('/status-json.xsl' + sufijo, { cache: 'no-store' })
+    fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         var ic = d && d.icestats && d.icestats.source;
@@ -394,8 +401,9 @@
       .then(function (of) { return pc.setLocalDescription(of); })
       .then(function () { return esperarIce(pc); })
       .then(function () {
-        return fetch('/cam/whep', {
+        return fetch(BACKEND_URL + '/cam/whep', {
           method: 'POST',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/sdp' },
           body: pc.localDescription.sdp
         });
@@ -444,7 +452,7 @@
 
   function nativo() {
     if (!cam.canPlayType('application/vnd.apple.mpegurl')) return;
-    cam.src = '/cam/index.m3u8';
+    cam.src = BACKEND_URL + '/cam/index.m3u8';
     cam.addEventListener('loadedmetadata', mostrar);
     cam.play().catch(function () { /* autoplay bloqueado: da igual, es mudo */ });
   }
@@ -466,7 +474,7 @@
       backBufferLength: 15
     });
     hlsCam = hls;
-    hls.loadSource('/cam/index.m3u8');
+    hls.loadSource(BACKEND_URL + '/cam/index.m3u8');
     hls.attachMedia(cam);
     hls.on(window.Hls.Events.MANIFEST_PARSED, function () { mostrar(); });
     hls.on(window.Hls.Events.ERROR, function (nada, datos) {
