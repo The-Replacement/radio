@@ -305,7 +305,7 @@
           dot.classList.add('live');
           estado.textContent = 'en vivo';
           now.textContent = title || '\u00a0';
-          playBtn.disabled = false;
+          btn.disabled = false;
           aviso.style.display = 'none';
           // Cambiar texto del botón si está paused
           if (sonando()) {
@@ -316,7 +316,7 @@
           dot.classList.remove('live');
           estado.textContent = 'detenido';
           now.textContent = '';
-          playBtn.disabled = true;
+          btn.disabled = true;
           aviso.style.display = 'block';
           aviso.textContent = 'La transmisión está detenida';
         }
@@ -326,7 +326,7 @@
         dot.classList.remove('live');
         estado.textContent = 'detenido';
         now.textContent = '';
-        playBtn.disabled = true;
+        btn.disabled = true;
         aviso.style.display = 'block';
         aviso.textContent = 'Radio fuera del aire';
       });
