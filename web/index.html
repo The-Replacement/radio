@@ -471,7 +471,7 @@
     */
     var hls = new window.Hls({
       xhrSetup: function (xhr) { xhr.withCredentials = true; },
-      fetchSetup: function (request, init) { return new Request(request, { credentials: 'include' }); },
+      fetchSetup: function (context, initParams) { return new Request(context.url, Object.assign({}, initParams, { credentials: 'include' })); },
       liveSyncDuration: 1.5,
       liveMaxLatencyDuration: 5,
       maxLiveSyncPlaybackRate: 1.5,
