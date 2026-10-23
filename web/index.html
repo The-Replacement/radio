@@ -56,7 +56,7 @@
 </head>
 <body>
 <main>
-  <div class="estado"><span class="dot" id="dot"></span><span id="estado">detenido</span></div>
+  <div class="estado"><span class="dot" id="dot"></span><span id="estado">detenido</span><span id="oyentes" style="margin-left:.6rem;font-size:.7rem;color:#9a9aa2;"></span></div>
   <h1>Radio</h1>
   <p class="now" id="now">&nbsp;</p>
   <button id="play" aria-label="Reproducir">&#9654;</button>
@@ -80,6 +80,7 @@
   var btn = document.getElementById('play');
   var dot = document.getElementById('dot');
   var estado = document.getElementById('estado');
+  var oyentes = document.getElementById('oyentes');
   var now = document.getElementById('now');
   var err = document.getElementById('err');
   var aviso = document.getElementById('aviso');
@@ -307,6 +308,7 @@
           now.textContent = (src.server_name || src.server_description || 'Radio') + '\u00a0';
           btn.disabled = false;
           aviso.style.display = 'none';
+          oyentes.textContent = (src.listeners != null ? src.listeners : 0) + ' oyente' + ((src.listeners === 1) ? '' : 's');
           if (sonando()) {
             btn.innerHTML = '&#10073;&#10073;';
           }
@@ -318,6 +320,7 @@
           btn.disabled = true;
           aviso.style.display = 'block';
           aviso.textContent = 'La transmisión está detenida';
+          oyentes.textContent = '';
         }
       })
       .catch(function () {
@@ -328,6 +331,7 @@
         btn.disabled = true;
         aviso.style.display = 'block';
         aviso.textContent = 'Radio fuera del aire';
+        oyentes.textContent = '';
       });
   }
 
