@@ -1,7 +1,16 @@
 Poné acá los archivos de audio que quieras emitir.
 
 Formatos: mp3, ogg, flac, m4a, wav — los que entienda ffmpeg.
-Liquidsoap los toma solos (reload_mode="watch"), no hace falta reiniciar.
+Liquidsoap los toma solos (reload_mode="watch"), no hace falta reiniciar
+para AGREGAR o MODIFICAR archivos.
+
+OJO: borrar archivos NO se propaga solo. Liquidsoap mantiene los temas
+borrados en su playlist aleatoria en memoria y los sigue reproduciendo.
+Para quitar temas de la rotación hay que reiniciar Liquidsoap:
+
+    docker compose restart liquidsoap
+
+(Esto corta el stream ~segundos; el frontend reintenta solo.)
 
 Mientras la carpeta esté vacía, el stream emite silencio en vez de morirse.
 

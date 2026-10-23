@@ -26,6 +26,9 @@ end
 
 # Playlist sobre un directorio. reload_mode="watch" hace que los temas
 # nuevos que agregues a ./music entren solos, sin reiniciar nada.
+# OJO: los BORRADOS no se quitan solos (Liquidsoap los conserva en su
+# playlist aleatoria en memoria). Para quitar temas, reiniciar liquidsoap:
+#   docker compose restart liquidsoap
 musica = playlist(
   mode    = "randomize",
   reload_mode = "watch",
