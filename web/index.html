@@ -469,7 +469,7 @@
       hipo en 30s. Ese es el piso de HLS con segmentos de 1s.
     */
     var hls = new window.Hls({
-      withCredentials: true,
+      xhrSetup: function (xhr) { xhr.withCredentials = true; },
       liveSyncDuration: 1.5,
       liveMaxLatencyDuration: 5,
       maxLiveSyncPlaybackRate: 1.5,

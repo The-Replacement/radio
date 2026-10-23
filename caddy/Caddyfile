@@ -135,6 +135,9 @@
 		# El path no se reescribe: mediamtx espera /<stream>/whep y el stream
 		# se llama cam, así que /cam/whep le llega igual.
 		handle /cam/whep {
+			# mediamtx añade Allow-Origin; Caddy añade Allow-Credentials,
+			# que mediamtx no manda (el navegador lo exige con credentials:include).
+			header Access-Control-Allow-Credentials true
 			reverse_proxy mediamtx:8889
 		}
 
