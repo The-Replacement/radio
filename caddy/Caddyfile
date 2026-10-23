@@ -37,6 +37,19 @@
 	# tokens.caddy lo genera scripts/token.sh — define @gate y @canje.
 	import tokens.caddy
 
+	# ---------------- CORS preflight (sin auth) ----------------
+	# Los pedidos cross-origin (frontend en radio.daza.ar) mandan un OPTIONS
+	# previo que NO lleva cookie. Si no se responde acá, el gate devuelve
+	# 404 sin headers CORS y el navegador bloquea el request real.
+	@preflight method OPTIONS
+	handle @preflight {
+		header Access-Control-Allow-Origin https://radio.daza.ar
+		header Access-Control-Allow-Methods GET, POST, OPTIONS
+		header Access-Control-Allow-Headers Content-Type
+		header Access-Control-Allow-Credentials true
+		respond 204
+	}
+
 	# ---------------- canje del link por cookie ----------------
 	# Abrís /?t=TOKEN y Caddy te deja una cookie, te limpia la URL y te
 	# devuelve al reproductor. A partir de ahí el token no vuelve a
