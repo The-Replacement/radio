@@ -293,26 +293,25 @@
     fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.text();
+        return r.json();
       })
-      .then(function (text) {
-        // Parse Icecast status JSON/XML para obtener listeners
-        var listeners = (text.match(/<listener>\s*(\d+)/) || [])[1];
-        var title = (text.match(/<title>([^<]+)<\/title>/) || [''])[1] || 'Radio';
-
-        if (listeners && parseInt(listeners) > 0) {
+      .then(function (data) {
+        // Icecast reporta el mount activo en icestats.source. Si no hay
+        // source, el stream no está al aire (liquidsoap caído o sin música).
+        // OJO: listeners=0 NO significa detenido; es gente escuchando ahora.
+        var src = data && data.icestats && data.icestats.source;
+        if (src) {
           // ESTADO EN VIVO
           dot.classList.add('live');
           estado.textContent = 'en vivo';
-          now.textContent = title || '\u00a0';
+          now.textContent = (src.server_name || src.server_description || 'Radio') + '\u00a0';
           btn.disabled = false;
           aviso.style.display = 'none';
-          // Cambiar texto del botón si está paused
           if (sonando()) {
             btn.innerHTML = '&#10073;&#10073;';
           }
         } else {
-          // ESTADO DETENIDO (sin listeners)
+          // ESTADO DETENIDO (sin source activo)
           dot.classList.remove('live');
           estado.textContent = 'detenido';
           now.textContent = '';
