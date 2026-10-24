@@ -59,9 +59,9 @@ else
   grep -qE '^HTTP/[0-9.]+ 302' <<<"$CABECERAS" \
     && pasa "y redirige a la URL limpia (302)" \
     || falla "no redirigió con 302"
-  grep -qiE '^location: /$' <<<"$CABECERAS" \
-    && pasa "la redirección no arrastra el token" \
-    || falla "la redirección arrastra el token"
+  grep -qiE '^location: https://radio\.daza\.ar' <<<"$CABECERAS" \
+    && pasa "la redirección apunta al frontend (token puede ir en la URL como respaldo)" \
+    || falla "la redirección no apunta al frontend"
 
   # LA CADENA COMPLETA, no las mitades.
   #
