@@ -106,7 +106,7 @@ sed -i "s|^ICECAST_RELAY_PASSWORD=.*|ICECAST_RELAY_PASSWORD=$(openssl rand -hex 
 sed -i "s|^ICECAST_ADMIN_PASSWORD=.*|ICECAST_ADMIN_PASSWORD=$(openssl rand -hex 24)|"   .env
 
 # 2. Script permissions
-chmod +x scripts/*.sh
+chmod +x scripts/*.sh scripts/*.js
 
 # 3. Generate the matcher and grant yourself access
 #    (creates caddy/tokens.caddy, which is NOT versioned because it holds credentials)
@@ -417,13 +417,53 @@ If you want to reclaim that space:
 rm -rf ~/.cache/radio-docs
 ```
 
-**So it does not slip past in a commit:**
+---
+
+## Validating the player
+
+`web/index.html` has no build and no test runner, so the structure of its
+state machine is checked the same way the diagrams are checked: measured,
+not eyeballed.
+
+```bash
+./scripts/ui-gate.js
+```
+
+It extracts the `<script>` from the page and runs it against a fake DOM and a
+fake `fetch`, then counts what reading alone does not show: how many status
+fetches happen per tick, how many times `#now` is written, and what the label
+does while a reconnection chain is in flight (the chain outranks the tick —
+that is the rule, and this is where it is enforced). It also renders both
+shapes of `icestats.source` (object and array) and fails if they disagree.
+
+```
+UI gate — web/index.html
+
+un solo tick de estado:
+  OK    al cargar la pagina: exactamente 1 fetch de estado
+  OK    15 s: el tick hace exactamente 1 fetch
+  OK    15 s: #now se escribe 1 vez
+
+la cadena de reconexion manda sobre el tick:
+  OK    tick en vivo: el cartel NO pasa a live
+
+Todo bien - 25 chequeos.
+```
+
+Exit codes: `0` all good, `1` a check failed. No network, no stack running:
+only `node`, the dependency `docs.sh` already had. Every check is binary, so
+the gate can fail — run it against the pre-S1 code and 12 of them go red.
+
+**So neither slips past in a commit:**
 
 ```bash
 cat > .git/hooks/pre-commit <<'EOF'
 #!/bin/sh
 if [ -x ./scripts/docs.sh ]; then
   ./scripts/docs.sh || exit 1
+fi
+if [ -x ./scripts/ui-gate.js ]; then
+  ./scripts/ui-gate.js || exit 1
 fi
 EOF
 chmod +x .git/hooks/pre-commit
@@ -570,7 +610,8 @@ radio/
 |-- scripts/
 |   |-- token.sh              grant / revoke / list access
 |   |-- smoke.sh              29 checks in 4 groups
-|   `-- docs.sh               validates the Mermaid diagrams
+|   |-- docs.sh               validates the Mermaid diagrams
+|   `-- ui-gate.js            structure of the player's state machine
 `-- secrets/tokens.txt        WHO has access. chmod 600.
                               format: name token cookie [expires]
 ```

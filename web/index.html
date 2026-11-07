@@ -370,74 +370,87 @@
     }
   }, 1000);
 
-  // "Sonando ahora": consulta el estado de Icecast cada 15 s.
-  function actualizarEstado() {
-    fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
+  /*
+    ------------------------------------------------------------------
+    Un solo tick de estado.
+    ------------------------------------------------------------------
+
+    Antes había DOS encuestas en paralelo (15 s cada una) contra el mismo
+    endpoint, y las dos escribían #now — una con server_name, la otra con
+    title: mandaba la última respuesta y el cartel podía alternar entre
+    "Radio Privada" y el tema. La encuesta que no conocía la cadena de
+    reconexión, además, pisaba "reconectando" con "live" a mitad de
+    reintento: el handler de `pause` ya se había curado de esa clase de
+    bug (:292-299), la encuesta no.
+
+    Ahora: un fetch, un objeto de hechos, un render(). Una sola regla de
+    prioridad: LA CADENA MANDA SOBRE EL TICK. Mientras reintentando ===
+    true, render() no toca el cartel; el resto de los datos sí se pinta.
+  */
+  var TICK_MS = 15000;
+
+  function leerEstado() {
+    return fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
       })
       .then(function (data) {
-        // Icecast reporta el mount activo en icestats.source. Si no hay
-        // source, el stream no está al aire (liquidsoap caído o sin música).
+        // Icecast publica el mount activo en icestats.source. Si no hay
+        // source, no hay aire (liquidsoap caído o sin música).
+        // La forma del dato depende de quién responda: objeto (un mount)
+        // o array (más de uno). Se normaliza UNA vez acá: con dos lecturas
+        // en dos funciones, un array mostraba "Radio" y "0 listeners" en
+        // un lado y el título en el otro.
         // OJO: listeners=0 NO significa detenido; es gente escuchando ahora.
-        var src = data && data.icestats && data.icestats.source;
-        if (src) {
-          // ESTADO EN VIVO
-          dot.classList.add('live');
-          estado.textContent = 'live';
-          now.textContent = (src.server_name || src.server_description || 'Radio') + '\u00a0';
-          btn.disabled = false;
-          aviso.style.display = 'none';
-          oyentes.textContent = (src.listeners != null ? src.listeners : 0) + ' listener' + ((src.listeners === 1) ? '' : 's');
-          if (sonando()) {
-            btn.innerHTML = '&#10073;&#10073;';
-          }
-        } else {
-          // ESTADO DETENIDO (sin source activo)
-          dot.classList.remove('live');
-          estado.textContent = 'stopped';
-          now.textContent = '';
-          btn.disabled = true;
-          aviso.style.display = 'block';
-          aviso.textContent = 'Broadcast is stopped';
-          oyentes.textContent = '';
-        }
+        var s = data && data.icestats && data.icestats.source;
+        if (Array.isArray(s)) s = s[0] || null;
+        return { alcanzable: true, alAire: !!s, fuente: s };
       })
       .catch(function () {
-        // FALLBACK: backend inalcanzable (box off, tunnel down, o error de red)
-        dot.classList.remove('live');
-        estado.textContent = 'stopped';
-        now.textContent = '';
-        btn.disabled = true;
-        aviso.style.display = 'block';
-        aviso.textContent = 'Radio off air';
-        oyentes.textContent = '';
+        // Backend inalcanzable (box off, tunnel down, o error de red).
+        return { alcanzable: false, alAire: false, fuente: null };
       });
   }
 
-  // Verificación inmediata al cargar la página
-  actualizarEstado();
+  function render(f) {
+    var s = f.fuente || null;
+    var enCadena = reintentando;
 
-  // Luego cada 15 s (mismo intervalo que el poll original)
-  setInterval(actualizarEstado, 15000);
-
-  // "Sonando ahora" - también actualiza el título cada 15 s (código existente, sin modificar)
-  function poll() {
-    fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        var ic = d && d.icestats && d.icestats.source;
-        if (!ic) return;
-        var s = Array.isArray(ic) ? ic[0] : ic;
-        var titulo = s.title || s.yp_currently_playing || s.server_name || '';
-        now.textContent = titulo || '\u00a0';
-        if (titulo) document.title = titulo + ' — Radio';
-      })
-      .catch(function () { /* silencio: es solo el cartel */ });
+    if (f.alAire) {
+      var titulo = (s && (s.title || s.yp_currently_playing)) || '';
+      // #now tiene UN escritor, este bloque. El valor sale de un solo
+      // campo (title) con fallback: antes lo escribían dos encuestas con
+      // campos distintos y el cartel parpadeaba.
+      now.textContent = (titulo || s.server_name || s.server_description || 'Radio') + '\u00a0';
+      if (titulo) document.title = titulo + ' — Radio';
+      var n = (s && s.listeners != null) ? s.listeners : 0;
+      oyentes.textContent = n + ' listener' + (n === 1 ? '' : 's');
+      aviso.style.display = 'none';
+      btn.disabled = false;
+      if (!enCadena) {
+        dot.classList.add('live');
+        estado.textContent = 'live';
+        if (sonando()) btn.innerHTML = '&#10073;&#10073;';
+      }
+    } else {
+      now.textContent = '';
+      oyentes.textContent = '';
+      aviso.style.display = 'block';
+      aviso.textContent = f.alcanzable ? 'Broadcast is stopped' : 'Radio off air';
+      btn.disabled = true;
+      if (!enCadena) {
+        dot.classList.remove('live');
+        estado.textContent = 'stopped';
+      }
+    }
   }
-  poll();
-  setInterval(poll, 15000);
+
+  function tick() { leerEstado().then(render); }
+
+  // Verificación inmediata al cargar la página, y después cada TICK_MS.
+  tick();
+  setInterval(tick, TICK_MS);
 
   /*
     ------------------------------------------------------------------
