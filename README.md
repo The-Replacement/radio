@@ -1,18 +1,24 @@
-# Radio privada con token
+# Private radio with token
 
-Una radio que existe para un círculo cerrado. Sin credencial, no hay radio.
+A radio that exists for a closed circle. Without a credential, there is no radio.
 
-- **Liquidsoap** reproduce `./music` en orden aleatorio.
-- **Icecast** sirve el stream — y **no se anuncia en ningún directorio público**.
-- **Caddy** es la única puerta: sin credencial válida responde 404, no 401. No le confirma a nadie que acá hay algo.
-- **ffmpeg** convierte el webcam USB en HLS, para que además de escuchar se pueda ver. Video mudo: el audio es el de la radio.
+- **Liquidsoap** plays `./music` in random order.
+- **Icecast** serves the stream — and **is not announced in any public
+  directory**.
+- **Caddy** is the only door: without a valid credential it answers 404, not
+  401. It does not confirm to anyone that anything exists here.
+- **ffmpeg** turns the USB webcam into HLS, so that in addition to listening
+  you can watch. Muted video: the audio is the radio's.
 
-Cada persona recibe **dos credenciales**:
+Each person gets **two credentials**:
 
-- un **token**, que viaja una sola vez en el link de invitación y sirve también para reproductores (VLC, mpv, ffmpeg);
-- una **cookie**, que el navegador recibe al abrir ese link y con la que escucha a partir de ahí. Es lo que evita que el token esté en la barra de direcciones y en los logs en cada reproducción.
+- a **token**, which travels once in the invitation link and also serves
+  players (VLC, mpv, ffmpeg);
+- a **cookie**, which the browser receives when opening that link and uses
+  from then on. This keeps the token out of the address bar and out of the
+  logs on every playback.
 
-Todo open source, todo en un `docker compose up`.
+All open source, all in a `docker compose up`.
 
 ---
 
@@ -41,6 +47,19 @@ the transport. The content is ours.
 
 ---
 
+## Ever growing
+
+This is the tip, not the whole thing. indiegenerator keeps iterating:
+new versions, new slices, new techniques, new gates. The lanes you hear
+today are the first pass; the generator keeps evolving, changing, improving.
+
+And this radio is the destination for more than one project. Other
+generators, other music, other voices, other noises, other sounds — built in
+weird ways — will land on this same stream soon. The door does not change;
+what comes through it does.
+
+---
+
 ## How a track is born
 
 1. A seed (a number) and a lane (motorik, kosmische, ambient,
@@ -62,7 +81,7 @@ re-renders. Determinism is the property, not a side effect.
 
 ## The five lanes
 
-| Carril | Peso | Tempo | ARTIST | ALBUM |
+| Lane | Weight | Tempo | ARTIST | ALBUM |
 |---|---|---|---|---|
 | motorik | 30 % | 110–140 | Steady Hand | Sixteen Steps |
 | kosmische | 25 % | 70–110 | Hollow Signal | Sustained Weather |
@@ -70,334 +89,335 @@ re-renders. Determinism is the property, not a side effect.
 | dub-electronic | 15 % | 100–130 | Silt | Chamber Echoes |
 | indie-noise | 10 % | 90–135 | Tin Roof | Loose Ends |
 
-Un solo banco de motivos, una sola paleta, un solo drift 1/f, un solo mazo
-de estrategias, un solo centro de tempo. La identidad está en el sonido, no
-en la etiqueta.
+One motif bank, one palette, one 1/f drift, one strategy deck, one
+tempo centre. The identity is in the sound, not the tag.
 
 ---
 
-## Arranque
+## Start
 
 ```bash
 cd ~/Work/radio
 
-# 1. Configuración (genera secretos aleatorios)
+# 1. Configuration (generates random secrets)
 cp .env.example .env
 sed -i "s|^ICECAST_SOURCE_PASSWORD=.*|ICECAST_SOURCE_PASSWORD=$(openssl rand -hex 24)|" .env
 sed -i "s|^ICECAST_RELAY_PASSWORD=.*|ICECAST_RELAY_PASSWORD=$(openssl rand -hex 24)|"   .env
 sed -i "s|^ICECAST_ADMIN_PASSWORD=.*|ICECAST_ADMIN_PASSWORD=$(openssl rand -hex 24)|"   .env
 
-# 2. Permisos de los scripts
+# 2. Script permissions
 chmod +x scripts/*.sh
 
-# 3. Generar el matcher y darte acceso
-#    (crea caddy/tokens.caddy, que NO se versiona porque tiene credenciales)
+# 3. Generate the matcher and grant yourself access
+#    (creates caddy/tokens.caddy, which is NOT versioned because it holds credentials)
 ./scripts/token.sh add yo
 
-# 4. Levantar
+# 4. Bring it up
 docker compose up -d --build
 
-# 5. Verificar que la puerta cierre bien
+# 5. Verify the door closes properly
 ./scripts/smoke.sh
 ```
 
-El paso 3 te imprime el link. **Ese link es la llave.** Se abre una vez en
-el navegador: el token se canjea por la cookie, la URL queda limpia y a
-partir de ahí el token ya no vuelve a viajar.
+Step 3 prints the link. **That link is the key.** It is opened once in the
+browser: the token is exchanged for the cookie, the URL is cleaned, and from
+then on the token never travels again.
 
-Si en cambio arrancás de un clon y querés levantar antes de dar acceso,
-copiá la plantilla: `cp caddy/tokens.caddy.example caddy/tokens.caddy`
-(no dejes que Docker cree el archivo: crearía un directorio).
+If instead you start from a clone and want to bring it up before granting
+access, copy the template: `cp caddy/tokens.caddy.example caddy/tokens.caddy`
+(do not let Docker create the file: it would create a directory).
 
 ---
 
-## Dar y sacar acceso
+## Grant and revoke access
 
 ```bash
-./scripts/token.sh add juan     # le da acceso a juan y te imprime su link
-./scripts/token.sh ls           # quién tiene acceso
-./scripts/token.sh rm juan      # le corta el acceso (token y cookie)
-./scripts/token.sh regen        # regenera los matchers desde secrets/tokens.txt
+./scripts/token.sh add juan     # grants access to juan and prints their link
+./scripts/token.sh ls           # who has access
+./scripts/token.sh rm juan      # cuts access (token and cookie)
+./scripts/token.sh regen        # regenerates the matchers from secrets/tokens.txt
 ```
 
-**Credenciales por persona.** Es la razón de hacerlo así y no con una sola
-contraseña compartida: si alguien filtra su link, le cortás el acceso a esa
-persona y no le cambiás el link a todas las demás.
+**Per-person credentials.** That is the reason for doing it this way instead
+of a single shared password: if someone leaks their link, you cut access for
+that person and do not change the link for everyone else.
 
-`regen` sirve si editás `secrets/tokens.txt` a mano, o después de traerte el
-repo a otra máquina.
-
----
-
-## Agregar música
-
-Copiá los archivos a `./music/`. Entran solos, sin reiniciar nada.
+`regen` is useful if you edit `secrets/tokens.txt` by hand, or after bringing
+the repo to another machine.
 
 ---
 
-## Cómo funciona la puerta
+## Adding music
 
-Quién puede hablar con quién. La línea punteada del recuadro es todo lo que
-NO está publicado a internet:
+Copy the files into `./music/`. They are picked up on their own, no restart
+needed.
+
+---
+
+## How the door works
+
+Who can talk to whom. The dotted line of the box is everything NOT published
+to the internet:
 
 ```mermaid
 flowchart TB
-    O(["Oyente"])
-    C["Caddy :443<br/>única puerta publicada"]
+    O(["Listener"])
+    C["Caddy :443<br/>only published door"]
     O -->|"HTTPS"| C
-    C -->|"sin credencial"| N["404"]
+    C -->|"no credential"| N["404"]
 
-    subgraph interno["Red interna de Docker - sin puertos publicados"]
+    subgraph interno["Docker internal network - no published ports"]
         direction BT
-        M["musica/"] --> L["Liquidsoap"] --> I["Icecast :8000"]
+        M["music/"] --> L["Liquidsoap"] --> I["Icecast :8000"]
     end
 
-    C -->|"credencial válida"| I
+    C -->|"valid credential"| I
 ```
 
-Y el canje, paso por paso:
+And the exchange, step by step:
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant O as Oyente
+    participant O as Listener
     participant C as Caddy
     participant I as Icecast
 
-    O->>C: GET /?t=TOKEN   (una sola vez, desde el link)
-    C-->>O: Set-Cookie + 302 a /
-    O->>C: GET /   (ya manda la cookie)
-    C-->>O: el reproductor
+    O->>C: GET /?t=TOKEN   (once, from the link)
+    C-->>O: Set-Cookie + 302 to /
+    O->>C: GET /   (now sends the cookie)
+    C-->>O: the player
     O->>C: GET /stream   (cookie)
-    C->>I: GET /stream   (el rewrite borró el token)
-    I-->>C: bytes de audio
-    C-->>O: audio en vivo
+    C->>I: GET /stream   (the rewrite stripped the token)
+    I-->>C: audio bytes
+    C-->>O: live audio
 ```
 
-Cuatro capas, y cada una hace algo distinto:
+Four layers, each doing something different:
 
-1. **Caddy valida la credencial** contra `caddy/tokens.caddy` (generado).
-2. **El canje**: el `?t=...` del link se convierte en cookie y la URL se limpia
-   con un 302. A partir de ahí el token no vuelve a viajar.
-3. **`rewrite` borra el query** antes de proxear: el token nunca llega a
-   Icecast, así que no puede aparecer en sus logs.
-4. **Icecast no publica puertos.** Está en la red interna de Docker. Aunque
-   alguien encuentre el contenedor, no lo alcanza desde afuera.
+1. **Caddy validates the credential** against `caddy/tokens.caddy` (generated).
+2. **The exchange**: the `?t=...` of the link becomes a cookie and the URL is
+   cleaned with a 302. From then on the token never travels again.
+3. **`rewrite` strips the query** before proxying: the token never reaches
+   Icecast, so it cannot appear in its logs.
+4. **Icecast publishes no ports.** It lives in Docker's internal network. Even
+   if someone finds the container, they cannot reach it from outside.
 
-Y la radio **no se anuncia en directorios** (`<directory>` ausente en
-`icecast.xml` + `<public>0</public>`). No aparece en dir.xiph.org ni en
-ningún listado de radios.
+And the radio **is not announced in directories** (`<directory>` absent in
+`icecast.xml` + `<public>0</public>`). It does not appear on dir.xiph.org or
+in any radio listing.
 
 ---
 
-## La cámara
+## The camera
 
-El webcam entra por la misma puerta que la radio y se ve en un recuadro chico
-debajo del botón de play. **Video mudo**: el audio sigue siendo el de la radio.
+The webcam comes in through the same door as the radio and shows in a small
+box below the play button. **Muted video**: the audio is still the radio's.
 
 ```
 webcam USB (MJPEG 640x480)
    |
-   |  ffmpeg: un solo encode a H.264 600 kbps, 15 fps
-   +--> RTSP --> MediaMTX --> WebRTC (WHEP)   <- camino principal, <1s
+   |  ffmpeg: single encode to H.264 600 kbps, 15 fps
+   +--> RTSP --> MediaMTX --> WebRTC (WHEP)   <- main path, <1s
    |
    `--> ./data/cam/ (index.m3u8 + seg*.m4s) --> Caddy --> HLS  <- fallback
 ```
 
-WebRTC es el camino principal porque HLS no puede ser "en vivo": espera a que
-se cierre un segmento. WebRTC manda los frames apenas salen.
+WebRTC is the main path because HLS cannot be "live": it waits for a segment
+to close. WebRTC sends frames as soon as they come out.
 
-### Por qué WebRTC y no seguir con HLS
+### Why WebRTC instead of staying on HLS
 
-Medido en esta instalación, no leído en un blog:
+Measured on this installation, not read in a blog:
 
-| Transporte | Retraso | Cómo se midió |
+| Transport | Delay | How it was measured |
 |---|---|---|
-| WebRTC (WHEP) | **<1s** | hora quemada en el cuadro vs reloj real, en una captura del navegador. El jitter buffer solo medía 13-37 ms |
-| HLS con hls.js | 1.56s | `hls.latency` estable en 30s |
-| HLS nativo de Chrome | ~10s | el mismo stream, sin hls.js |
-| MJPEG directo | ~0.2s | descartado: 47 KB por frame = **5.8 Mbps por oyente** |
+| WebRTC (WHEP) | **<1s** | time burned into the frame vs real clock, in a browser capture. The jitter buffer only measured 13-37 ms |
+| HLS with hls.js | 1.56s | `hls.latency` stable over 30s |
+| Chrome native HLS | ~10s | the same stream, without hls.js |
+| Direct MJPEG | ~0.2s | discarded: 47 KB per frame = **5.8 Mbps per listener** |
 
-El piso de HLS es el segmento: ffmpeg no publica nada hasta cerrarlo. Por eso
-existe MediaMTX: recibe el H.264 por RTSP desde ffmpeg y lo reparte por RTP.
+HLS's floor is the segment: ffmpeg publishes nothing until it closes. That is
+why MediaMTX exists: it receives H.264 over RTSP from ffmpeg and redistributes
+it over RTP.
 
-**La contrapartida, y es real:** la señalización (el SDP) pasa por Caddy y por
-el gate como cualquier request, pero **el video no**. Viaja por UDP directo del
-navegador a MediaMTX, y Caddy no lo ve. El puerto va atado a `127.0.0.1` en
-`docker-compose.yml`: hoy sólo esta máquina. Para LAN hay que publicarlo en
-`0.0.0.0` y agregar la IP al `webrtcAdditionalHosts` de `mediamtx/mediamtx.yml`.
-Si el UDP no llega, la página **cae sola a HLS**: se ve con 1.5s en vez de
-fallar.
+**The real trade-off:** signalling (the SDP) goes through Caddy and the gate
+like any request, but **the video does not**. It travels over direct UDP from
+the browser to MediaMTX, and Caddy never sees it. The port is bound to
+`127.0.0.1` in `docker-compose.yml`: today only this machine. For LAN you
+publish it on `0.0.0.0` and add the IP to `webrtcAdditionalHosts` in
+`mediamtx/mediamtx.yml`. If UDP does not arrive, the page **falls back to
+HLS on its own**: you see it with 1.5s instead of failing.
 
-Decisiones del fallback, que sigue existiendo para navegadores sin WebRTC:
+Fallback decisions, which still exist for browsers without WebRTC:
 
-**fMP4 (`.m4s`) y no MPEG-TS (`.ts`).** Verificado con curl: Caddy sirve los
-`.ts` como `text/vnd.trolltech.linguist` —colisión de extensión con Qt— y hay
-navegadores que rechazan el segmento por MIME. Los `.m4s` salen como
-`video/iso.segment` sin configurar nada.
+**fMP4 (`.m4s`) and not MPEG-TS (`.ts`).** Verified with curl: Caddy serves
+`.ts` as `text/vnd.trolltech.linguist` — extension collision with Qt — and
+some browsers reject the segment by MIME. `.m4s` come out as `video/iso.segment`
+with no configuration.
 
-**hls.js servido desde acá.** Vive en `web/vendor/` y no en un CDN: si la
-página le pide un script a un CDN, ese CDN ve quién entra, cuándo y desde qué
-IP. Ver `web/vendor/README.md`. Y se carga siempre que haya MSE, aunque el
-navegador diga que reproduce HLS nativo: Chrome responde `"maybe"` a
-`canPlayType` y su implementación nativa bufferea ~10s sin perilla.
+**hls.js served from here.** It lives in `web/vendor/` and not on a CDN: if
+the page asks a CDN for a script, that CDN sees who enters, when, and from
+which IP. See `web/vendor/README.md`. And it is always loaded when MSE is
+available, even if the browser claims to play HLS natively: Chrome answers
+`"maybe"` to `canPlayType` and its native implementation buffers ~10s with no
+knob.
 
-### El presupuesto del fallback HLS
+### The HLS fallback budget
 
-| Etapa | Costo |
+| Stage | Cost |
 |---|---|
-| ffmpeg cierra y publica el segmento | 0-1s (`-hls_time 1`) |
-| colchón del reproductor detrás del vivo | 1.5s (`liveSyncDuration: 1.5`) |
-| decodificar el primer cuadro | ~0.3s |
+| ffmpeg closes and publishes the segment | 0-1s (`-hls_time 1`) |
+| player cushion behind live | 1.5s (`liveSyncDuration: 1.5`) |
+| decode the first frame | ~0.3s |
 
-`new Hls()` sin configurar usa 3 **segmentos** de colchón; con segmentos de 2s
-eso eran 6s. Por qué 1.5 y no menos: con 1.0 el `readyState` caía a 2 en
-alguna muestra (se quedaba sin buffer en el borde); 1.5 da 1.56s sostenidos,
-sin un hipo en 30s.
+`new Hls()` unconfigured uses 3 **segments** of cushion; with 2s segments that
+was 6s. Why 1.5 and not less: at 1.0 the `readyState` dropped to 2 on some
+samples (it ran out of buffer at the edge); 1.5 gives a steady 1.56s, not a
+single hiccup over 30s.
 
-El pipeline en sí (captura -> encode -> publicar) agrega **50 ms**, medido con
-`EXT-X-PROGRAM-DATE-TIME`: el fin del último segmento publicado está 50 ms
-atrás del reloj. Todo el resto del retraso es reproductor.
+The pipeline itself (capture -> encode -> publish) adds **50 ms**, measured
+with `EXT-X-PROGRAM-DATE-TIME`: the end of the last published segment is 50 ms
+behind the clock. Everything else in the delay is the player.
 
-### Cambiar de cámara o de calidad
+### Changing camera or quality
 
-`CAM_DEVICE` en `.env` viene apuntando al symlink `by-id` de la FaceCam, que
-no cambia aunque reconectes el equipo (el número de `/dev/videoN`, en cambio,
-depende del orden en que el kernel enumera las cámaras). Resolución y bitrate
-están en `cam/capture.sh`: 640x480 a 15 fps, H.264 a 600 kbps.
+`CAM_DEVICE` in `.env` points at the FaceCam's `by-id` symlink, which does
+not change even if you reconnect the equipment (the `/dev/videoN` number, on
+the other hand, depends on the order the kernel enumerates cameras).
+Resolution and bitrate are in `cam/capture.sh`: 640x480 at 15 fps, H.264 at
+600 kbps.
 
-Si la cámara está desconectada, el contenedor reintenta con backoff y la
-página **no muestra el recuadro**: nada de rectángulos negros ni carteles de
-error. El audio sigue andando como si nada.
+If the camera is disconnected, the container retries with backoff and the page
+**shows no box**: no black rectangles and no error banners. The audio keeps
+going as if nothing happened.
 
-`CAM_CLOCK=1` quema la hora real en el cuadro. No es un adorno: es lo que
-permite medir retraso vidrio a vidrio (se compara la hora del video con el
-reloj). Apagado por defecto.
+`CAM_CLOCK=1` burns the real time into the frame. It is not decoration: it is
+what allows measuring glass-to-glass delay (the video's time is compared with
+the clock). Off by default.
 
-### La cámara en VLC, mpv o ffmpeg
+### The camera in VLC, mpv or ffmpeg
 
-El playlist de HLS apunta a otros archivos, y los reproductores los piden
-como rutas relativas: si el token va en el query, esos pedidos salen **sin**
-el token y comen 404. Por eso la cámara, para reproductores, se pide con el
-token en el camino:
+The HLS playlist points to other files, and players request them as relative
+paths: if the token is in the query, those requests go out **without** the
+token and get 404. That is why the camera, for players, is requested with the
+token in the path:
 
 ```bash
 vlc "http://localhost:8090/cam/<TOKEN>/index.m3u8"
 ```
 
-Los segmentos heredan el prefijo solos. El navegador no necesita esto: usa la
-cookie, y así el token no aparece en cada pedido. `token.sh add` te imprime
-las dos URLs.
+Segments inherit the prefix on their own. The browser does not need this: it
+uses the cookie, so the token does not appear on every request. `token.sh add`
+prints both URLs.
 
-Esto es el **fallback HLS**, con 1.5s. Si querés el stream sin retraso, RTSP
-directo a MediaMTX (el puerto 8554 no está publicado: desde esta máquina,
-`rtsp://localhost:8554/cam`; para afuera hay que publicarlo y decidir si eso
-rompe el "una sola puerta").
-
----
-
-## Qué tan privado es esto, de verdad
-
-Medido, no supuesto. Lo que sigue está verificado en esta instalación.
-
-**Lo que sí resuelve**
-- Nadie llega sin credencial: sin token y sin cookie, todo da 404.
-- No aparece en buscadores (`noindex`), ni en directorios de radios.
-- El contenido va cifrado (TLS) cuando lo publicás con un dominio.
-- Revocás a una persona sin tocarle el link a las demás.
-- **El video está detrás del mismo gate que el audio.** Sin credencial,
-  `/cam/index.m3u8` y cada segmento dan 404. Verificado en el smoke test.
-- **Las credenciales no quedan escritas en los logs.** Caddy redacta la
-  cookie por su cuenta (`"Cookie":["REDACTED"]`) y el nivel de log está en
-  `ERROR`, así que la URL con `?t=...` tampoco se registra. Verificado: 0
-  ocurrencias de ambas tras generar tráfico.
-
-**Lo que NO resuelve**
-- El token está en el link de invitación: si alguien lo comparte o lo pega
-  en un chat sin cifrar, se filtra. Es el costo de que sea simple.
-- Los reproductores (VLC) siguen mandando el token en la URL. Si a vos te
-  importa eso, escuchá desde el navegador (cookie) y listo.
-- La cámara, en reproductores, necesita el token en el camino
-  (`/cam/<token>/...`) y no en el query. No es una concesión: es cómo funciona
-  HLS con rutas relativas.
-- No oculta tu IP ni tu proveedor. Tu VPS sabe que esto existe.
-- Si bajás el nivel de log a `INFO` para debuggear, el token de los
-  reproductores sí se escribe. Volvé a `ERROR` después.
-
-**Endurecer (en orden de costo/beneficio)**
-
-1. **Tokens con vencimiento** — `nombre token cookie vence`. Se revoca por
-   tiempo solo.
-2. **Un dispositivo por credencial** — límite de conexiones simultáneas.
-3. **Firmar la cookie** — que la cookie no sea el valor guardado, sino un
-   HMAC, para que un volcado de `secrets/tokens.txt` no alcance.
-4. **Audio sin costuras** — `crossfade`, jingles, `request.dynamic` para
-   pedir temas por chat.
-
-Pedí cualquiera de estas y lo agregamos.
+This is the **HLS fallback**, with 1.5s. If you want the stream without delay,
+RTSP direct to MediaMTX (port 8554 is not published: from this machine,
+`rtsp://localhost:8554/cam`; from outside you have to publish it and decide
+whether that breaks the "single door").
 
 ---
 
-## Si lo querés publicar en internet
+## How private this really is
 
-En `.env`, cambiá:
+Measured, not assumed. What follows is verified on this installation.
+
+**What it does solve**
+- Nobody gets in without a credential: without token and without cookie,
+  everything returns 404.
+- It does not appear in search engines (`noindex`), nor in radio directories.
+- Content is encrypted (TLS) when published with a domain.
+- You revoke one person without touching anyone else's link.
+- **The video is behind the same gate as the audio.** Without a credential,
+  `/cam/index.m3u8` and every segment return 404. Verified in the smoke test.
+- **Credentials are not written to the logs.** Caddy redacts the cookie on
+  its own (`"Cookie":["REDACTED"]`) and the log level is `ERROR`, so the URL
+  with `?t=...` is not logged either. Verified: 0 occurrences of both after
+  generating traffic.
+
+**What it does NOT solve**
+- The token is in the invitation link: if someone shares it or pastes it into
+  an unencrypted chat, it leaks. That is the cost of keeping it simple.
+- Players (VLC) keep sending the token in the URL. If that matters to you,
+  listen from the browser (cookie) and you are done.
+- The camera, in players, needs the token in the path
+  (`/cam/<token>/...`) and not in the query. That is not a concession: that
+  is how HLS works with relative paths.
+- It does not hide your IP or your provider. Your VPS knows this exists.
+- If you lower the log level to `INFO` for debugging, the players' tokens are
+  written. Go back to `ERROR` afterwards.
+
+**Hardening (in cost/benefit order)**
+
+1. **Expiring tokens** — `name token cookie expires`. Revoked by time alone.
+2. **One device per credential** — limit on simultaneous connections.
+3. **Signed cookie** — the cookie is not the stored value but an HMAC, so a
+   dump of `secrets/tokens.txt` is not enough.
+4. **Seamless audio** — `crossfade`, jingles, `request.dynamic` to request
+   tracks by chat.
+
+Ask for any of these and we add it.
+
+---
+
+## If you want to publish it on the internet
+
+In `.env`, change:
 
 ```
-SITE_ADDRESS=radio.daza.ar                          # dónde sirve Caddy
-PUBLIC_URL=https://radio.daza.ar                    # la URL que le pasás a la gente
-COOKIE_FLAGS=HttpOnly; SameSite=Lax; Secure         # acá SÍ va el flag Secure
+SITE_ADDRESS=radio.daza.ar                          # where Caddy serves
+PUBLIC_URL=https://radio.daza.ar                    # the URL you give people
+COOKIE_FLAGS=HttpOnly; SameSite=Lax; Secure         # here Secure DOES go
 ```
 
-Y descomentá `email {$ACME_EMAIL}` en `caddy/Caddyfile` (ahí sí sirve el
-`ACME_EMAIL` para los avisos de vencimiento del certificado).
+And uncomment `email {$ACME_EMAIL}` in `caddy/Caddyfile` (there the
+`ACME_EMAIL` is actually used for certificate expiry notices).
 
-**Ojo con `Secure` en la cookie**: hace que el navegador solo la mande por
-HTTPS. En local (`http://localhost`) tiene que estar fuera, por eso el
-`.env.example` no lo trae. En producción tiene que estar.
+**Careful with `Secure` on the cookie**: it makes the browser send it only
+over HTTPS. Locally (`http://localhost`) it must be off, which is why
+`.env.example` does not include it. In production it must be on.
 
-En Cloudflare poné el registro **en gris (DNS only)**, nunca en naranja.
-La regla de CDN de Cloudflare restringe el contenido no alojado en
-Cloudflare, y un stream de audio cae justo ahí.
+In Cloudflare put the record **grey (DNS only)**, never orange. Cloudflare's
+CDN rule restricts content not hosted on Cloudflare, and an audio stream
+falls right there.
 
-Caddy saca el certificado solito.
+Caddy gets the certificate on its own.
 
 ---
 
-## Validar los diagramas
+## Validating the diagrams
 
-Los diagramas de este README (y del plan legal) son Mermaid. Un error de
-sintaxis no se nota hasta que alguien abre el archivo, así que hay un
-chequeo:
+The diagrams in this README (and in the legal plan) are Mermaid. A syntax
+error is not noticed until someone opens the file, so there is a check:
 
 ```bash
 ./scripts/docs.sh
 ```
 
-Renderiza cada bloque ` ```mermaid ` de cada `.md` y falla si alguno está
-roto, señalando la línea:
+It renders every ` ```mermaid ` block of every `.md` and fails if any is
+broken, pointing at the line:
 
 ```
-  OK    PLAN-LEGAL-AR.md       1 diagrama(s)
-  FALLA README.md
+  OK    PLAN-LEGAL-AR.md       1 diagram(s)
+  FAIL  README.md
         Error: Parse error on line 4:
         ...ublicada"]    O -->>|"HTTPS"| C    C -
         ----------------------^
 ```
 
-Códigos de salida: `0` todo bien, `1` diagrama roto, `2` faltan
-dependencias.
+Exit codes: `0` all good, `1` broken diagram, `2` missing dependencies.
 
-La primera vez instala `mermaid-cli` en `~/.cache/radio-docs`, **no en el
-proyecto**: son ~450 MB y no tienen por qué vivir acá. Usa el Chrome del
-sistema a propósito; si no, además bajaría ~300 MB de Chromium.
+The first time it installs `mermaid-cli` in `~/.cache/radio-docs`, **not in
+the project**: about 450 MB that do not need to live here. It deliberately
+uses the system Chrome; otherwise it would also download ~300 MB of Chromium.
 
-Si querés recuperar ese espacio:
+If you want to reclaim that space:
 
 ```bash
 rm -rf ~/.cache/radio-docs
 ```
 
-**Para que no se te escape en un commit:**
+**So it does not slip past in a commit:**
 
 ```bash
 cat > .git/hooks/pre-commit <<'EOF'
@@ -409,155 +429,158 @@ EOF
 chmod +x .git/hooks/pre-commit
 ```
 
-(Ojo con el `|| exit 0`: si lo ponés, el hook *siempre* pasa y no bloquea nada.)
+(Careful with `|| exit 0`: if you put it there, the hook *always* passes and
+blocks nothing.)
 
 ---
 
-## Problemas comunes
+## Common problems
 
-**El stream entrega 0 bytes**
+**The stream delivers 0 bytes**
 ```bash
 docker compose logs -f liquidsoap
 ```
-Buscá `Connecting to icecast:8000`. Si no aparece, el encoder del `radio.liq`
-no está disponible en la imagen. Probá cambiar `%mp3(...)` por:
+Look for `Connecting to icecast:8000`. If it does not appear, the encoder in
+`radio.liq` is not available in the image. Try changing `%mp3(...)` to:
 ```liquidsoap
 %ffmpeg(format="mp3", %audio(codec="libmp3lame", bitrate=128))
 ```
 
-**Icecast no arranca**
+**Icecast does not start**
 ```bash
 docker compose logs icecast
 ```
-Casi siempre es un `ICECAST_*_PASSWORD` vacío en `.env`.
+Almost always an empty `ICECAST_*_PASSWORD` in `.env`.
 
-**Con token válido igual da 404**
-Caddy no recargó. `./scripts/token.sh add yo` lo hace solo; si no:
+**404 even with a valid token**
+Caddy did not reload. `./scripts/token.sh add yo` does it on its own; if not:
 ```bash
 docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
-**El link de invitación deja el navegador en 404 para siempre**
-Si tu navegador todavía tiene una cookie vieja del tiempo en que el canje
-copiaba el token dentro de la cookie, esa cookie no valida nunca más y **no se
-pisa sola**: el link nuevo la reemplaza, pero hay que abrir el link una vez.
-Abrilo. Si el 404 sigue, entonces sí es lo de arriba (Caddy sin recargar).
+**The invitation link leaves the browser on 404 forever**
+If your browser still has an old cookie from the time the exchange copied the
+token inside the cookie, that cookie never validates again and **is not
+overwritten on its own**: the new link replaces it, but you have to open the
+link once. Open it. If the 404 persists, then it is the above (Caddy not
+reloaded).
 
-**El recuadro de la cámara no aparece**
-La página pregunta primero si existe el playlist; si no existe, no muestra
-nada (es el caso normal de "cámara desenchufada"). Para saber cuál es:
+**The camera box does not appear**
+The page first asks whether the playlist exists; if it does not, it shows
+nothing (that is the normal case of "camera unplugged"). To find out which:
 ```bash
-docker compose ps cam                      # ¿está arriba?
-ls -l data/cam/                            # ¿hay index.m3u8 y seg*.m4s?
+docker compose ps cam                      # is it up?
+ls -l data/cam/                            # is there index.m3u8 and seg*.m4s?
 curl -s -o /dev/null -w '%{http_code}\n' -H "Cookie: radio=$CK" localhost:8090/cam/index.m3u8
 ```
-Si el contenedor `cam` no arranca al levantar, la cámara está desenchufada:
-Docker no puede crear el device y falla fuerte en vez de darte un video vacío.
-El audio arranca igual (el error es de ese servicio, no del stack). Sin cámara,
-levantá sólo el resto: `docker compose up -d caddy icecast liquidsoap`.
+If the `cam` container does not start on bring-up, the camera is unplugged:
+Docker cannot create the device and fails hard instead of giving you empty
+video. The audio starts anyway (the error is in that service, not the stack).
+Without a camera, bring up only the rest: `docker compose up -d caddy icecast liquidsoap`.
 
 **`failed to create mountpoint for /srv/...: Read-only file system`**
-Docker monta los volúmenes ordenados por ruta, así que `./web:/srv:ro` entra
-antes que cualquier `/srv/algo`. Después no puede crear el subdirectorio
-dentro de un mount de sólo lectura. Por eso los segmentos de la cámara van a
-`/srv-cam` y el Caddyfile usa `handle_path`. Nos pasó construyendo esto.
+Docker mounts volumes ordered by path, so `./web:/srv:ro` comes before any
+`/srv/...`. Afterwards it cannot create the subdirectory inside a read-only
+mount. That is why the camera segments go to `/srv-cam` and the Caddyfile
+uses `handle_path`. It happened to us building this.
 
-**El video arranca pero se congela**
-Buscá `corrupted data` en los logs del contenedor `cam`:
+**The video starts but freezes**
+Look for `corrupted data` in the `cam` container logs:
 ```bash
 docker compose logs cam | grep -i corrupto
 ```
-Si aparece en ráfagas cortas y el video fluye, es ruido del driver UVC: se
-mide con `ffprobe -count_frames` y el stream entrega los 15 fps igual. Si es
-continuo y el video se traba, el problema es de ancho de banda USB: bajá a
-320x240 o compartí el puerto con otra cámara que no estés usando.
+If it appears in short bursts and the video flows, it is UVC driver noise:
+measured with `ffprobe -count_frames` and the stream still delivers the 15
+fps. If it is continuous and the video stalls, the problem is USB bandwidth:
+drop to 320x240 or share the port with another camera you are not using.
 
-**El audio se corta solo a los pocos segundos**
-La página reconecta sola (hasta 5 intentos) y distingue dos casos: si
-`/status-json.xsl` también da 404, es la credencial y reintentar no sirve; si
-responde, es red o servidor. Si el cartel dice "respondió 404", pedí un link
-nuevo. Si dice "se cortó la conexión", mirá la red. El watchdog vigila que
-`currentTime` avance: un corte de red no siempre dispara `error`, el
-navegador se queda esperando datos para siempre.
+**The audio cuts out after a few seconds**
+The page reconnects on its own (up to 5 attempts) and distinguishes two
+cases: if `/status-json.xsl` also returns 404, it is the credential and
+retrying is pointless; if it responds, it is network or server. If the banner
+says "replied 404", ask for a new link. If it says "connection dropped",
+look at the network. The watchdog watches `currentTime` advance: a network
+cut does not always fire `error`, the browser waits for data forever.
 
-**No suena en el iPhone**
-Es la excepción a "MP3 lo reproduce todo" solo si cambiás el encoder a
-Opus o Vorbis. Con MP3 128 debería andar en cualquier lado.
+**No sound on iPhone**
+It is the exception to "MP3 plays everywhere" only if you change the encoder
+to Opus or Vorbis. With MP3 128 it should work anywhere.
 
-**La redirección manda `Location: 302` en vez de `Location: /`**
-Caddy lee el primer argumento de `redir` como un *matcher*. `redir / 302`
-significa "matcheá `/`, redirigí a `302`". Tiene que ser `redir * / 302`,
-con el matcher explícito. Nos pasó construyendo esto.
+**The redirect sends `Location: 302` instead of `Location: /`**
+Caddy reads the first argument of `redir` as a *matcher*. `redir / 302`
+means "match `/`, redirect to `302`". It has to be `redir * / 302`, with
+the explicit matcher. It happened to us building this.
 
-**Caddy arranca y se muere sin decir por qué**
-Mirá primero si el bloque global tiene un token suelto. Esto es un error
-real que nos pasó construyendo esto:
+**Caddy starts and dies without saying why**
+Look first at whether the global block has a stray token. This is a real
+error that happened to us building this:
 
 ```
 unrecognized global option: tu@email.com
 ```
 
-Causa: `{$ACME_EMAIL:}` solo en el bloque global. Caddy lo lee como el
-nombre de una opción. Tiene que ser `email {$ACME_EMAIL}`, y solo si el
-valor no está vacío. Ver `caddy/Caddyfile`.
+Cause: `{$ACME_EMAIL:}` alone in the global block. Caddy reads it as the
+name of an option. It has to be `email {$ACME_EMAIL}`, and only if the value
+is not empty. See `caddy/Caddyfile`.
 
-**`caddy reload` falla con "connection refused" en :2019**
-Alguien puso `admin off`. Eso apaga la API de reload. Dejala activa: está
-en localhost *dentro* del contenedor y el compose no publica el 2019.
+**`caddy reload` fails with "connection refused" on :2019**
+Someone set `admin off`. That turns off the reload API. Leave it active: it
+is on localhost *inside* the container and compose does not publish 2019.
 
-**Avisos de Icecast que son inofensivos**
+**Harmless Icecast warnings**
 - `<hostname> not configured, using default value "localhost"` — Icecast
-  avisa así cuando el hostname vale `localhost`. Es exactamente lo que
-  queremos (solo lo alcanza Caddy). El aviso es por el YP, que no usamos.
-- `Unsupported or legacy stream type: "audio/mpeg"` — Icecast no tiene un
-  handler especializado para MP3 y cae al genérico. El audio sale igual.
+  warns like this when hostname is `localhost`. That is exactly what we want
+  (only Caddy reaches it). The warning is from YP, which we do not use.
+- `Unsupported or legacy stream type: "audio/mpeg"` — Icecast has no
+  specialised handler for MP3 and falls back to the generic one. The audio
+  comes out anyway.
 
-**Los logs**
-Icecast y Caddy escriben a stdout/stderr a propósito, para que `docker
-compose logs` los muestre. No los mandes a archivo: si los redirigís,
-te quedás ciego justo cuando necesitás ver el error.
+**The logs**
+Icecast and Caddy write to stdout/stderr on purpose, so `docker compose
+logs` shows them. Do not send them to a file: if you redirect them, you go
+blind exactly when you need to see the error.
 
 ---
 
-## Archivos
+## Files
 
 ```
 radio/
-|-- docker-compose.yml        los cinco servicios
-|-- .env.example              plantilla de configuración
+|-- docker-compose.yml        the five services
+|-- .env.example              configuration template
 |-- icecast/
-|   |-- Dockerfile            alpine + icecast (sin imagen de terceros)
-|   |-- entrypoint.sh         inyecta los secretos desde el entorno
-|   `-- icecast.xml           sin <directory>: no nos anunciamos
+|   |-- Dockerfile            alpine + icecast (no third-party image)
+|   |-- entrypoint.sh         injects secrets from the environment
+|   `-- icecast.xml           no <directory>: we do not announce
 |-- liquidsoap/
-|   `-- radio.liq             la fuente: playlist -> icecast
+|   `-- radio.liq             the source: playlist -> icecast
 |-- cam/
-|   |-- Dockerfile            debian + ffmpeg (alpine no trae libx264)
-|   `-- capture.sh            webcam -> RTSP (WebRTC) + HLS, con reintentos
+|   |-- Dockerfile            debian + ffmpeg (alpine has no libx264)
+|   `-- capture.sh            webcam -> RTSP (WebRTC) + HLS, with retries
 |-- caddy/
-|   |-- Caddyfile             la puerta
-|   `-- tokens.caddy          GENERADO por token.sh
+|   |-- Caddyfile             the door
+|   `-- tokens.caddy          GENERATED by token.sh
 |-- mediamtx/
-|   `-- mediamtx.yml          recibe RTSP y publica WebRTC (WHEP)
+|   `-- mediamtx.yml          receives RTSP and publishes WebRTC (WHEP)
 |-- web/
-|   |-- index.html            el reproductor
-|   `-- vendor/               hls.js y su licencia. Nada sale a internet
-|-- music/                    tu música
-|-- data/cam/                 segmentos HLS. Se regeneran solos
+|   |-- index.html            the player
+|   `-- vendor/               hls.js and its license. Nothing goes to the internet
+|-- music/                    your music
+|-- data/cam/                 HLS segments. Regenerated on their own
 |-- scripts/
-|   |-- token.sh              alta / baja / listado de accesos
-|   |-- smoke.sh              29 verificaciones en 4 grupos
-|   `-- docs.sh               valida los diagramas Mermaid
-`-- secrets/tokens.txt        QUIÉN tiene acceso. chmod 600.
-                              formato: nombre token cookie [vence]
+|   |-- token.sh              grant / revoke / list access
+|   |-- smoke.sh              29 checks in 4 groups
+|   `-- docs.sh               validates the Mermaid diagrams
+`-- secrets/tokens.txt        WHO has access. chmod 600.
+                              format: name token cookie [expires]
 ```
 
-`secrets/`, `.env` y `data/` están en `.gitignore`: no se commitean.
+`secrets/`, `.env` and `data/` are in `.gitignore`: they are not committed.
 
 ---
 
-## Contexto legal
+## Legal context
 
-Ver `PLAN-LEGAL-AR.md`. Resumen: con música libre (CC, Banco del INAMU,
-producción propia) esto es **$0 y en regla**. Con música comercial,
-corresponde licencia de SADAIC y CAPIF SGC.
+See `PLAN-LEGAL-AR.md`. Summary: with free music (CC, INAMU bank, own
+production) this is **$0 and in order**. With commercial music, a SADAIC
+and CAPIF SGC license applies.
