@@ -16,6 +16,31 @@ Todo open source, todo en un `docker compose up`.
 
 ---
 
+## El proyecto
+
+Esta radio transmite desde una laptop en las **Sierras de los Comechingones**.
+No es una radio más: todo lo que suena acá lo generamos nosotros, con
+software propio, sin samples ni audio de terceros (y por eso $0 en regalías:
+ver `PLAN-LEGAL-AR.md`).
+
+La música la produce **indiegenerator**, un generador determinista y offline:
+una semilla entra, un tema terminado y etiquetado sale. La misma
+`(preset, seed)` produce el mismo plan y, en la misma máquina, el mismo
+audio, byte a byte. Volver a escuchar un tema es volver a correr el mismo
+número. Cinco carriles (motorik, kosmische, ambient, dub-electronic,
+indie-noise) comparten una sola firma de estación.
+
+El software se construye de forma **agéntica, con IA**, sobre el harness de
+ingeniería **n3rv** (slices SDD, gates binarios, tests que miden estructura).
+Los temas pasan por gates antes de entrar a la radio (−16 LUFS, pico
+verdadero ≤ −1.5 dBTP, MP3 128) y se instalan a mano: la radio nunca se
+reinicia sola.
+
+El stack (Liquidsoap, Icecast, Caddy, ffmpeg, MediaMTX) es la puerta y el
+transporte. El contenido es el nuestro.
+
+---
+
 ## Arranque
 
 ```bash

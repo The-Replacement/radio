@@ -52,6 +52,18 @@
   .err { margin-top: 1.5rem; color: #ff8a8a; font-size: .9rem; display: none; text-align: left; }
   .aviso { margin-top: 1.5rem; color: #9a9aa2; font-size: .85rem; display: none; text-align: left; }
   .tel { margin-top: 2rem; color: #55555c; font-size: .72rem; letter-spacing: .06em; }
+  .about { margin-top: 1.6rem; text-align: left; color: #9a9aa2; font-size: .82rem; line-height: 1.55; }
+  .about summary {
+    cursor: pointer; color: #e8e8ea; font-size: .85rem; letter-spacing: .04em;
+    text-transform: uppercase; list-style: none; user-select: none;
+  }
+  .about summary::-webkit-details-marker { display: none; }
+  .about summary::before { content: "+ "; color: #55555c; }
+  .about[open] summary::before { content: "− "; }
+  .about p { margin: .7rem 0 0; }
+  .about ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+  .about li { margin: .2rem 0; }
+  .about .firma { margin-top: .9rem; color: #55555c; font-size: .72rem; letter-spacing: .06em; }
 </style>
 </head>
 <body>
@@ -63,6 +75,32 @@
   <div class="aviso" id="aviso"></div>
   <div class="err" id="err"></div>
   <div class="tel" id="tel"></div>
+  <details class="about">
+    <summary>Acerca de esta radio</summary>
+    <p>
+      Esta radio transmite desde una laptop en las Sierras de los Comechingones.
+      Todo lo que suena acá lo generamos nosotros: sin samples ni audio de
+      terceros, sin regalías que pagar. Cada tema nace de una semilla en
+      <em>indiegenerator</em>, un generador determinista y offline: la misma
+      semilla produce el mismo plan y, en la misma máquina, el mismo audio,
+      byte a byte. Volver a escuchar un tema es volver a correr el mismo
+      número.
+    </p>
+    <p>
+      El software se construye de forma agéntica, con IA, sobre el harness de
+      ingeniería <em>n3rv</em> (slices SDD, gates binarios, tests que miden
+      estructura y no "suena bien"). La música entra a la radio solo después
+      de pasar los gates: −16 LUFS, pico verdadero ≤ −1.5 dBTP, MP3 128.
+      La radio nunca se reinicia sola; la música se instala a mano y el
+      stream sigue.
+    </p>
+    <ul>
+      <li>5 carriles: motorik, kosmische, ambient, dub-electronic, indie-noise.</li>
+      <li>Una sola firma de estación: un banco de motivos, una paleta, un drift 1/f.</li>
+      <li>Privada y con token: sin credencial, 404.</li>
+    </ul>
+    <p class="firma">radio.daza.ar · sierras de los comechingones · determinista</p>
+  </details>
   <!-- `hidden` de entrada: sin cámara, la caja no existe. Aparece sola
        cuando hay playlist. `muted` no es opcional: un video con audio no
        puede arrancar solo en ningún navegador. -->
