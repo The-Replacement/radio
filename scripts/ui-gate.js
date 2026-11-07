@@ -15,8 +15,13 @@
  *   0  todas las escenarios pasan
  *   1  hay al menos una falla
  *
- * Slice S1 (un solo tick de estado). Tambien cubre la puerta de F-15:
- * las dos formas del endpoint pintan igual.
+ * Escenarios:
+ *   S1  un solo tick: un fetch, un escritor de #now, la cadena manda.
+ *   S1  las dos formas del endpoint (objeto/array) pintan igual.  [F-15]
+ *   S2  la matriz 200 / 404 / rechazo de red al cargar.           [F-03]
+ *   S2  una falla transitoria no apaga la radio.                  [F-04]
+ *   S2  la copia de la puerta es UNA sola, y la escriben los dos
+ *       caminos que pueden descubrir el 404.
  */
 'use strict';
 
@@ -26,6 +31,11 @@ const vm = require('vm');
 
 const RAIZ = path.join(__dirname, '..');
 const PAGINA = path.join(RAIZ, 'web', 'index.html');
+
+// Ids que la pagina declara de verdad. El DOM inventado del gate sólo
+// responde esos: probar contra un id que no existe es probar contra
+// nadie.
+const IDS = new Set();
 
 /* --------------------------------------------------------------- utilidades */
 
@@ -74,6 +84,7 @@ function elemento(id, escrituras) {
     play() { this.paused = false; return Promise.resolve(); },
     pause() { if (!this.paused) { this.paused = true; this.dispara('pause'); } },
     appendChild() {},
+    _clases: clases,
     classList: {
       add(c) { clases.add(c); },
       remove(c) { clases.delete(c); },
@@ -140,6 +151,10 @@ async function abrirPagina(config) {
     head: { appendChild() {} },
     createElement(tag) { return elemento(tag + '#nuevo', escrituras); },
     getElementById(id) {
+      // Si el gate (o el codigo) piden un id que no existe en la pagina,
+      // se prueba contra un elemento fantasma y el chequeo pasa en vano:
+      // es exactamente como se cae un gate sin darse cuenta.
+      if (!IDS.has(id)) throw new Error('id que no existe en web/index.html: ' + id);
       if (!elementos[id]) elementos[id] = elemento(id, escrituras);
       return elementos[id];
     },
@@ -168,6 +183,9 @@ async function abrirPagina(config) {
     intervalos,
     timeouts,
     fetch,
+    // El objeto que el fetch lee: se puede cambiar en vivo para que el
+    // proximo tick vea otra realidad (404, red caida, 502...).
+    config: fetchFuente,
     doc,
     el,
     // Enciende el intervalo dado (o todos) y deja que las promesas caigan.
@@ -195,6 +213,7 @@ try {
   const m = html.match(/<script>([\s\S]*?)<\/script>/);
   if (!m) throw new Error('no hay bloque <script> sin atributos');
   CODIGO = m[1];
+  for (const id of html.matchAll(/\sid="([^"]+)"/g)) IDS.add(id[1]);
 } catch (e) {
   console.log(`\n  ${ROJO}FALLA${FIN}  no pude leer el script de web/index.html: ${e.message}\n`);
   process.exit(1);
@@ -267,7 +286,7 @@ async function escenarioCadenaManda() {
   check((p.escrituras.estado || 0) === escritas, 'tick en vivo: ni una escritura del cartel');
 
   // Y con el backend caido tampoco: "Radio off air" tampoco manda.
-  p.fetch.alcanzable = false;
+  p.config.alcanzable = false;
   await p.disparar(15000);
   check(p.el('estado').textContent === 'reconectando', 'tick sin backend: el cartel sigue intacto');
 
@@ -275,7 +294,7 @@ async function escenarioCadenaManda() {
   await p.correrTimeouts();           // reintento agendado -> conectar()
   p.el('audio').dispara('playing');   // el stream volvio
   check(p.el('estado').textContent === 'live', 'vuelta del stream: live otra vez');
-  p.fetch.alcanzable = true;
+  p.config.alcanzable = true;
   await p.disparar(15000);
   check(p.el('estado').textContent === 'live', 'con la cadena cerrada, el tick vuelve a pintar');
 }
@@ -302,6 +321,111 @@ async function escenarioDosFormas() {
   check(/Radio Privada/.test(a) && /3 listeners/.test(a), 'el render trae title y listeners');
 }
 
+/* ------------------------------------------------- la puerta y el aire */
+
+// La frase de la puerta, tal cual debe verse en pantalla (sin el <br>).
+const FRASE_PUERTA = 'Server replied 404.\n' +
+  'Access expired or the browser did not save the cookie. Ask for a new link.';
+
+const verErr = (p) => String(p.el('err').innerHTML || '').replace(/<br\s*\/?>/gi, '\n');
+
+// "No pintó nada": qué superficies del tick fueron tocadas (vacío = ninguna).
+function fallasDePintura(p) {
+  const f = [];
+  if (p.escrituras.estado) f.push(`el estado se escribio ${p.escrituras.estado} vez/veces`);
+  if (p.escrituras.now) f.push(`#now se escribio ${p.escrituras.now} vez/veces`);
+  if ('display' in p.el('err').style) f.push('el cartel de error fue tocado');
+  if ('display' in p.el('aviso').style) f.push('el aviso fue tocado');
+  if (p.el('play').disabled) f.push('el boton quedo deshabilitado');
+  if (p.el('dot')._clases.size) f.push('el punto fue tocado: ' + [...p.el('dot')._clases].join(','));
+  return f;
+}
+const intacto = (p) => fallasDePintura(p).length === 0;
+const dondeFalla = (p) => fallasDePintura(p).join(' / ');
+
+async function escenarioMatriz() {
+  console.log('\nla matriz del tick al cargar (F-03 / F-04):');
+
+  const aire = await abrirPagina({ datos: AIRE });
+  check(aire.el('estado').textContent === 'live' && aire.el('play').disabled === false,
+    '200 con source -> live, boton habilitado');
+  check(aire.el('aviso').style.display === 'none' && aire.el('err').style.display !== 'block',
+    '200 con source -> sin avisos');
+  check(/Radio Privada/.test(aire.el('now').textContent), '200 con source -> #now con el tema');
+
+  const sinAire = await abrirPagina({ datos: null });
+  check(sinAire.el('aviso').textContent === 'Broadcast is stopped'
+        && sinAire.el('aviso').style.display === 'block',
+    '200 sin source -> "Broadcast is stopped"');
+  check(sinAire.el('estado').textContent === 'stopped' && sinAire.el('play').disabled === true,
+    '200 sin source -> stopped y boton muerto');
+
+  // ESTA es la fila que no existia: la puerta cerrada hablando en el
+  // momento en que mas importa — al cargar, sin haber apretado play.
+  const puerta = await abrirPagina({ codigo: 404 });
+  check(verErr(puerta) === FRASE_PUERTA,
+    `404 -> la frase exacta de la puerta\n        ${verErr(puerta).replace(/\n/g, ' / ')}`);
+  check(puerta.el('err').style.display === 'block', '404 -> el cartel de la puerta se ve');
+  check(puerta.el('aviso').style.display !== 'block', '404 -> NO dice "Broadcast is stopped"');
+  check(puerta.el('estado').textContent === 'error', '404 -> el estado dice error, no stopped');
+  check(puerta.el('play').disabled === true, '404 -> boton muerto (no hay nada que reproducir)');
+  check(/Ask for a new link/.test(verErr(puerta)),
+    '404 -> "Ask for a new link" esta a la vista al cargar');
+
+  const rechazo = await abrirPagina({ alcanzable: false });
+  check(rechazo.fetch.pedidos.length === 1, 'red caida -> igual hace el fetch (mide, no afirma)');
+  check(intacto(rechazo),
+    `red caida -> no pinta nada: ni off air, ni puerta, ni boton muerto${intacto(rechazo) ? '' : `\n        ${dondeFalla(rechazo)}`}`);
+
+  const error502 = await abrirPagina({ codigo: 502 });
+  check(intacto(error502),
+    `502 del tunel -> tampoco miente${intacto(error502) ? '' : `\n        ${dondeFalla(error502)}`}`);
+}
+
+async function escenarioTransitoria() {
+  console.log('\nuna falla transitoria no apaga la radio (F-04):');
+  const p = await abrirPagina({ datos: AIRE });
+  p.el('audio').dispara('playing'); // el audio esta sonando de verdad
+  check(p.el('estado').textContent === 'live' && p.el('play').disabled === false,
+    'arranca live, boton habilitado');
+
+  p.config.alcanzable = false;
+  const antes = p.fetch.pedidos.length;
+  await p.disparar(15000);
+  check(p.fetch.pedidos.length - antes === 1, 'el tick consulta igual: midio, no se quedo mudo');
+  check(p.el('estado').textContent === 'live', 'el estado sigue en live');
+  check(p.el('play').disabled === false, 'el boton sigue habilitado');
+  check(p.el('aviso').style.display !== 'block', 'no aparece ningun aviso');
+  check(!/off air/i.test(p.el('aviso').textContent + p.el('err').innerHTML),
+    'ni el aviso ni el cartel dicen "off air"');
+  check(p.el('dot').classList.contains('live'), 'el punto verde sigue encendido');
+
+  p.config.alcanzable = true;
+  await p.disparar(15000);
+  check(p.el('estado').textContent === 'live', 'red de vuelta -> el tick retoma el pintado solo');
+}
+
+async function escenarioPuerta() {
+  console.log('\nla puerta, por los dos caminos que la descubren:');
+
+  // Camino 1: la cadena. El token vence a mitad de sesion, el stream
+  // cae, alFallar() le pregunta al gate y el gate dice 404.
+  const cadena = await abrirPagina({ datos: AIRE });
+  cadena.config.codigo = 404;
+  cadena.el('audio').dispara('error');
+  await flush();
+  check(cadena.el('err').style.display === 'block', 'la cadena llego hasta falloDefinitivo');
+  check(verErr(cadena) === FRASE_PUERTA, 'la cadena escribe la MISMA frase');
+
+  // Camino 2: el tick. Nunca hubo audio: solo la pagina y su 404.
+  const tick = await abrirPagina({ codigo: 404 });
+  check(verErr(tick) === verErr(cadena), 'los dos caminos no pueden divergir');
+
+  // Y no pueden divergir en el futuro: la frase esta escrita una vez.
+  const veces = CODIGO.split('Access expired or the browser did not save').length - 1;
+  check(veces === 1, `la frase de la puerta esta escrita una sola vez en el codigo (${veces})`);
+}
+
 /* ------------------------------------------------------------------ corrida */
 
 (async () => {
@@ -309,6 +433,9 @@ async function escenarioDosFormas() {
   await escenarioUnTick();
   await escenarioCadenaManda();
   await escenarioDosFormas();
+  await escenarioMatriz();
+  await escenarioTransitoria();
+  await escenarioPuerta();
 
   console.log('');
   if (mal === 0) {

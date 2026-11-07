@@ -197,6 +197,16 @@
   // ¿Hay una cadena de reconexión en vuelo? Ver alFallar().
   var reintentando = false;
 
+  /*
+    LA copia de la puerta. La credencial murió y el listener tiene que
+    saberlo, con la misma frase y en un solo lugar: la escriben los dos
+    caminos que pueden descubrirlo — la cadena (falloDefinitivo) y el
+    tick (render) — porque son el mismo hecho leído dos veces. Si algún
+    día se escriben en dos archivos, es que se rompió algo.
+  */
+  var PUERTA = 'Server replied 404.<br>Access expired or the browser did not save ' +
+               'the cookie. Ask for a new link.';
+
   function conectar(autoplay) {
     audio.crossOrigin = 'use-credentials';
     audio.src = BACKEND_URL + '/stream' + sufijo;
@@ -328,8 +338,7 @@
     reintentando = false;
     err.style.display = 'block';
     err.innerHTML = sinCredencial
-      ? 'Server replied 404.<br>Access expired or the browser did not save ' +
-        'the cookie. Ask for a new link.'
+      ? PUERTA
       : 'Could not connect to the stream' +
         (ultimoCodigo ? ' (error ' + ultimoCodigo + ')' : '') + '.<br>' +
         'Connection dropped and did not come back. Check the network.';
@@ -383,41 +392,81 @@
     reintento: el handler de `pause` ya se había curado de esa clase de
     bug (:292-299), la encuesta no.
 
-    Ahora: un fetch, un objeto de hechos, un render(). Una sola regla de
-    prioridad: LA CADENA MANDA SOBRE EL TICK. Mientras reintentando ===
-    true, render() no toca el cartel; el resto de los datos sí se pinta.
+    Ahora: un fetch, un veredicto, un render(). Y DOS reglas de
+    prioridad:
+
+      1. LA CADENA MANDA SOBRE EL TICK. Mientras reintentando === true
+         el tick mide pero no pinta: el cartel entero es de quien está
+         arreglando el corte.
+      2. SIN DATOS NO SE PINTA. Cada forma de fallar significa algo
+         distinto; el código anterior las leía todas como una sola
+         ("Radio off air") y deshabilitaba el botón con el audio sonando.
   */
   var TICK_MS = 15000;
 
   function leerEstado() {
     return fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
       .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function (data) {
-        // Icecast publica el mount activo en icestats.source. Si no hay
-        // source, no hay aire (liquidsoap caído o sin música).
-        // La forma del dato depende de quién responda: objeto (un mount)
-        // o array (más de uno). Se normaliza UNA vez acá: con dos lecturas
-        // en dos funciones, un array mostraba "Radio" y "0 listeners" en
-        // un lado y el título en el otro.
-        // OJO: listeners=0 NO significa detenido; es gente escuchando ahora.
-        var s = data && data.icestats && data.icestats.source;
-        if (Array.isArray(s)) s = s[0] || null;
-        return { alcanzable: true, alAire: !!s, fuente: s };
+        // 404 = LA PUERTA cerró (Caddy `respond 404`): es la credencial,
+        // no la radio. Es la misma discriminación que ya hacía alFallar
+        // (:248) — el código la sabía, le faltaba un lector que la creyera.
+        if (r.status === 404) return { veredicto: 'puerta' };
+        // El gate jamás devuelve 401/403 (principio 1): sólo 404 y 200.
+        // Cualquier otra respuesta es ruido de proxy o de túnel, y no
+        // significa ni "sin aire" ni "credencial muerta".
+        if (!r.ok) return { veredicto: 'sin-datos' };
+        // Un 200 con cuerpo ilegible cae en el catch de abajo: mismo
+        // veredicto que la red caída, por la misma razón.
+        return r.json().then(function (data) {
+          // Icecast publica el mount activo en icestats.source. Si no hay
+          // source, no hay aire (liquidsoap caído o sin música).
+          // La forma del dato depende de quién responda: objeto (un mount)
+          // o array (más de uno). Se normaliza UNA vez acá: con dos
+          // lecturas en dos funciones, un array mostraba "Radio" y
+          // "0 listeners" en un lado y el título en el otro.
+          // OJO: listeners=0 NO significa detenido; es gente escuchando ahora.
+          var s = data && data.icestats && data.icestats.source;
+          if (Array.isArray(s)) s = s[0] || null;
+          return { veredicto: s ? 'aire' : 'sin-aire', fuente: s };
+        });
       })
       .catch(function () {
-        // Backend inalcanzable (box off, tunnel down, o error de red).
-        return { alcanzable: false, alAire: false, fuente: null };
+        // Red caída, caja apagada, túnel caído: la página NO sabe nada
+        // de la radio ni de la puerta, así que no afirma nada. "Radio
+        // off air" acá era la mentira de F-04: el audio podía seguir
+        // sonando con el cartel de apagado y el botón muerto.
+        return { veredicto: 'sin-datos' };
       });
   }
 
   function render(f) {
-    var s = f.fuente || null;
-    var enCadena = reintentando;
+    // Regla 1: mientras la cadena arregla un corte, el tick no pinta.
+    // El fetch salió igual (la medición no se pierde), pero el cartel es
+    // de reintentar()/falloDefinitivo(): dos dueños escribiendo a la vez
+    // es lo que hacía pelear "reconectando" contra "live".
+    if (reintentando) return;
 
-    if (f.alAire) {
+    // Regla 2: sin datos no hay veredicto y el último sigue en pie.
+    // Borrarlo también sería afirmar algo que no sabemos.
+    if (f.veredicto === 'sin-datos') return;
+
+    var s = f.fuente || null;
+
+    if (f.veredicto === 'puerta') {
+      // La credencial murió: el ritual completo corre desde el tick,
+      // para que llegue aunque el usuario nunca haya apretado play —
+      // ese era el caso en que el botón quedaba disabled y la única
+      // frase que importaba no se podía ver nunca.
+      err.style.display = 'block';
+      err.innerHTML = PUERTA;
+      aviso.style.display = 'none';
+      dot.classList.remove('live');
+      estado.textContent = 'error';
+      btn.disabled = true;
+      return;
+    }
+
+    if (f.veredicto === 'aire') {
       var titulo = (s && (s.title || s.yp_currently_playing)) || '';
       // #now tiene UN escritor, este bloque. El valor sale de un solo
       // campo (title) con fallback: antes lo escribían dos encuestas con
@@ -428,21 +477,18 @@
       oyentes.textContent = n + ' listener' + (n === 1 ? '' : 's');
       aviso.style.display = 'none';
       btn.disabled = false;
-      if (!enCadena) {
-        dot.classList.add('live');
-        estado.textContent = 'live';
-        if (sonando()) btn.innerHTML = '&#10073;&#10073;';
-      }
+      dot.classList.add('live');
+      estado.textContent = 'live';
+      if (sonando()) btn.innerHTML = '&#10073;&#10073;';
     } else {
+      // 'sin-aire': respondió 200 y no hay source. Esto se sabe.
       now.textContent = '';
       oyentes.textContent = '';
       aviso.style.display = 'block';
-      aviso.textContent = f.alcanzable ? 'Broadcast is stopped' : 'Radio off air';
+      aviso.textContent = 'Broadcast is stopped';
       btn.disabled = true;
-      if (!enCadena) {
-        dot.classList.remove('live');
-        estado.textContent = 'stopped';
-      }
+      dot.classList.remove('live');
+      estado.textContent = 'stopped';
     }
   }
 

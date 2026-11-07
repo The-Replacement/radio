@@ -436,6 +436,14 @@ does while a reconnection chain is in flight (the chain outranks the tick —
 that is the rule, and this is where it is enforced). It also renders both
 shapes of `icestats.source` (object and array) and fails if they disagree.
 
+The fake `fetch` can also answer 404, 502 or nothing at all, so the page's
+verdict matrix is measured row by row: `200` with source, `200` without,
+`404` (the door closed) and a network failure (which must not claim
+anything — no "off air", no disabled button while the audio plays). The door's
+sentence is asserted verbatim, and it must appear **once** in the source: the
+chain and the tick write the same fact, so they cannot be allowed to drift
+apart.
+
 ```
 UI gate — web/index.html
 
@@ -447,12 +455,17 @@ un solo tick de estado:
 la cadena de reconexion manda sobre el tick:
   OK    tick en vivo: el cartel NO pasa a live
 
-Todo bien - 25 chequeos.
+la matriz del tick al cargar (F-03 / F-04):
+  OK    404 -> la frase exacta de la puerta
+  OK    red caida -> no pinta nada: ni off air, ni puerta, ni boton muerto
+
+Todo bien - 51 chequeos.
 ```
 
 Exit codes: `0` all good, `1` a check failed. No network, no stack running:
 only `node`, the dependency `docs.sh` already had. Every check is binary, so
-the gate can fail — run it against the pre-S1 code and 12 of them go red.
+the gate can fail: against the pre-S1 page 12 checks go red, against the
+pre-S2 page 13 do.
 
 **So neither slips past in a commit:**
 
