@@ -68,7 +68,7 @@
 </head>
 <body>
 <main>
-  <div class="estado"><span class="dot" id="dot"></span><span id="estado">detenido</span><span id="oyentes" style="margin-left:.6rem;font-size:.7rem;color:#9a9aa2;"></span></div>
+  <div class="estado"><span class="dot" id="dot"></span><span id="estado">stopped</span><span id="oyentes" style="margin-left:.6rem;font-size:.7rem;color:#9a9aa2;"></span></div>
   <h1>Radio</h1>
   <p class="now" id="now">&nbsp;</p>
   <button id="play" aria-label="Reproducir">&#9654;</button>
@@ -232,7 +232,7 @@
     reintentos++;
     if (reintentos > MAX_REINTENTOS) { falloDefinitivo(); return; }
     err.style.display = 'block';
-    err.textContent = 'Se cortó el stream. Reconectando (' + reintentos +
+    err.textContent = 'Stream cut. Reconnecting (' + reintentos +
                       '/' + MAX_REINTENTOS + ')...';
     estado.textContent = 'reconectando';
     dot.classList.remove('live');
@@ -270,7 +270,7 @@
     reintentando = false;
     reproduciendo = true;
     btn.innerHTML = '&#10073;&#10073;';
-    estado.textContent = 'en vivo';
+    estado.textContent = 'live';
     dot.classList.add('live');
     err.style.display = 'none';
   });
@@ -279,7 +279,7 @@
     // El `pause` que dispara cada intento fallido no debe pisar el cartel:
     // mientras hay cadena en vuelo la página está reconectando, no
     // detenido (sin esto la UI contradecía al cartel "Reconectando (n/5)").
-    if (!reintentando) estado.textContent = 'detenido';
+    if (!reintentando) estado.textContent = 'stopped';
     dot.classList.remove('live');
   });
   audio.addEventListener('error', function () {
@@ -313,11 +313,11 @@
     reintentando = false;
     err.style.display = 'block';
     err.innerHTML = sinCredencial
-      ? 'El servidor respondió 404.<br>El acceso venció o el navegador no guardó ' +
-        'la cookie. Pedí un link nuevo.'
-      : 'No se pudo conectar con el stream' +
+      ? 'Server replied 404.<br>Access expired or the browser did not save ' +
+        'the cookie. Ask for a new link.'
+      : 'Could not connect to the stream' +
         (ultimoCodigo ? ' (error ' + ultimoCodigo + ')' : '') + '.<br>' +
-        'Se cortó la conexión y no volvió. Revisá la red.';
+        'Connection dropped and did not come back. Check the network.';
     dot.classList.remove('live');
     estado.textContent = 'error';
   }
@@ -370,33 +370,33 @@
         if (src) {
           // ESTADO EN VIVO
           dot.classList.add('live');
-          estado.textContent = 'en vivo';
+          estado.textContent = 'live';
           now.textContent = (src.server_name || src.server_description || 'Radio') + '\u00a0';
           btn.disabled = false;
           aviso.style.display = 'none';
-          oyentes.textContent = (src.listeners != null ? src.listeners : 0) + ' oyente' + ((src.listeners === 1) ? '' : 's');
+          oyentes.textContent = (src.listeners != null ? src.listeners : 0) + ' listener' + ((src.listeners === 1) ? '' : 's');
           if (sonando()) {
             btn.innerHTML = '&#10073;&#10073;';
           }
         } else {
           // ESTADO DETENIDO (sin source activo)
           dot.classList.remove('live');
-          estado.textContent = 'detenido';
+          estado.textContent = 'stopped';
           now.textContent = '';
           btn.disabled = true;
           aviso.style.display = 'block';
-          aviso.textContent = 'La transmisión está detenida';
+          aviso.textContent = 'Broadcast is stopped';
           oyentes.textContent = '';
         }
       })
       .catch(function () {
         // FALLBACK: backend inalcanzable (box off, tunnel down, o error de red)
         dot.classList.remove('live');
-        estado.textContent = 'detenido';
+        estado.textContent = 'stopped';
         now.textContent = '';
         btn.disabled = true;
         aviso.style.display = 'block';
-        aviso.textContent = 'Radio fuera del aire';
+        aviso.textContent = 'Radio off air';
         oyentes.textContent = '';
       });
   }
