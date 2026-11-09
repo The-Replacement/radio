@@ -4,6 +4,10 @@
 # Lo importante que prueba este script: que SIN credencial no se vea nada,
 # y que el canje de token por cookie funcione.
 # Una radio "privada" que se ve sin credencial no es privada.
+#
+# Hay DOS puertas y este script mide las dos: la del backend (BASE) y la de
+# la página pública (radio.daza.ar). La segunda está abierta y medir una
+# puerta abierta no es lo mismo que no medirla: ver grupo 0 (F-02).
 
 set -uo pipefail
 
@@ -32,6 +36,38 @@ echo
 echo "Smoke test — $BASE"
 echo
 
+# ----------------------------------------------- la segunda puerta (grupo 0)
+#
+# El backend cierra (el grupo de abajo); la PÁGINA no. Desde el split el
+# player vive en Cloudflare Pages (radio.daza.ar) y este repo no tiene
+# Pages, ni wrangler, ni Access, ni CI que lo gatee: nada impide servir la
+# página entera sin credencial (F-02, issue #2, slice S5). Se mide igual,
+# aunque duela, porque una radio privada cuyo cartel se lee sin credencial
+# también es un problema — y una puerta que nadie mira no es una puerta.
+#
+# Medido el 2026-11-09: 200, 32252 bytes, byte a byte idéntico a
+# web/index.html. stream.daza.ar, en cambio, 404 en todas sus rutas.
+#
+# EXCEPCIÓN DOCUMENTADA: la línea de abajo es lo único que autoriza un 200.
+# Borrála y este gate vuelve a exigir 404 — con la página abierta queda
+# rojo, que es la verdad. Si algún día la página cierra (404/403), borrá la
+# excepción: una puerta que se cerró no deja autorización escrita atrás.
+# Sin red el código es 000 y esto queda rojo a propósito: no se pudo medir,
+# y un check que no midió no pasa en verde (la lección de F-07).
+FRONTEND="${FRONTEND:-https://radio.daza.ar}"
+EXCEPCION_F02=200   # F-02: la página se sirve sin puerta (medido 2026-11-09)
+
+echo "la segunda puerta (la página, sin credencial):"
+ff="$(codigo "$FRONTEND/")"
+if [[ "$ff" == "404" || "$ff" == "403" ]]; then
+  pasa "la página se cierra sin credencial ($ff)"
+elif [[ -n "${EXCEPCION_F02+x}" && "$ff" == "$EXCEPCION_F02" ]]; then
+  pasa "la página se sirve $ff sin credencial — puerta abierta, excepción documentada (F-02, #2)"
+else
+  falla "la página se sirve '$ff' sin credencial y sin excepción que la cubra (F-02): cerrá la puerta o escribí la excepción acá"
+fi
+
+echo
 echo "sin credencial:"
 [[ "$(codigo "$BASE/")" == "404" ]] \
   && pasa "el reproductor -> 404 (no revela que hay una radio)" \

@@ -5,8 +5,11 @@ A radio that exists for a closed circle. Without a credential, there is no radio
 - **Liquidsoap** plays `./music` in random order.
 - **Icecast** serves the stream — and **is not announced in any public
   directory**.
-- **Caddy** is the only door: without a valid credential it answers 404, not
-  401. It does not confirm to anyone that anything exists here.
+- **Caddy** is the only door to the sound: without a valid credential it
+  answers 404, not 401. It does not confirm to anyone that anything exists
+  here. The page that holds the player is the known exception: it loads for
+  anyone, the radio behind it does not (measured — see *How the door
+  works*).
 - **ffmpeg** turns the USB webcam into HLS, so that in addition to listening
   you can watch. Muted video: the audio is the radio's.
 
@@ -159,14 +162,27 @@ needed.
 ## How the door works
 
 Who can talk to whom. The dotted line of the box is everything NOT published
-to the internet:
+to the internet.
+
+There are two published surfaces since the split, and only one of them is a
+door. The page lives on Cloudflare Pages, the radio lives behind Caddy.
+Measured 2026-11-09 with no credential: `curl https://radio.daza.ar/`
+answers **200** and serves the whole page — byte for byte the file in
+`web/index.html` — while every route on `stream.daza.ar` answers **404**.
+So anyone can read the station's story; nobody can hear it. The page has no
+door yet (issue #2), and `scripts/smoke.sh` measures it as group 0, so the
+day it gains one — or the day it loses even that — the smoke goes red
+instead of quietly changing meaning.
 
 ```mermaid
 flowchart TB
     O(["Listener"])
-    C["Caddy :443<br/>only published door"]
-    O -->|"HTTPS"| C
+    P["Cloudflare Pages<br/>radio.daza.ar - the page, no door yet"]
+    C["Caddy :443<br/>stream.daza.ar - the only door"]
+    O -->|"HTTPS"| P
+    O -->|"HTTPS, no credential"| C
     C -->|"no credential"| N["404"]
+    P -->|"every request the page makes"| C
 
     subgraph interno["Docker internal network - no published ports"]
         direction BT
@@ -176,20 +192,25 @@ flowchart TB
     C -->|"valid credential"| I
 ```
 
-And the exchange, step by step:
+Locally there is no split: Caddy serves the page too, which is why the
+smoke's own `BASE` checks (`localhost:8090`, no credential → 404) pass. The
+second door exists only in production.
+
+And the exchange, step by step (production):
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant O as Listener
-    participant C as Caddy
+    participant C as Caddy (stream.daza.ar)
+    participant P as Pages (radio.daza.ar)
     participant I as Icecast
 
     O->>C: GET /?t=TOKEN   (once, from the link)
-    C-->>O: Set-Cookie + 302 to /?t=TOKEN
+    C-->>O: Set-Cookie + 302 to radio.daza.ar/?t=TOKEN
     Note over O: replaceState - the token leaves the address bar
-    O->>C: GET /   (now sends the cookie)
-    C-->>O: the player
+    O->>P: GET /   (the page - public, no door)
+    P-->>O: the player
     O->>C: GET /stream   (cookie)
     C->>I: GET /stream   (rewrite /stream? deleted the query)
     I-->>C: audio bytes
@@ -336,7 +357,8 @@ Measured, not assumed. What follows is verified on this installation.
 
 **What it does solve**
 - Nobody gets in without a credential: without token and without cookie,
-  everything returns 404.
+  everything the radio serves — stream, status, camera — returns 404. (The
+  page in front of it does not; see "What it does NOT solve".)
 - It does not appear in search engines (`noindex`), nor in radio directories.
 - Content is encrypted (TLS) when published with a domain.
 - You revoke one person without touching anyone else's link.
@@ -348,6 +370,11 @@ Measured, not assumed. What follows is verified on this installation.
   generating traffic.
 
 **What it does NOT solve**
+- **The page has no door.** `https://radio.daza.ar/` serves the whole player
+  to anyone with no credential (measured: 200, issue #2). Everything behind
+  it — stream, status, camera — still answers 404, but the station's story
+  is readable by whoever guesses the name. `smoke.sh` group 0 measures this,
+  so it cannot change without going red.
 - The token is in the invitation link: if someone shares it or pastes it into
   an unencrypted chat, it leaks. That is the cost of keeping it simple.
 - Players (VLC) keep sending the token in the URL. If that matters to you,
@@ -736,7 +763,7 @@ radio/
 |-- data/cam/                 HLS segments. Regenerated on their own
 |-- scripts/
 |   |-- token.sh              grant / revoke / list access
-|   |-- smoke.sh              32 checks in 4 groups
+|   |-- smoke.sh              33 checks in 5 groups (group 0: the public page)
 |   |-- query-gate.sh         the token's query never crosses the door
 |   |-- docs.sh               validates the Mermaid diagrams
 |   `-- ui-gate.js            structure of the player's state machine
