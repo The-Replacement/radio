@@ -92,8 +92,14 @@ services:
       - "${HTTP_PORT:-8090}:80"
       - "${HTTPS_PORT:-8443}:443"
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./caddy/tokens.caddy:/etc/caddy/tokens.caddy:ro
+      # El directorio, no los archivos: git cambia el working tree con un
+      # rename+swap (nuevo inodo), y Docker bind-montea el ARCHIVO por inodo
+      # — el contenedor se queda con la versión vieja para siempre y el
+      # `caddy reload` recarga basura sin efecto. Con el directorio, el
+      # swap se ve y el reload en caliente funciona sin reiniciar nada.
+      # (La cámara de esto ya la conocemos con tokens.caddy: ahí, "escribir
+      # in place" cierra porque no pasa por el git; el Caddyfile sí pasa).
+      - ./caddy:/etc/caddy:ro
       - ./web:/srv:ro
       # Los segmentos de la cámara. Caddy los sirve como archivos: no hay
       # proxy, no hay otro puerto, no hay otro lugar donde autenticar.

@@ -679,14 +679,33 @@ credentials ever live on it for this path:
   reloaded, or why it stopped). If the reload fails, the previous
   config keeps serving and the log says so loudly.
 
+One hard-earned note — **why `./caddy` is mounted as a directory and
+not as individual files**: Docker bind-mounts pin the inode, and git
+updates the working tree by rename-swap (a new inode), so a file-mounted
+`Caddyfile` in the container stayed pinned to whatever it held when
+the container was created — graceful reloads ever after loaded the
+*ancient* config without a word (the box had the S4 query-strip and a
+CORS hotfix that never actually took effect this way). `tokens.caddy`
+never showed the problem because it is generated in place (`cat > …`,
+same inode — the house rule in scripts/token.sh). Mounting the
+directory (like `./web`) makes git's swaps visible to the container
+and keeps every reload genuinely graceful, no recreate.
+
 Wiring it on a new box (or after a rebuild), once:
 
 ```bash
 cd ~/servers/radio
-cp scripts/post-receive .git/hooks/post-receive
-chmod +x .git/hooks/post-receive
+HOOKS=$(git rev-parse --git-path hooks)
+cp scripts/post-receive "$HOOKS/post-receive"
+chmod +x "$HOOKS/post-receive"
 git config receive.denyCurrentBranch updateInstead
+docker compose up -d caddy   # one-time, door blinks ~2s — mounts flip to the directory
 ```
+
+(`--git-path hooks` resolves the real hooks directory even when the
+repo sets `core.hooksPath`; this box uses `.githooks`, so calling
+`--git-path` instead of assuming `.git/hooks` is what keeps the hook
+firing.)
 
 And on the machine you push from — the second destination:
 
