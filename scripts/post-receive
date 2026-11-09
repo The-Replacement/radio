@@ -19,7 +19,16 @@
 # y la config anterior sigue en pie.
 set -u
 
-RAIZ="$(git rev-parse --show-toplevel)"
+# Bajo un receive hook, el cwd ES el git dir (no el worktree): con
+# --show-toplevel la resolución da .git y el hook escribe/recarga en
+# el lugar equivocado. El .. del git dir es el worktree en un clone normal.
+RAIZ="$(cd "$(git rev-parse --git-dir)/.." && pwd)"
+# Layouts raros (bare, worktrees ligados): cae al toplevel, y si éste
+# devuelve el git dir, se queda con pwd como último recurso.
+[ -f "$RAIZ/docker-compose.yml" ] || {
+  ALT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$ALT" ] && [ -f "$ALT/docker-compose.yml" ] && RAIZ="$ALT"
+}
 LOG="$RAIZ/data/deploy.log"
 mkdir -p "$RAIZ/data"
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"; }

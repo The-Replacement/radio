@@ -737,6 +737,10 @@ cd ~/servers/radio
 HOOKS=$(git rev-parse --git-path hooks)
 cp scripts/post-receive "$HOOKS/post-receive"
 chmod +x "$HOOKS/post-receive"
+# Absolute hooksPath, always: client-side hooks resolve a relative
+# path against the worktree, receive hooks resolve it against the git
+# dir — relative paths split the two. Set it absolute and both agree.
+git config core.hooksPath "$(pwd)/.githooks"
 git config receive.denyCurrentBranch updateInstead
 docker compose up -d caddy   # one-time, door blinks ~2s — mounts flip to the directory
 ```
