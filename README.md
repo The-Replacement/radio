@@ -487,6 +487,15 @@ measured — and the stub carries a mutable `location` plus a real
 `history.replaceState`, so "the token leaves the address bar" is a reading,
 not a hope: the gate reads the bar and every status URL, before and after.
 
+The same stub measures what the station's voice needed (F-10 / F-11 / F-16):
+every visible string lives in one `STR` object — the gate asserts that no
+content reaches `textContent`/`innerHTML` as a hand-written literal, that
+`lang` matches the copy, that `aria-live="polite"` sits on `estado`/`err`/
+`aviso`, and that the button's `aria-label` travels with the state
+(`Play` ↔ `Pause`). And the autoplay policy case is a scenario of its own:
+`play()` rejects with `NotAllowedError` and the dedicated copy must appear —
+not "stopped", not silence, not an eternal "reconnecting".
+
 ```
 UI gate — web/index.html
 
@@ -508,13 +517,22 @@ el token sale de la barra (F-01):
   OK    cookie muerta: la barra TAMBIEN queda limpia (quedo "")
   OK    502: la barra se queda como estaba — 502 no prueba nada
 
-Todo bien - 77 chequeos.
+el cartel de la estación, en una sola voz (F-10 / F-11):
+  OK    ni una frase visible escrita a mano fuera de STR
+  OK    aria-live="polite" en #estado
+
+el autoplay bloqueado dice lo que es (F-16):
+  OK    play() rechazado con NotAllowedError -> la copia dedicada, NO el silencio
+
+Todo bien - 98 chequeos.
 ```
 
 Exit codes: `0` all good, `1` a check failed. No network, no stack running:
 only `node`, the dependency `docs.sh` already had. Every check is binary, so
 the gate can fail: against the pre-S1 page 12 checks go red, against the
-pre-S2 page 13 do, against the pre-S3 page 13 do.
+pre-S2 page 13 do, against the pre-S3 page 13 do, and against the pre-S7
+page it fails before a single check runs — the ids its new checks measure
+are no longer there.
 
 ### Proving that it can fail
 
@@ -527,13 +545,15 @@ invented the `btn` id it was asked for, and the row passed for nothing
 ./scripts/ui-gate.js --self-test
 ```
 
-It breaks the page's source **in memory**, one guarantee per mutation, ten in
+It breaks the page's source **in memory**, one guarantee per mutation, twelve in
 all: a second status tick, the chain guard dropped, the `404` read as any
 other response, the transient lie restored, the two endpoint shapes read
 differently, the door's sentence written twice — and, for the token out of
 the address bar: the bar never cleaned, the suffix cleared despite a dead
 cookie, the cookie probe arriving already carrying the token, and a `502`
-read as a decision. It then demands **red on every
+read as a decision. For the station's voice: an autoplay blocked by the
+browser swallowed into silence, and a phrase visible somewhere that it is
+not in `STR`. It then demands **red on every
 mutation** and **green on the real page**. A mutation that stays green means
 the gate stopped measuring that thing — that is a failure, not a pass. A
 mutation that no longer applies, because the code changed shape, fails too: a
@@ -543,7 +563,7 @@ to restore and no chance of committing a mutated page.
 ```
 Self-test — ¿puede fallar este gate?
 
-  OK    pagina real .......................... 77/77 en verde
+  OK    pagina real .......................... 98/98 en verde
   OK    un segundo tick de 15 s (la regla de un solo fetch por tick)
           9 rojos, p.e. "un solo intervalo consulta el estado (15000 ms); encontrados: [15000, 15000]"
   OK    la cadena deja de mandar sobre el tick
@@ -551,11 +571,11 @@ Self-test — ¿puede fallar este gate?
   OK    la barra nunca se limpia (el t se queda en la direccion)
           5 rojos, p.e. "cookie viva: la barra queda limpia al cargar (quedo "?t=f00dfeed")"
 
-Todo bien - 10 mutaciones atrapadas.
+Todo bien - 12 mutaciones atrapadas.
 ```
 
-Exit codes: `0` ten mutations trapped, `1` one went uncaught or did not
-apply. Eleven runs of the gate, about 1 s.
+Exit codes: `0` twelve mutations trapped, `1` one went uncaught or did not
+apply. Thirteen runs of the gate, about 1 s.
 
 **So neither slips past in a commit:**
 

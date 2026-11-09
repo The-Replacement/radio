@@ -105,8 +105,19 @@ function elemento(id, escrituras) {
     },
     // El gate dispara los eventos que un navegador dispararía solo.
     dispara(t, ev) { (oyendo[t] || []).slice().forEach((f) => f(ev || {})); },
-    play() { this.paused = false; return Promise.resolve(); },
+    play() {
+      if (this._playError) {
+        const e = new Error(this._playError.message || 'play() rechazado');
+        e.name = this._playError.name || 'Error';
+        return Promise.reject(e);
+      }
+      this.paused = false;
+      return Promise.resolve();
+    },
     pause() { if (!this.paused) { this.paused = true; this.dispara('pause'); } },
+    _attrs: {},
+    setAttribute(k, v) { this._attrs[k] = String(v); },
+    getAttribute(k) { return this._attrs[k]; },
     appendChild() {},
     _clases: clases,
     classList: {
@@ -227,6 +238,11 @@ async function abrirPagina(config) {
   vm.createContext(ctx);
   new vm.Script(CODIGO, { filename: 'web/index.html#<script>' }).runInContext(ctx);
   await flush();
+  // Perilla viva, como alcance: la pagina ya esta corriendo y play() se
+  // rechaza a partir de aca con el error que le pidan.
+  if (config.playRechaza) {
+    doc.getElementById('audio')._playError = { name: config.playRechaza, message: 'el navegador bloqueó el autoplay' };
+  }
 
   const el = (id) => doc.getElementById(id);
   return {
@@ -261,12 +277,13 @@ async function abrirPagina(config) {
 
 // El reproductor se traga el <script> entero de una sola vez.
 let CODIGO = '';
+let HTML = '';
 try {
-  const html = fs.readFileSync(PAGINA, 'utf8');
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  HTML = fs.readFileSync(PAGINA, 'utf8');
+  const m = HTML.match(/<script>([\s\S]*?)<\/script>/);
   if (!m) throw new Error('no hay bloque <script> sin atributos');
   CODIGO = m[1];
-  for (const id of html.matchAll(/\sid="([^"]+)"/g)) IDS.add(id[1]);
+  for (const id of HTML.matchAll(/\sid="([^"]+)"/g)) IDS.add(id[1]);
 } catch (e) {
   console.log(`\n  ${ROJO}FALLA${FIN}  no pude leer el script de web/index.html: ${e.message}\n`);
   process.exit(1);
@@ -315,7 +332,7 @@ async function escenarioUnTick() {
 
   check(p.el('now').textContent.trim() === AIRE.title, '#now muestra el title, no el server_name');
   check(p.doc.title === `${AIRE.title} — Radio`, 'el titulo del documento acompana al tema');
-  check(p.el('oyentes').textContent === '3 listeners', 'los oyentes salen del mismo objeto');
+  check(p.el('listeners').textContent === '3 listeners', 'los oyentes salen del mismo objeto');
 }
 
 async function escenarioCadenaManda() {
@@ -326,7 +343,7 @@ async function escenarioCadenaManda() {
   // Un corte: el mismo camino que usaria el navegador (error de audio).
   p.el('audio').dispara('error');
   await flush();
-  check(p.el('estado').textContent === 'reconectando', 'el corte pone reconectando');
+  check(p.el('estado').textContent === 'reconnecting', 'el corte pone reconnecting');
   check(!p.el('dot').classList.contains('live'), 'el punto verde se apaga');
   check(p.timeouts.length > 0, 'el reintento quedo agendado');
 
@@ -335,13 +352,13 @@ async function escenarioCadenaManda() {
   const antes = p.fetch.pedidos.length;
   await p.disparar(15000);
   check(p.fetch.pedidos.length - antes === 1, 'el tick sigue corriendo (no se congela la pagina)');
-  check(p.el('estado').textContent === 'reconectando', 'tick en vivo: el cartel NO pasa a live');
+  check(p.el('estado').textContent === 'reconnecting', 'tick en vivo: el cartel NO pasa a live');
   check((p.escrituras.estado || 0) === escritas, 'tick en vivo: ni una escritura del cartel');
 
   // Y con el backend caido tampoco: "Radio off air" tampoco manda.
   p.config.alcanzable = false;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'reconectando', 'tick sin backend: el cartel sigue intacto');
+  check(p.el('estado').textContent === 'reconnecting', 'tick sin backend: el cartel sigue intacto');
 
   // La cadena termina sola y el tick vuelve a mandar.
   await p.correrTimeouts();           // reintento agendado -> conectar()
@@ -360,7 +377,7 @@ async function escenarioDosFormas() {
 
   const leer = (p) => [
     p.el('now').textContent,
-    p.el('oyentes').textContent,
+    p.el('listeners').textContent,
     p.el('estado').textContent,
     p.el('aviso').style.display,
     p.doc.title,
@@ -565,6 +582,75 @@ async function escenarioTokenFueraDeLaBarra() {
   check(dbg.intervalos.some((i) => i.ms === 1000), 'debug: el panel sigue encendido');
 }
 
+/* ---------------------------------------- el cartel de la estación (F-10) */
+
+// La frase del autoplay, tal cual debe verse en pantalla.
+const FRASE_AUTOPLAY = 'The browser blocked autoplay. Press play.';
+
+async function escenarioVozDeLaEstacion() {
+  titular('\nel cartel de la estación, en una sola voz (F-10 / F-11):');
+
+  check(CODIGO.includes('var STR = {'), 'la copia vive en UN objeto (STR)');
+  // Ningún contenido visible escrito a mano: toda escritura a
+  // textContent/innerHTML referencia STR, variables o funciones. Una
+  // asignación con una frase literal fuera de STR rompe acá.
+  const mano = CODIGO.match(/\.(textContent|innerHTML|title)\s*=\s*'[^'\n]*[A-Za-zÀ-ÿ][^'\n]*'/g) || [];
+  check(mano.length === 0,
+    `ni una frase visible escrita a mano fuera de STR${mano.length ? `\n        p.e. "${mano[0]}"` : ''}`);
+  check(/<html lang="en">/.test(HTML), 'la copia está en inglés y <html> lo dice');
+
+  for (const id of ['estado', 'err', 'aviso']) {
+    const tag = HTML.match(new RegExp('<[^>]+id="' + id + '"[^>]*>'));
+    check(!!tag && /aria-live="polite"/.test(tag[0]), `aria-live="polite" en #${id}`);
+  }
+
+  // La etiqueta del botón viaja con el estado: Play parada, Pause sonando.
+  const p = await abrirPagina({ datos: AIRE });
+  check(p.el('play')._attrs['aria-label'] === undefined,
+    'al cargar: la etiqueta viene del HTML estático');
+  p.el('audio').dispara('playing');
+  check(p.el('play')._attrs['aria-label'] === 'Pause', 'al sonar: el botón dice Pause');
+  p.el('audio').dispara('pause');
+  check(p.el('play')._attrs['aria-label'] === 'Play', 'al parar: el botón dice Play');
+}
+
+/* -------------------------------------------- la política del navegador */
+
+async function escenarioAutoplayBloqueado() {
+  titular('\nel autoplay bloqueado dice lo que es (F-16):');
+
+  const p = await abrirPagina({ datos: AIRE, playRechaza: 'NotAllowedError' });
+  p.el('audio').dispara('playing'); // el audio estaba sonando de verdad
+  check(p.el('estado').textContent === 'live', 'arranca en live, sonando');
+
+  p.el('audio').dispara('error');   // el stream se corta
+  await flush();                     // alFallar -> fetch -> reintentar (agendado)
+  check(p.el('estado').textContent === 'reconnecting', 'el corte pone reconnecting');
+  check(p.timeouts.length > 0, 'el reintento quedó agendado');
+
+  await p.correrTimeouts();          // el retry corre -> conectar(true) -> play() rechaza
+  check(p.el('aviso').style.display === 'block' && p.el('aviso').textContent === FRASE_AUTOPLAY,
+    'play() rechazado con NotAllowedError -> la copia dedicada, NO el silencio');
+  check(p.el('estado').textContent === 'blocked',
+    'el estado dice blocked, NO reconnecting ni stopped');
+  check(p.el('play').disabled === false, 'el botón queda vivo: el click lo resuelve');
+  check(!p.el('dot').classList.contains('live'), 'el punto verde se apaga');
+
+  // El tick no pisa el bloqueo: el aire no desbloquea un navegador.
+  const pintaAntes = p.escrituras.estado || 0;
+  await p.disparar(15000);
+  check(p.el('estado').textContent === 'blocked', 'el tick NO pisa el bloqueo: el cartel sigue');
+  check((p.escrituras.estado || 0) === pintaAntes, 'el tick mide pero no escribe el cartel');
+  check(p.el('aviso').style.display === 'block', 'y el aviso sigue en pie');
+
+  // El click viene con gesto del usuario: el navegador deja reproducir.
+  p.el('audio')._playError = null;
+  p.el('play').dispara('click');
+  p.el('audio').dispara('playing');
+  check(p.el('estado').textContent === 'live', 'el click resuelve lo que el autoplay no pudo');
+  check(p.el('play')._attrs['aria-label'] === 'Pause', 'y el botón dice Pause');
+}
+
 /* ------------------------------------------------------------------ corrida */
 
 async function correrEscenarios() {
@@ -576,6 +662,8 @@ async function correrEscenarios() {
   await escenarioTransitoria();
   await escenarioPuerta();
   await escenarioTokenFueraDeLaBarra();
+  await escenarioVozDeLaEstacion();
+  await escenarioAutoplayBloqueado();
   return { ok, mal, rojas: rojas.slice() };
 }
 
@@ -599,8 +687,8 @@ const MUTACIONES = [
   },
   {
     que: 'la cadena deja de mandar sobre el tick',
-    aplica: (h) => h.replace(/if \(reintentando\) return;\n\n    \/\/ Regla 2/,
-      '// (guarda mutada)\n\n    // Regla 2'),
+    aplica: (h) => h.replace(/if \(reintentando\) return;\n\n    \/\/ Regla 1b/,
+      '// (guarda mutada)\n\n    // Regla 1b'),
   },
   {
     que: 'el 404 se lee como cualquier otra respuesta',
@@ -618,8 +706,8 @@ const MUTACIONES = [
   },
   {
     que: 'la frase de la puerta se escribe dos veces',
-    aplica: (h) => h.replace('var PUERTA = ',
-      "var PUERTA_COPIA = 'Access expired or the browser did not save the cookie.';\n  var PUERTA = "),
+    aplica: (h) => h.replace('  var STR = {',
+      "  var PUERTA_COPIA = 'Access expired or the browser did not save the cookie.';\n  var STR = {"),
   },
   {
     que: 'la barra nunca se limpia (el t se queda en la direccion)',
@@ -639,6 +727,16 @@ const MUTACIONES = [
     que: 'un 502 se lee como 404: se decide aunque no se sabe nada',
     aplica: (h) => h.replace('        if (r.status === 404) {',
       '        if (r.status === 404 || r.status === 502) {'),
+  },
+  {
+    que: 'el autoplay bloqueado se traga en silencio (F-16)',
+    aplica: (h) => h.replace("if (e && e.name === 'NotAllowedError') autoplayBloqueado();",
+      '// autoplay tragado'),
+  },
+  {
+    que: 'una frase visible queda escrita a mano, fuera de STR (F-10)',
+    aplica: (h) => h.replace("    estado.textContent = STR.live;",
+      "    estado.textContent = 'live';"),
   },
 ];
 

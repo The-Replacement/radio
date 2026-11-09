@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -68,12 +68,12 @@
 </head>
 <body>
 <main>
-  <div class="estado"><span class="dot" id="dot"></span><span id="estado">stopped</span><span id="oyentes" style="margin-left:.6rem;font-size:.7rem;color:#9a9aa2;"></span></div>
+  <div class="estado"><span class="dot" id="dot"></span><span id="estado" aria-live="polite">stopped</span><span id="listeners" style="margin-left:.6rem;font-size:.7rem;color:#9a9aa2;"></span></div>
   <h1>Radio</h1>
   <p class="now" id="now">&nbsp;</p>
-  <button id="play" aria-label="Reproducir">&#9654;</button>
-  <div class="aviso" id="aviso"></div>
-  <div class="err" id="err"></div>
+  <button id="play" aria-label="Play">&#9654;</button>
+  <div class="aviso" id="aviso" aria-live="polite"></div>
+  <div class="err" id="err" aria-live="polite"></div>
   <div class="tel" id="tel"></div>
   <details class="about">
     <summary>About this radio</summary>
@@ -161,11 +161,53 @@
   var btn = document.getElementById('play');
   var dot = document.getElementById('dot');
   var estado = document.getElementById('estado');
-  var oyentes = document.getElementById('oyentes');
+  var listeners = document.getElementById('listeners');
   var now = document.getElementById('now');
   var err = document.getElementById('err');
   var aviso = document.getElementById('aviso');
   var tel = document.getElementById('tel');
+
+  /*
+    El cartel de la estación, una sola vez. Todo texto visible (y los
+    dos íconos) sale de acá: si una frase queda escrita en otro lado, se
+    rompió algo. Una voz, un solo lugar — D-2 / F-10 / F-11.
+  */
+  var STR = {
+    station: 'Radio',
+    playIcon: '&#9654;',
+    pauseIcon: '&#10073;&#10073;',
+    play: 'Play',
+    pause: 'Pause',
+    live: 'live',
+    stopped: 'stopped',
+    reconnecting: 'reconnecting',
+    error: 'error',
+    blocked: 'blocked',
+    broadcastStopped: 'Broadcast is stopped',
+    autoplayBlocked: 'The browser blocked autoplay. Press play.',
+    door: 'Server replied 404.<br>Access expired or the browser did not save the cookie. Ask for a new link.',
+    connectFailed: function (code) {
+      return 'Could not connect to the stream' + (code ? ' (error ' + code + ')' : '') +
+        '.<br>Connection dropped and did not come back. Check the network.';
+    },
+    reconnectingLine: function (n, max) {
+      return 'Stream cut. Reconnecting (' + n + '/' + max + ')...';
+    },
+    listeners: function (n) {
+      return n + ' listener' + (n === 1 ? '' : 's');
+    },
+    debugWebRtc: function (ms, t) {
+      return 'transport: webrtc  |  jitter buffer: ' +
+        (ms === null ? '?' : ms.toFixed(0) + ' ms') +
+        '  |  t: ' + t.toFixed(1) + 's';
+    },
+    debugNative: 'transport: native hls',
+    debugHls: function (latency, target, rate) {
+      return 'transport: hls.js  |  latency: ' + latency.toFixed(2) + 's' +
+        '  |  target: ' + (target === null ? '?' : target.toFixed(2)) + 's' +
+        '  |  rate: ' + rate.toFixed(2) + 'x';
+    }
+  };
 
   tel.textContent = location.host;
 
@@ -221,26 +263,49 @@
   var sinCredencial = false;
   // ¿Hay una cadena de reconexión en vuelo? Ver alFallar().
   var reintentando = false;
+  // ¿El navegador bloqueó el autoplay y todavía no hubo click con
+  // gesto? La red no puede desbloquearlo: el tick no pisa este estado
+  // (la regla 1 tiene una prima local — la regla 0, por decirlo).
+  var bloqueadoPorAutoplay = false;
 
   /*
-    LA copia de la puerta. La credencial murió y el listener tiene que
-    saberlo, con la misma frase y en un solo lugar: la escriben los dos
-    caminos que pueden descubrirlo — la cadena (falloDefinitivo) y el
-    tick (render) — porque son el mismo hecho leído dos veces. Si algún
-    día se escriben en dos archivos, es que se rompió algo.
+    La frase de la puerta vive en STR.door: la escriben los dos caminos
+    que pueden descubrirla — la cadena (falloDefinitivo) y el tick
+    (render) — porque son el mismo hecho leído dos veces. Si algún día
+    se escriben en otro lado, es que se rompió algo (ui-gate lo cuenta).
   */
-  var PUERTA = 'Server replied 404.<br>Access expired or the browser did not save ' +
-               'the cookie. Ask for a new link.';
+
+  // La etiqueta del botón viaja con el estado: Play cuando está parada,
+  // Pause cuando suena. El glifo cambia con ella — el oyente ciego
+  // percibe este cambio vía aria-live en el bloque del estado (F-11).
+  function setLabel(label) { btn.setAttribute('aria-label', label); }
 
   function conectar(autoplay) {
     audio.crossOrigin = 'use-credentials';
     audio.src = BACKEND_URL + '/stream' + sufijo;
     if (!autoplay) return;
-    audio.play().catch(function () {
-      // play() rechaza si el pedido falla o si el navegador bloquea el
-      // autoplay. El segundo caso no se arregla reintentando: lo resuelve
-      // el click.
+    audio.play().catch(function (e) {
+      // play() rechaza si el pedido falla, o si el navegador bloquea el
+      // autoplay. El segundo caso no se arregla reintentando: lo
+      // resuelve el click — y el oyente tiene que saber POR QUÉ no suena,
+      // no un "stopped" mudo ni un "reconectando" eterno (F-16).
+      if (e && e.name === 'NotAllowedError') autoplayBloqueado();
     });
+  }
+
+  /*
+    El navegador bloqueó el autoplay: ni red, ni credencial — una
+    política. Se anuncia como lo que es, con el botón vivo para que el
+    click la resuelva. Ni "stopped" ni silencio (F-16).
+  */
+  function autoplayBloqueado() {
+    bloqueadoPorAutoplay = true;
+    aviso.style.display = 'block';
+    aviso.textContent = STR.autoplayBlocked;
+    estado.textContent = STR.blocked;
+    dot.classList.remove('live');
+    btn.innerHTML = STR.playIcon;
+    setLabel(STR.play);
   }
 
   /*
@@ -282,9 +347,8 @@
     reintentos++;
     if (reintentos > MAX_REINTENTOS) { falloDefinitivo(); return; }
     err.style.display = 'block';
-    err.textContent = 'Stream cut. Reconnecting (' + reintentos +
-                      '/' + MAX_REINTENTOS + ')...';
-    estado.textContent = 'reconectando';
+    err.textContent = STR.reconnectingLine(reintentos, MAX_REINTENTOS);
+    estado.textContent = STR.reconnecting;
     dot.classList.remove('live');
     setTimeout(function () {
       // El intento corre: con esto, los eventos del SU fallo (error o
@@ -318,18 +382,21 @@
   audio.addEventListener('playing', function () {
     reintentos = 0;
     reintentando = false;
+    bloqueadoPorAutoplay = false;
     reproduciendo = true;
-    btn.innerHTML = '&#10073;&#10073;';
-    estado.textContent = 'live';
+    btn.innerHTML = STR.pauseIcon;
+    setLabel(STR.pause);
+    estado.textContent = STR.live;
     dot.classList.add('live');
     err.style.display = 'none';
   });
   audio.addEventListener('pause', function () {
-    btn.innerHTML = '&#9654;';
+    btn.innerHTML = STR.playIcon;
+    setLabel(STR.play);
     // El `pause` que dispara cada intento fallido no debe pisar el cartel:
-    // mientras hay cadena en vuelo la página está reconectando, no
-    // detenido (sin esto la UI contradecía al cartel "Reconectando (n/5)").
-    if (!reintentando) estado.textContent = 'stopped';
+    // mientras hay cadena en vuelo la página está reconnecting, no
+    // detenido (sin esto la UI contradecía al cartel "Reconnecting (n/5)").
+    if (!reintentando) estado.textContent = STR.stopped;
     dot.classList.remove('live');
   });
   audio.addEventListener('error', function () {
@@ -363,12 +430,10 @@
     reintentando = false;
     err.style.display = 'block';
     err.innerHTML = sinCredencial
-      ? PUERTA
-      : 'Could not connect to the stream' +
-        (ultimoCodigo ? ' (error ' + ultimoCodigo + ')' : '') + '.<br>' +
-        'Connection dropped and did not come back. Check the network.';
+      ? STR.door
+      : STR.connectFailed(ultimoCodigo);
     dot.classList.remove('live');
-    estado.textContent = 'error';
+    estado.textContent = STR.error;
   }
 
   /*
@@ -520,6 +585,13 @@
     // es lo que hacía pelear "reconectando" contra "live".
     if (reintentando) return;
 
+    // Regla 1b: el navegador bloqueó el autoplay. El aire puede existir
+    // —respondió 200, hay source— pero este navegador no deja arrancar
+    // sin gesto, y eso no lo sabe el servidor. Mientras el bloqueo esté
+    // vivo, el tick no pinta: el cartel del bloqueo manda hasta que un
+    // click (gesto) lo resuelva.
+    if (bloqueadoPorAutoplay) return;
+
     // Regla 2: sin datos no hay veredicto y el último sigue en pie.
     // Borrarlo también sería afirmar algo que no sabemos.
     if (f.veredicto === 'sin-datos') return;
@@ -532,10 +604,10 @@
       // ese era el caso en que el botón quedaba disabled y la única
       // frase que importaba no se podía ver nunca.
       err.style.display = 'block';
-      err.innerHTML = PUERTA;
+      err.innerHTML = STR.door;
       aviso.style.display = 'none';
       dot.classList.remove('live');
-      estado.textContent = 'error';
+      estado.textContent = STR.error;
       btn.disabled = true;
       return;
     }
@@ -545,24 +617,24 @@
       // #now tiene UN escritor, este bloque. El valor sale de un solo
       // campo (title) con fallback: antes lo escribían dos encuestas con
       // campos distintos y el cartel parpadeaba.
-      now.textContent = (titulo || s.server_name || s.server_description || 'Radio') + '\u00a0';
-      if (titulo) document.title = titulo + ' — Radio';
+      now.textContent = (titulo || s.server_name || s.server_description || STR.station) + '\u00a0';
+      if (titulo) document.title = titulo + ' — ' + STR.station;
       var n = (s && s.listeners != null) ? s.listeners : 0;
-      oyentes.textContent = n + ' listener' + (n === 1 ? '' : 's');
+      listeners.textContent = STR.listeners(n);
       aviso.style.display = 'none';
       btn.disabled = false;
       dot.classList.add('live');
-      estado.textContent = 'live';
-      if (sonando()) btn.innerHTML = '&#10073;&#10073;';
+      estado.textContent = STR.live;
+      if (sonando()) { btn.innerHTML = STR.pauseIcon; setLabel(STR.pause); }
     } else {
       // 'sin-aire': respondió 200 y no hay source. Esto se sabe.
       now.textContent = '';
-      oyentes.textContent = '';
+      listeners.textContent = '';
       aviso.style.display = 'block';
-      aviso.textContent = 'Broadcast is stopped';
+      aviso.textContent = STR.broadcastStopped;
       btn.disabled = true;
       dot.classList.remove('live');
-      estado.textContent = 'stopped';
+      estado.textContent = STR.stopped;
     }
   }
 
@@ -736,17 +808,12 @@
               ms = (r.jitterBufferDelay / r.jitterBufferEmittedCount) * 1000;
             }
           });
-          dbg.textContent = 'transporte: webrtc  |  jitter buffer: ' +
-            (ms === null ? '?' : ms.toFixed(0) + ' ms') +
-            '  |  t: ' + cam.currentTime.toFixed(1) + 's';
+          dbg.textContent = STR.debugWebRtc(ms, cam.currentTime);
         });
         return;
       }
-      if (!hlsCam) { dbg.textContent = 'transporte: HLS nativo'; return; }
-      dbg.textContent =
-        'transporte: hls.js  |  latencia: ' + hlsCam.latency.toFixed(2) + 's' +
-        '  |  objetivo: ' + (hlsCam.targetLatency === null ? '?' : hlsCam.targetLatency.toFixed(2)) + 's' +
-        '  |  velocidad: ' + cam.playbackRate.toFixed(2) + 'x';
+      if (!hlsCam) { dbg.textContent = STR.debugNative; return; }
+      dbg.textContent = STR.debugHls(hlsCam.latency, hlsCam.targetLatency, cam.playbackRate);
     }, 1000);
   }
 })();
