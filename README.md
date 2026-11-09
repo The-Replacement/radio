@@ -191,7 +191,7 @@ sequenceDiagram
     O->>C: GET /   (now sends the cookie)
     C-->>O: the player
     O->>C: GET /stream   (cookie)
-    C->>I: GET /stream   (the rewrite stripped the token)
+    C->>I: GET /stream   (rewrite /stream? deleted the query)
     I-->>C: audio bytes
     C-->>O: live audio
 ```
@@ -204,8 +204,14 @@ Four layers, each doing something different:
    browser that refuses the cookie — and the page takes the token out of the
    address bar as soon as it loads. From then on the token travels only in
    the page's requests, and only while that fallback is in use.
-3. **`rewrite` strips the query** before proxying: the token never reaches
-   Icecast, so it cannot appear in its logs.
+3. **The query is deleted before proxying, on two independent layers.**
+   `rewrite /stream?` (and the same for `/status-json.xsl` and `/cam/whep`)
+   strips `?t=...` so neither Icecast nor MediaMTX ever sees it — the empty
+   `?` is what clears it: without it Caddy changes only the path and
+   **keeps** the query (issue #7). And even if it ever crossed, Icecast's
+   own log format cuts the request at `?` before writing it, so the logs
+   could not contain it either. `scripts/query-gate.sh` goes red if the
+   first layer stops.
 4. **Icecast publishes no ports.** It lives in Docker's internal network. Even
    if someone finds the container, they cannot reach it from outside.
 
@@ -545,6 +551,56 @@ blocks nothing.)
 
 ---
 
+## Validating the query
+
+The token's `?t=...` must not cross the door. The README used to say that
+`rewrite` stripped it — but `rewrite /stream` only changes the path and
+**keeps** the query; what clears it is the empty `?` (`rewrite /stream?`).
+Without it, `?t=` reached Icecast and MediaMTX on every request (issue #7),
+and the smoke grep for `stream?t=` in Icecast's logs could not notice: the
+log format cuts the request at `?` before writing it, so the string was
+unreachable — green or red without measuring anything.
+
+```bash
+./scripts/query-gate.sh
+```
+
+It lifts the three `handle` blocks out of the deployed `Caddyfile` — the
+production blocks verbatim, only the upstream address is swapped for a
+local origin that writes down every request line it receives — runs the
+pinned Caddy image against them and demands that **no `?` arrives** on
+`/stream`, `/status-json.xsl` and `/cam/whep`. Then it removes the `?`
+from each rewrite, one at a time — the config as it was before S4 — and
+demands that the leak **appears**. A mutation that stays clean means the
+gate stopped measuring that route: a failure, not a pass.
+
+```
+Query gate — el query no cruza la puerta (F-07)
+
+  OK Caddyfile: /stream tiene 'rewrite /stream?' dentro de su bloque
+  OK Caddyfile: /status-json.xsl tiene 'rewrite /status-json.xsl?' dentro de su bloque
+  OK Caddyfile: /cam/whep tiene 'rewrite /cam/whep?' dentro de su bloque
+  OK /stream: el origin recibio 'GET /stream' — sin '?', sin token
+  OK /status-json.xsl: el origin recibio 'GET /status-json.xsl' — sin '?', sin token
+  OK /cam/whep: el origin recibio 'POST /cam/whep' — sin '?', sin token
+  OK mutacion /stream: sin el '?', el query llego ('GET /stream?t=SECRETO') — este gate puede fallar
+  OK mutacion /status-json.xsl: sin el '?', el query llego ('GET /status-json.xsl?t=SECRETO') — este gate puede fallar
+  OK mutacion /cam/whep: sin el '?', el query llego ('POST /cam/whep?t=SECRETO') — este gate puede fallar
+
+Todo bien — 9 chequeos.
+```
+
+Exit codes: `0` three clean routes and three mutations trapped, `1`
+something measured something else, `2` missing dependencies (docker,
+python3, the Caddy image). No stack and no `.env` — only the Docker
+daemon — and it takes about 5 s. `CADDYFILE=/otro/Caddyfile` points it at
+another version: against the file as it was before S4
+(`git show a2f34e7:caddy/Caddyfile`) the three structural checks go red.
+
+Being fast and stack-free, it can join the pre-commit hook above.
+
+---
+
 ## Common problems
 
 **The stream delivers 0 bytes**
@@ -680,7 +736,8 @@ radio/
 |-- data/cam/                 HLS segments. Regenerated on their own
 |-- scripts/
 |   |-- token.sh              grant / revoke / list access
-|   |-- smoke.sh              29 checks in 4 groups
+|   |-- smoke.sh              32 checks in 4 groups
+|   |-- query-gate.sh         the token's query never crosses the door
 |   |-- docs.sh               validates the Mermaid diagrams
 |   `-- ui-gate.js            structure of the player's state machine
 `-- secrets/tokens.txt        WHO has access. chmod 600.

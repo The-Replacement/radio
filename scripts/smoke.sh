@@ -122,13 +122,39 @@ else
     falla "el stream entregó ${len} bytes (¿Liquidsoap conectado? ¿hay música en ./music?)"
   fi
 
-  # Que el token NO viaje hacia Icecast.
-  if docker compose -f "$RAIZ/docker-compose.yml" ps --status running --services 2>/dev/null | grep -qx icecast; then
-    curl -s -o /dev/null --max-time 5 "$BASE/stream?t=$TOKEN" 2>/dev/null || true
-    if docker compose -f "$RAIZ/docker-compose.yml" logs --no-log-prefix icecast 2>/dev/null | grep -q 'stream?t='; then
-      falla "el token aparece en los logs de Icecast (el rewrite no está filtrando)"
+  # ------------------------------------------- el query, en lo que corre
+  #
+  # Esto reemplaza el grep viejo ('stream?t=' en los logs de Icecast), que
+  # no podía fallar: Icecast corta el query en '?' antes de guardar el __uri
+  # (Icecast-common/httpp.c) y el access log escribe ese campo tal cual
+  # (Icecast-Server/src/logging.c) — una cadena que su formato no puede
+  # contener, verde o rojo sin medir nada (F-07).
+  #
+  # Lo que sí se puede medir: la config que Caddy está sirviendo AHORA, por
+  # su admin API (localhost:2019, sólo adentro del contenedor; el compose no
+  # la publica). Si alguien saca el '?' del Caddyfile y no recarga —o
+  # recarga y el cambio no entra—, el running config queda sin el rewrite y
+  # este check se pone rojo. Medido en las dos direcciones contra el config
+  # real: con S4 los tres greps dan, con el config de antes de S4 los tres
+  # fallan.
+  #
+  # MediaMTX no tiene su propio grep: a logLevel: info (producción) no
+  # anota ninguna línea de pedido (medido, con y sin query), así que un
+  # grep en sus logs sería el mismo agujero que el de Icecast. Su rewrite
+  # (/cam/whep?) queda cubierto por este mismo check. La prueba de
+  # comportamiento —el '?' no cruza, mutación mediante— vive en
+  # scripts/query-gate.sh.
+  if docker compose -f "$RAIZ/docker-compose.yml" ps --status running --services 2>/dev/null | grep -qx caddy; then
+    cfg="$(docker compose -f "$RAIZ/docker-compose.yml" exec -T caddy \
+      wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null || true)"
+    if [[ -z "$cfg" ]]; then
+      falla "no pude leer la config en ejecución de Caddy (admin API en 2019)"
     else
-      pasa "el token NO llega a Icecast"
+      for rw in '/stream?' '/status-json.xsl?' '/cam/whep?'; do
+        grep -qF "\"rewrite\":{\"uri\":\"$rw\"}" <<<"$cfg" \
+          && pasa "la config en ejecución tiene 'rewrite $rw'" \
+          || falla "la config en ejecución NO tiene 'rewrite $rw' (¿no entró el reload?)"
+      done
     fi
   fi
 
@@ -193,9 +219,12 @@ else
       || falla "whep sin credencial pasó el gate"
     if [[ -n "$COOKIE_ENTREGADA" ]]; then
       # 400 = llegó a mediamtx, que rechaza el SDP de prueba. 404 sería que
-      # Caddy nunca lo ruteó.
+      # Caddy nunca lo ruteó. Se manda CON ?t=, que es la forma real del
+      # fallback sin cookie (F-07): el rewrite tiene que borrarlo sin
+      # romper el path — si el rewrite apuntara a otro lado, mediamtx
+      # respondería 404 y esto se pondría rojo.
       [[ "$(codigo -X POST --data 'v=0' -H 'Content-Type: application/sdp' \
-            -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/whep")" == "400" ]] \
+            -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/whep?t=$TOKEN")" == "400" ]] \
         && pasa "whep con credencial llega a mediamtx (400 = SDP inválido)" \
         || falla "whep con credencial no llegó a mediamtx"
     fi

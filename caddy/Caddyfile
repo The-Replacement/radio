@@ -104,7 +104,12 @@
 	# Entra quien traiga el token (VLC, mpv, ffmpeg) o la cookie (navegador).
 	handle @gate {
 		# --- el stream de audio ---
-		# rewrite descarta el query: el token NUNCA llega a Icecast.
+		# rewrite /stream? BORRA el query: el token NUNCA llega a Icecast.
+		# El '?' vacío es literalmente lo que limpia (módulo rewrite de
+		# Caddy): sin él, `rewrite /stream` sólo cambia el path y CONSERVA
+		# el query — ?t= cruzaba en cada conexión y cada poll, y nada se
+		# ponía rojo porque Icecast corta el query antes de loguearlo
+		# (F-07). Mide las dos direcciones scripts/query-gate.sh.
 		# flush_interval -1 desactiva el buffering de Caddy: sin esto
 		# el audio se acumula y la radio suena con segundos de retraso.
 		handle /stream* {
@@ -114,19 +119,21 @@
 			header Access-Control-Allow-Credentials true
 			header Cache-Control "no-cache, no-store, must-revalidate"
 			reverse_proxy icecast:8000 {
-				rewrite /stream
+				rewrite /stream?
 				flush_interval -1
 			}
 		}
 
 		# --- estado / "sonando ahora" (CORS para frontend) ---
+		# El poll de 15 s lleva ?t= mientras dure el fallback sin cookie:
+		# acá se borra igual, con el mismo '?' vacío.
 		handle /status-json.xsl {
 			header Access-Control-Allow-Origin https://radio.daza.ar
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
 			header Access-Control-Allow-Credentials true
 			reverse_proxy icecast:8000 {
-				rewrite /status-json.xsl
+				rewrite /status-json.xsl?
 			}
 		}
 
@@ -136,13 +143,17 @@
 		# precio de 0.2-0.4s en vez de 1.5s, y por eso ese puerto UDP va
 		# atado a loopback en docker-compose.yml.
 		#
-		# El path no se reescribe: mediamtx espera /<stream>/whep y el stream
-		# se llama cam, así que /cam/whep le llega igual.
+		# El path queda como llega: mediamtx espera /<stream>/whep y el
+		# stream se llama cam, así que /cam/whep le llega igual. Lo que SÍ
+		# se borra es el query — en el fallback sin cookie el player manda
+		# ?t= en el POST del SDP y mediamtx no tiene por qué verlo (F-07).
 		handle /cam/whep {
 			# mediamtx añade Allow-Origin; Caddy añade Allow-Credentials,
 			# que mediamtx no manda (el navegador lo exige con credentials:include).
 			header Access-Control-Allow-Credentials true
-			reverse_proxy mediamtx:8889
+			reverse_proxy mediamtx:8889 {
+				rewrite /cam/whep?
+			}
 		}
 
 		# --- la cámara: HLS con CORS para reproductores remotos ---
