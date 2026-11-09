@@ -652,11 +652,35 @@
     La cámara. Video mudo: el audio es el de la radio y nada más.
     ------------------------------------------------------------------
 
-    Se pregunta primero si hay playlist (HEAD). Si no la hay, la caja no
-    aparece y no se carga hls.js siquiera. Eso cubre el caso normal de
-    "la cámara está desenchufada" sin que el usuario vea un recuadro negro
-    ni un error.
+    La cámara existe sólo si hay playlist fresco AHORA. El índice de
+    HLS lleva EXT-X-PROGRAM-DATE-TIME en cada segmento desde siempre;
+    se mira cuál es el último y, si pasó más de ~10 s, la caja ni
+    aparece: la cámara está ciega y esperar a que vuelva es lo mismo
+    que no tenerla (F-08).
+
+    Por qué antes que WebRTC: sin playlist fresca no hay SDP que negociar
+    ni 380 KB de hls.js que pedir. Se pregunta antes de tocar nada.
   */
+  function hayCamara() {
+    return fetch(BACKEND_URL + '/cam/index.m3u8' + sufijo,
+                 { cache: 'no-store', credentials: 'include' })
+      .then(function (r) {
+        // 404 = no hay cámara; no hay nada que mostrar.
+        if (!r.ok) return null;
+        return r.text();
+      })
+      .catch(function () { return null; })
+      .then(function (texto) {
+        if (texto === null) return false;
+        var m = texto.match(/^#EXT-X-PROGRAM-DATE-TIME:(.+)$/gm);
+        if (!m || !m.length) return false;
+        var ultimo = m[m.length - 1].split(':').slice(1).join(':').trim();
+        var t = Date.parse(ultimo);
+        if (!isFinite(t)) return false;
+        return (Date.now() - t) < 10000;
+      });
+  }
+
   var caja = document.getElementById('cam-caja');
   var cam = document.getElementById('cam');
   var hlsCam = null;
@@ -785,8 +809,11 @@
   }
 
   function arrancar() {
-    if (!window.RTCPeerConnection) { porHls(); return; }
-    porWebrtc().catch(function () { porHls(); });
+    hayCamara().then(function (ok) {
+      if (!ok) { caja.hidden = true; return; }
+      if (!window.RTCPeerConnection) { porHls(); return; }
+      porWebrtc().catch(function () { porHls(); });
+    });
   }
 
   arrancar();

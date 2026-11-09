@@ -16,10 +16,12 @@ cd "$RAIZ"
 
 VERDE=$'\033[32m'; ROJO=$'\033[31m'; FIN=$'\033[0m'
 
-# Allowlist documentada, una línea por permiso explícito. Todo lo que no
+# La allowlist documentada, una línea por permiso explícito. Todo lo que no
 # esté acá, en esta config, es un hardcode nuevo y el gate se pone rojo.
 #   .env.example  — la línea documentada del seam (S8, F-06 / F-13)
 #   web/index.html — la firma pública de la estación, no un origin
+# claims.sh no se escanea a sí mismo: el script contiene literalmente
+# las líneas permitidas POR definición.
 PERMITIDAS=(
   '.env.example|FRONTEND_URL=https://radio.daza.ar'
   'web/index.html|radio.daza.ar · sierras de los comechingones'
@@ -42,8 +44,8 @@ echo "Claims — nadie escribe a mano el dominio en la config"
 echo
 
 mapfile -t HITS < <(git grep -niF 'radio.daza.ar' -- \
-  caddy web scripts docker-compose.yml .env.example \
-  icecast liquidsoap cam mediamtx 2>/dev/null || true)
+  caddy web docker-compose.yml .env.example \
+  icecast liquidsoap cam mediamtx ':!scripts/claims.sh' 2>/dev/null || true)
 
 malas=0
 buenas=0

@@ -34,6 +34,13 @@ limpiar() {
 }
 
 salir() {
+  # Matar a ffmpeg ANTES de borrar el playlist: si el proceso queda vivo
+  # mientras borramos los .m4s, el índice apunta a segmentos que ya
+  # no existen y los reproductores se cuelgan para siempre.
+  if [ -n "${ff_pid:-}" ]; then
+    kill "$ff_pid" 2>/dev/null || true
+    wait "$ff_pid" 2>/dev/null || true
+  fi
   limpiar
   exit 0
 }
@@ -82,7 +89,9 @@ while :; do
     -hls_segment_type fmp4 \
     -hls_fmp4_init_filename init.mp4 \
     -hls_segment_filename "$OUT/seg%03d.m4s" \
-    "$OUT/index.m3u8"
+    "$OUT/index.m3u8" &
+  ff_pid=$!
+  wait "$ff_pid"
 
   # temp_file: ffmpeg escribe segNNN.m4s.tmp y renombra al terminar.
   # Caddy nunca ve un segmento a medio escribir.

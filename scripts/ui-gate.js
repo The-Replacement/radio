@@ -154,6 +154,26 @@ function crearFetch(fuente) {
   const pedidos = [];
   const f = function (url) {
     const u = String(url);
+    // El playlist de la camara, primero: si no hay, la pagina no arranca.
+    if (u.indexOf('/cam/index.m3u8') !== -1) {
+      pedidos.push(u);
+      if (!fuente.alcanzable) return Promise.reject(new Error('red caida'));
+      if (fuente.cam404) {
+        return Promise.resolve({
+          ok: false, status: 404,
+          text() { return Promise.resolve(''); },
+        });
+      }
+      const age = fuente.camPdtAge != null ? fuente.camPdtAge : 0;
+      const pdt = new Date(Date.now() - age).toISOString();
+      const text = '#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:1\n' +
+        '#EXT-X-MEDIA-SEQUENCE:42\n#EXT-X-PROGRAM-DATE-TIME:' + pdt +
+        '\n#EXTINF:1.0,\nseg041.m4s\n';
+      return Promise.resolve({
+        ok: true, status: 200,
+        text() { return Promise.resolve(text); },
+      });
+    }
     if (u.indexOf('/status-json.xsl') === -1) {
       return Promise.reject(new Error('fuera del gate: ' + u));
     }
@@ -192,6 +212,7 @@ async function abrirPagina(config) {
   const timeouts = [];
   const fetchFuente = Object.assign({ alcanzable: true, codigo: 200, datos: null }, config);
   const fetch = crearFetch(fetchFuente);
+  const creados = [];
 
   // La direccion CON historia: replaceState de la pagina se ve aca.
   // Sin esto "la barra queda limpia" seria una opinion del gate, no una
@@ -210,7 +231,7 @@ async function abrirPagina(config) {
   const doc = {
     title: 'Radio',
     head: { appendChild() {} },
-    createElement(tag) { return elemento(tag + '#nuevo', escrituras); },
+    createElement(tag) { const e = elemento(tag + '#nuevo', escrituras); creados.push(e); return e; },
     getElementById(id) {
       // Si el gate (o el codigo) piden un id que no existe en la pagina,
       // se prueba contra un elemento fantasma y el chequeo pasa en vano:
@@ -257,6 +278,7 @@ async function abrirPagina(config) {
     config: fetchFuente,
     doc,
     el,
+    creados,
     // Enciende el intervalo dado (o todos) y deja que las promesas caigan.
     async disparar(ms) {
       const elegidos = ms == null ? intervalos : intervalos.filter((i) => i.ms === ms);
@@ -296,22 +318,28 @@ const AIRE = {
   listeners: 3,
 };
 
+// El fetch del gate sirve dos endpoints ahora: el estado y el probe de
+// la camara. Estas helpers existen para que las assertions del tick
+// cuenten SOLO el estado (F-08: el probe no debe contar para el
+// "exactamente un fetch por tick").
+const soloEstado = (p) => p.fetch.pedidos.filter(u => u.includes('/status-json.xsl'));
+
 async function escenarioUnTick() {
   titular('\nun solo tick de estado:');
   const p = await abrirPagina({ datos: AIRE });
 
   // Arranque: una verificacion inmediata, no dos.
-  check(p.fetch.pedidos.length === 1, 'al cargar la pagina: exactamente 1 fetch de estado');
+  check(soloEstado(p).length === 1, 'al cargar la pagina: exactamente 1 fetch de estado');
   check((p.escrituras.now || 0) === 1, 'al cargar la pagina: #now se escribe 1 vez');
   check(p.el('estado').textContent === 'live', 'al cargar: el cartel dice live');
 
   // Ningun otro intervalo del reproductor debe hablar con el endpoint.
   const queFetchean = [];
   for (const i of p.intervalos) {
-    const antes = p.fetch.pedidos.length;
+    const antes = soloEstado(p).length;
     i.fn();
     await flush();
-    if (p.fetch.pedidos.length > antes) queFetchean.push(i.ms);
+    if (soloEstado(p).length > antes) queFetchean.push(i.ms);
   }
   check(
     queFetchean.length === 1 && queFetchean[0] === 15000,
@@ -319,15 +347,15 @@ async function escenarioUnTick() {
   );
 
   // Cada tick: +1 fetch, +1 escritura de #now, +1 escritura de estado.
-  const antes = { ped: p.fetch.pedidos.length, now: p.escrituras.now || 0, est: p.escrituras.estado || 0 };
+  const antes = { ped: soloEstado(p).length, now: p.escrituras.now || 0, est: p.escrituras.estado || 0 };
   await p.disparar(15000);
-  check(p.fetch.pedidos.length - antes.ped === 1, '15 s: el tick hace exactamente 1 fetch');
+  check(soloEstado(p).length - antes.ped === 1, '15 s: el tick hace exactamente 1 fetch');
   check((p.escrituras.now || 0) - antes.now === 1, '15 s: #now se escribe 1 vez');
   check((p.escrituras.estado || 0) - antes.est === 1, '15 s: el cartel se escribe 1 vez');
 
-  const ahora = { ped: p.fetch.pedidos.length, now: p.escrituras.now || 0 };
+  const ahora = { ped: soloEstado(p).length, now: p.escrituras.now || 0 };
   await p.disparar(15000);
-  check(p.fetch.pedidos.length - ahora.ped === 1, 'otro tick: sigue siendo 1 fetch, no se acumulan');
+  check(soloEstado(p).length - ahora.ped === 1, 'otro tick: sigue siendo 1 fetch, no se acumulan');
   check((p.escrituras.now || 0) - ahora.now === 1, 'otro tick: #now, 1 vez de nuevo');
 
   check(p.el('now').textContent.trim() === AIRE.title, '#now muestra el title, no el server_name');
@@ -349,9 +377,9 @@ async function escenarioCadenaManda() {
 
   // Aca estaba el bug: el tick vivo pisaba "reconectando" con "live".
   const escritas = p.escrituras.estado || 0;
-  const antes = p.fetch.pedidos.length;
+  const antes = soloEstado(p).length;
   await p.disparar(15000);
-  check(p.fetch.pedidos.length - antes === 1, 'el tick sigue corriendo (no se congela la pagina)');
+  check(soloEstado(p).length - antes === 1, 'el tick sigue corriendo (no se congela la pagina)');
   check(p.el('estado').textContent === 'reconnecting', 'tick en vivo: el cartel NO pasa a live');
   check((p.escrituras.estado || 0) === escritas, 'tick en vivo: ni una escritura del cartel');
 
@@ -443,7 +471,7 @@ async function escenarioMatriz() {
     '404 -> "Ask for a new link" esta a la vista al cargar');
 
   const rechazo = await abrirPagina({ alcanzable: false });
-  check(rechazo.fetch.pedidos.length === 1, 'red caida -> igual hace el fetch (mide, no afirma)');
+  check(soloEstado(rechazo).length === 1, 'red caida -> igual hace el fetch (mide, no afirma)');
   check(intacto(rechazo),
     `red caida -> no pinta nada: ni off air, ni puerta, ni boton muerto${intacto(rechazo) ? '' : `\n        ${dondeFalla(rechazo)}`}`);
 
@@ -460,9 +488,9 @@ async function escenarioTransitoria() {
     'arranca live, boton habilitado');
 
   p.config.alcanzable = false;
-  const antes = p.fetch.pedidos.length;
+  const antes = soloEstado(p).length;
   await p.disparar(15000);
-  check(p.fetch.pedidos.length - antes === 1, 'el tick consulta igual: midio, no se quedo mudo');
+  check(soloEstado(p).length - antes === 1, 'el tick consulta igual: midio, no se quedo mudo');
   check(p.el('estado').textContent === 'live', 'el estado sigue en live');
   check(p.el('play').disabled === false, 'el boton sigue habilitado');
   check(p.el('aviso').style.display !== 'block', 'no aparece ningun aviso');
@@ -512,14 +540,14 @@ async function escenarioTokenFueraDeLaBarra() {
     `cookie viva: la barra queda limpia al cargar (quedo "${viva.location.search}")`);
   check(viva.reemplazos.length === 1,
     `cookie viva: un replaceState, no cero ni tres (${viva.reemplazos.length})`);
-  check(viva.fetch.pedidos.length === 1,
-    `cookie viva: un solo pedido — el que prueba la cookie (${viva.fetch.pedidos.length})`);
-  check(viva.fetch.pedidos.every((u) => !/[?&]t=/.test(u)),
+  check(soloEstado(viva).length === 1,
+    `cookie viva: un solo pedido — el que prueba la cookie (${soloEstado(viva).length})`);
+  check(soloEstado(viva).every((u) => !/[?&]t=/.test(u)),
     'cookie viva: NINGUN pedido lleva el token');
   check(viva.el('estado').textContent === 'live',
     'cookie viva: la radio arranca viva sin gastar el token');
   await viva.disparar(15000);
-  check(viva.fetch.pedidos.length === 2 && !/[?&]t=/.test(viva.fetch.pedidos[1]),
+  check(soloEstado(viva).length === 2 && !/[?&]t=/.test(soloEstado(viva)[1]),
     'cookie viva: el tick sigue sin token');
 
   // 2) Navegador sin cookies (Safari ITP, etc.): el respaldo tiene que
@@ -528,16 +556,16 @@ async function escenarioTokenFueraDeLaBarra() {
   const muerta = await abrirPagina({ datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA, cookie: 'muerta' });
   check(muerta.location.search === '',
     `cookie muerta: la barra TAMBIEN queda limpia (quedo "${muerta.location.search}")`);
-  check(muerta.fetch.pedidos.length === 2,
-    `cookie muerta: prueba sin t (404) + veredicto con t (${muerta.fetch.pedidos.length})`);
-  check(!/[?&]t=/.test(muerta.fetch.pedidos[0]),
+  check(soloEstado(muerta).length === 2,
+    `cookie muerta: prueba sin t (404) + veredicto con t (${soloEstado(muerta).length})`);
+  check(!/[?&]t=/.test(soloEstado(muerta)[0]),
     'cookie muerta: el primer pedido prueba la cookie SIN el token');
-  check(/[?&]t=/.test(muerta.fetch.pedidos[1]),
+  check(/[?&]t=/.test(soloEstado(muerta)[1]),
     'cookie muerta: el veredicto viene con el token (el respaldo)');
   check(muerta.el('estado').textContent === 'live',
     'cookie muerta: el respaldo sostiene la radio');
   await muerta.disparar(15000);
-  check(/[?&]t=/.test(muerta.fetch.pedidos[2]),
+  check(/[?&]t=/.test(soloEstado(muerta)[2]),
     'cookie muerta: los ticks siguen llevando el token');
   check(muerta.el('estado').textContent === 'live',
     'cookie muerta: en el tick siguiente sigue viva (no se cayo al 404)');
@@ -556,13 +584,13 @@ async function escenarioTokenFueraDeLaBarra() {
   const caida = await abrirPagina({ datos: AIRE, alcanzable: false, search: '?t=' + TOKEN_DE_PRUEBA });
   check(caida.location.search === '?t=' + TOKEN_DE_PRUEBA,
     'radio caida: la barra NO se limpia — nada probado, nada tirado');
-  check(caida.fetch.pedidos.length === 1, 'radio caida: un intento por tick');
+  check(soloEstado(caida).length === 1, 'radio caida: un intento por tick');
   check(intacto(caida), 'radio caida: y no pinta nada');
   caida.config.alcanzable = true;
   await caida.disparar(15000);
   check(caida.location.search === '',
     'radio de vuelta: el tick que puede responder limpia la barra');
-  check(!/[?&]t=/.test(caida.fetch.pedidos[caida.fetch.pedidos.length - 1]),
+  check(!/[?&]t=/.test(soloEstado(caida)[soloEstado(caida).length - 1]),
     'radio de vuelta: y el token ya no viaja');
   check(caida.el('estado').textContent === 'live',
     'radio de vuelta: el veredicto sale del probe, no de un fantasma');
@@ -571,7 +599,7 @@ async function escenarioTokenFueraDeLaBarra() {
   const tunel = await abrirPagina({ codigo: 502, search: '?t=' + TOKEN_DE_PRUEBA });
   check(tunel.location.search === '?t=' + TOKEN_DE_PRUEBA,
     '502: la barra se queda como estaba — 502 no prueba nada');
-  check(tunel.fetch.pedidos.length === 1,
+  check(soloEstado(tunel).length === 1,
     '502: un solo intento (la pregunta se repite, no se contesta)');
   check(intacto(tunel), '502: y no pinta nada');
 
@@ -651,6 +679,38 @@ async function escenarioAutoplayBloqueado() {
   check(p.el('play')._attrs['aria-label'] === 'Pause', 'y el botón dice Pause');
 }
 
+/* --------------------------------------------- la cámara, por ahora (F-08) */
+
+async function escenarioCamara() {
+  titular('\nla cámara, la pregunta antes del arranque (F-08):');
+
+  // 404: no hay cámara — la caja ni aparece y NADIE carga vendorJS.
+  const c404 = await abrirPagina({ datos: AIRE, cam404: true });
+  check(c404.el('cam-caja').hidden === true, 'playlist 404 -> la caja NO aparece');
+  const vendor404 = c404.creados.filter(e => e.src && e.src.includes('hls.light.min.js'));
+  check(vendor404.length === 0, 'playlist 404 -> cero loads de hls.js');
+  check(!c404.fetch.pedidos.some(u => u.indexOf('whep') !== -1), 'playlist 404 -> cero SDP a WHEP');
+
+  // Fresca: PDT de hace 2s — la caja aparece.
+  const fresca = await abrirPagina({ datos: AIRE, camPdtAge: 2000 });
+  fresca.el('cam').canPlayType = function () { return 'probably'; };
+  await flush();                     // dejar correr hayCamara() -> porHls()
+  const vendorFresh = fresca.creados.filter(e => e.src && e.src.includes('hls.light.min.js'));
+  if (vendorFresh.length) {
+    vendorFresh[0].onload();        // simular el script cargado
+    await flush();
+  }
+  // nativo(): cam.src asignado + loadedmetadata registrado -> disparar
+  fresca.el('cam').dispara('loadedmetadata');
+  check(fresca.el('cam-caja').hidden === false, 'playlist fresca -> la caja aparece');
+
+  // Vencida: PDT de hace un minuto — la caja NO aparece.
+  const vieja = await abrirPagina({ datos: AIRE, camPdtAge: 60000 });
+  check(vieja.el('cam-caja').hidden === true, 'playlist vieja (>10 s) -> la caja NO aparece');
+  const vendorOld = vieja.creados.filter(e => e.src && e.src.includes('hls.light.min.js'));
+  check(vendorOld.length === 0, 'playlist vieja -> cero loads de hls.js');
+}
+
 /* ------------------------------------------------------------------ corrida */
 
 async function correrEscenarios() {
@@ -664,6 +724,7 @@ async function correrEscenarios() {
   await escenarioTokenFueraDeLaBarra();
   await escenarioVozDeLaEstacion();
   await escenarioAutoplayBloqueado();
+  await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }
 
@@ -737,6 +798,11 @@ const MUTACIONES = [
     que: 'una frase visible queda escrita a mano, fuera de STR (F-10)',
     aplica: (h) => h.replace("    estado.textContent = STR.live;",
       "    estado.textContent = 'live';"),
+  },
+  {
+    que: 'la cámara se muestra aunque el playlist esté viejo (F-08)',
+    aplica: (h) => h.replace('        return (Date.now() - t) < 10000;',
+      '        return true; // mutado: siempre fresca'),
   },
 ];
 

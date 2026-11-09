@@ -322,7 +322,9 @@ Resolution and bitrate are in `cam/capture.sh`: 640x480 at 15 fps, H.264 at
 600 kbps.
 
 If the camera is disconnected, the container retries with backoff and the page
-**shows no box**: no black rectangles and no error banners. The audio keeps
+**shows no box**: no black rectangles and no error banners. Not because the
+container is up — because the `index.m3u8` it would have left behind is either
+gone or stale (`EXT-X-PROGRAM-DATE-TIME` older than ~10 s). The audio keeps
 going as if nothing happened.
 
 `CAM_CLOCK=1` burns the real time into the frame. It is not decoration: it is
@@ -538,7 +540,12 @@ el cartel de la estación, en una sola voz (F-10 / F-11):
 el autoplay bloqueado dice lo que es (F-16):
   OK    play() rechazado con NotAllowedError -> la copia dedicada, NO el silencio
 
-Todo bien - 98 chequeos.
+la cámara, la pregunta antes del arranque (F-08):
+  OK    playlist 404 -> la caja NO aparece
+  OK    playlist 404 -> cero loads de hls.js
+  OK    playlist vieja (>10 s) -> la caja NO aparece
+
+Todo bien - 104 chequeos.
 ```
 
 Exit codes: `0` all good, `1` a check failed. No network, no stack running:
@@ -562,7 +569,7 @@ invented the `btn` id it was asked for, and the row passed for nothing
 It breaks the page's source **in memory**, one guarantee per mutation, twelve in
 all: a second status tick, the chain guard dropped, the `404` read as any
 other response, the transient lie restored, the two endpoint shapes read
-differently, the door's sentence written twice — and, for the token out of
+differently, the door's sentence written twice — and, for the camera: the playlist considered forever fresh; for the token out of
 the address bar: the bar never cleaned, the suffix cleared despite a dead
 cookie, the cookie probe arriving already carrying the token, and a `502`
 read as a decision. For the station's voice: an autoplay blocked by the
@@ -577,7 +584,7 @@ to restore and no chance of committing a mutated page.
 ```
 Self-test — ¿puede fallar este gate?
 
-  OK    pagina real .......................... 98/98 en verde
+  OK    pagina real .......................... 104/104 en verde
   OK    un segundo tick de 15 s (la regla de un solo fetch por tick)
           9 rojos, p.e. "un solo intervalo consulta el estado (15000 ms); encontrados: [15000, 15000]"
   OK    la cadena deja de mandar sobre el tick
@@ -585,11 +592,11 @@ Self-test — ¿puede fallar este gate?
   OK    la barra nunca se limpia (el t se queda en la direccion)
           5 rojos, p.e. "cookie viva: la barra queda limpia al cargar (quedo "?t=f00dfeed")"
 
-Todo bien - 12 mutaciones atrapadas.
+Todo bien - 13 mutaciones atrapadas.
 ```
 
-Exit codes: `0` twelve mutations trapped, `1` one went uncaught or did not
-apply. Thirteen runs of the gate, about 1 s.
+Exit codes: `0` thirteen mutations trapped, `1` one went uncaught or did not
+apply. Fourteen runs of the gate, about 1.2 s.
 
 **So neither slips past in a commit:**
 
