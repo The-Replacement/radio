@@ -4,6 +4,9 @@
  *
  *   ./scripts/ui-gate.js
  *
+ *   ./scripts/ui-gate.js              corre los escenarios
+ *   ./scripts/ui-gate.js --self-test  demuestra que el gate puede fallar
+ *
  * web/index.html no tiene build ni test runner: esto extrae su <script>, lo
  * corre contra un DOM y un fetch inventados, y cuenta lo que a ojo no se ve:
  * cuántos fetch de estado hay por tick, cuántas veces se escribe #now y qué
@@ -13,7 +16,7 @@
  *
  * Codigos de salida:
  *   0  todas las escenarios pasan
- *   1  hay al menos una falla
+ *   1  hay al menos una falla (o el self-test detecto un gate sin dientes)
  *
  * Escenarios:
  *   S1  un solo tick: un fetch, un escritor de #now, la cadena manda.
@@ -22,6 +25,11 @@
  *   S2  una falla transitoria no apaga la radio.                  [F-04]
  *   S2  la copia de la puerta es UNA sola, y la escriben los dos
  *       caminos que pueden descubrir el 404.
+ *
+ * Self-test (ver issue #23): un gate verde no prueba nada si no se lo vio
+ * fallar. Rompe el codigo en memoria —una garantía por mutación— y exige
+ * rojos en cada una, y verdes en la página real. Si una mutación deja el
+ * gate en verde, el gate dejó de medir eso: también sale rojo.
  */
 'use strict';
 
@@ -45,9 +53,22 @@ const FIN = '\x1b[0m';
 
 let ok = 0;
 let mal = 0;
-const pasa = (n) => { console.log(`  ${VERDE}OK${FIN}    ${n}`); ok++; };
-const falla = (n) => { console.log(`  ${ROJO}FALLA${FIN}  ${n}`); mal++; };
+// Etiquetas de las que salieron rojas: el self-test las muestra como
+// prueba de que la mutación dolió donde tenía que doler.
+let rojas = [];
+// El self-test corre el gate una vez más por mutación: sin esto la
+// salida sería 6 x 51 líneas de ruido.
+let verbose = true;
+const pasa = (n) => { if (verbose) console.log(`  ${VERDE}OK${FIN}    ${n}`); ok++; };
+const falla = (n) => {
+  if (verbose) console.log(`  ${ROJO}FALLA${FIN}  ${n}`);
+  mal++;
+  rojas.push(n);
+};
 const check = (cond, nombre) => (cond ? pasa(nombre) : falla(nombre));
+// Titulos de escenario: mismos switch que los chequeos, para que el
+// self-test pueda correr el gate entero en silencio.
+const titular = (t) => { if (verbose) console.log(t); };
 
 // Dos setImmediate: la cadena leerEstado() -> render() son microtareas
 // encadenadas; una vuelta del loop las drena todas, la segunda deja el
@@ -227,7 +248,7 @@ const AIRE = {
 };
 
 async function escenarioUnTick() {
-  console.log('\nun solo tick de estado:');
+  titular('\nun solo tick de estado:');
   const p = await abrirPagina({ datos: AIRE });
 
   // Arranque: una verificacion inmediata, no dos.
@@ -266,7 +287,7 @@ async function escenarioUnTick() {
 }
 
 async function escenarioCadenaManda() {
-  console.log('\nla cadena de reconexion manda sobre el tick:');
+  titular('\nla cadena de reconexion manda sobre el tick:');
   const p = await abrirPagina({ datos: AIRE });
   check(p.el('estado').textContent === 'live', 'arranca en live');
 
@@ -300,7 +321,7 @@ async function escenarioCadenaManda() {
 }
 
 async function escenarioDosFormas() {
-  console.log('\nlas dos formas del endpoint pintan igual (F-15):');
+  titular('\nlas dos formas del endpoint pintan igual (F-15):');
   const objeto = await abrirPagina({ datos: AIRE });
   const array = await abrirPagina({ datos: [AIRE] });
   const dos = await abrirPagina({ datos: [AIRE, { server_name: 'segundo mount' }] });
@@ -344,7 +365,7 @@ const intacto = (p) => fallasDePintura(p).length === 0;
 const dondeFalla = (p) => fallasDePintura(p).join(' / ');
 
 async function escenarioMatriz() {
-  console.log('\nla matriz del tick al cargar (F-03 / F-04):');
+  titular('\nla matriz del tick al cargar (F-03 / F-04):');
 
   const aire = await abrirPagina({ datos: AIRE });
   check(aire.el('estado').textContent === 'live' && aire.el('play').disabled === false,
@@ -383,7 +404,7 @@ async function escenarioMatriz() {
 }
 
 async function escenarioTransitoria() {
-  console.log('\nuna falla transitoria no apaga la radio (F-04):');
+  titular('\nuna falla transitoria no apaga la radio (F-04):');
   const p = await abrirPagina({ datos: AIRE });
   p.el('audio').dispara('playing'); // el audio esta sonando de verdad
   check(p.el('estado').textContent === 'live' && p.el('play').disabled === false,
@@ -406,7 +427,7 @@ async function escenarioTransitoria() {
 }
 
 async function escenarioPuerta() {
-  console.log('\nla puerta, por los dos caminos que la descubren:');
+  titular('\nla puerta, por los dos caminos que la descubren:');
 
   // Camino 1: la cadena. El token vence a mitad de sesion, el stream
   // cae, alFallar() le pregunta al gate y el gate dice 404.
@@ -428,21 +449,127 @@ async function escenarioPuerta() {
 
 /* ------------------------------------------------------------------ corrida */
 
-(async () => {
-  console.log('\nUI gate — web/index.html');
+async function correrEscenarios() {
+  ok = 0; mal = 0; rojas = [];
   await escenarioUnTick();
   await escenarioCadenaManda();
   await escenarioDosFormas();
   await escenarioMatriz();
   await escenarioTransitoria();
   await escenarioPuerta();
+  return { ok, mal, rojas: rojas.slice() };
+}
+
+/* ------------------------------------------------------------- self-test */
+
+/*
+  Una mutación por garantía que el gate dice custodiar. Cada una rompe
+  exactamente una regla escrita en web/index.html y nada más. La rotura
+  es sobre el string en memoria: el archivo de la página no se toca, así
+  que no hay nada que restaurar y ninguna chance de dejar la radio
+  mutada en el repositorio.
+
+  Ver issue #23: un gate que nunca se vio fallar no está verificado,
+  está creído.
+*/
+const MUTACIONES = [
+  {
+    que: 'un segundo tick de 15 s (la regla de un solo fetch por tick)',
+    aplica: (h) => h.replace('setInterval(tick, TICK_MS);',
+      'setInterval(tick, TICK_MS); setInterval(tick, TICK_MS);'),
+  },
+  {
+    que: 'la cadena deja de mandar sobre el tick',
+    aplica: (h) => h.replace(/if \(reintentando\) return;\n\n    \/\/ Regla 2/,
+      '// (guarda mutada)\n\n    // Regla 2'),
+  },
+  {
+    que: 'el 404 se lee como cualquier otra respuesta',
+    aplica: (h) => h.replace("if (r.status === 404) return { veredicto: 'puerta' };",
+      "if (r.status === 401) return { veredicto: 'puerta' };"),
+  },
+  {
+    que: 'sin datos -> vuelve a pintar (la mentira de la falla transitoria)',
+    aplica: (h) => h.replace("if (f.veredicto === 'sin-datos') return;",
+      "if (f.veredicto === 'nunca') return;"),
+  },
+  {
+    que: 'las dos formas del endpoint se leen distinto',
+    aplica: (h) => h.replace('if (Array.isArray(s)) s = s[0] || null;', ''),
+  },
+  {
+    que: 'la frase de la puerta se escribe dos veces',
+    aplica: (h) => h.replace('var PUERTA = ',
+      "var PUERTA_COPIA = 'Access expired or the browser did not save the cookie.';\n  var PUERTA = "),
+  },
+];
+
+const sinAnsi = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '');
+const primeraLinea = (s) => sinAnsi(s).split('\n')[0].trim();
+
+async function selfTest() {
+  const original = CODIGO;
+  // Corre el gate sin ruido y siempre devuelve el codigo a la página real.
+  const correrCallado = async () => {
+    verbose = false;
+    try { return await correrEscenarios(); }
+    finally { verbose = true; CODIGO = original; }
+  };
+
+  titular('\nSelf-test — ¿puede fallar este gate?');
+  console.log('');
+
+  let problemas = 0;
+
+  const real = await correrCallado();
+  if (real.mal === 0) {
+    console.log(`  ${VERDE}OK${FIN}    pagina real .......................... ${real.ok}/${real.ok} en verde`);
+  } else {
+    console.log(`  ${ROJO}FALLA${FIN}  la pagina real tiene ${real.mal} rojos: arreglalos antes de creerle al self-test`);
+    problemas++;
+  }
+
+  for (const m of MUTACIONES) {
+    const mutado = m.aplica(original);
+    if (mutado === original) {
+      // El codigo cambio de forma y la mutacion ya no sabe donde
+      // cortar: eso NO es un pase, es un gate ciego.
+      console.log(`  ${ROJO}FALLA${FIN}  la mutacion no aplico: ${m.que}`);
+      problemas++;
+      continue;
+    }
+    CODIGO = mutado;
+    const r = await correrCallado();
+    if (r.mal === 0) {
+      console.log(`  ${ROJO}FALLA${FIN}  quedo en verde con: ${m.que}`);
+      problemas++;
+    } else {
+      console.log(`  ${VERDE}OK${FIN}    ${m.que}`);
+      console.log(`          ${r.mal} rojos, p.e. "${primeraLinea(r.rojas[0])}"`);
+    }
+  }
 
   console.log('');
-  if (mal === 0) {
-    console.log(`${VERDE}Todo bien${FIN} - ${ok} chequeos.\n`);
+  if (problemas === 0) {
+    console.log(`${VERDE}Todo bien${FIN} - ${MUTACIONES.length} mutaciones atrapadas.\n`);
     process.exit(0);
   }
-  console.log(`${ROJO}${mal} de ${ok + mal} chequeos fallan${FIN}\n`);
+  console.log(`${ROJO}${problemas} problema(s) en el self-test${FIN}\n`);
+  process.exit(1);
+}
+
+(async () => {
+  if (process.argv.includes('--self-test')) { await selfTest(); return; }
+
+  titular('\nUI gate — web/index.html');
+  const r = await correrEscenarios();
+
+  console.log('');
+  if (r.mal === 0) {
+    console.log(`${VERDE}Todo bien${FIN} - ${r.ok} chequeos.\n`);
+    process.exit(0);
+  }
+  console.log(`${ROJO}${r.mal} de ${r.ok + r.mal} chequeos fallan${FIN}\n`);
   process.exit(1);
 })().catch((e) => {
   console.log(`\n  ${ROJO}FALLA${FIN}  el gate se rompio solo: ${e && e.stack ? e.stack : e}\n`);

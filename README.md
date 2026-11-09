@@ -467,6 +467,42 @@ only `node`, the dependency `docs.sh` already had. Every check is binary, so
 the gate can fail: against the pre-S1 page 12 checks go red, against the
 pre-S2 page 13 do.
 
+### Proving that it can fail
+
+A green gate proves nothing if nobody has ever seen it go red. That is how a
+check ended up measuring a phantom element instead of the page — the stub
+invented the `btn` id it was asked for, and the row passed for nothing
+(issue #23). So the gate carries its own proof:
+
+```bash
+./scripts/ui-gate.js --self-test
+```
+
+It breaks the page's source **in memory**, one guarantee per mutation, six in
+all: a second status tick, the chain guard dropped, the `404` read as any
+other response, the transient lie restored, the two endpoint shapes read
+differently, the door's sentence written twice. It then demands **red on every
+mutation** and **green on the real page**. A mutation that stays green means
+the gate stopped measuring that thing — that is a failure, not a pass. A
+mutation that no longer applies, because the code changed shape, fails too: a
+blind gate is not a lucky one. Nothing is written to disk, so there is nothing
+to restore and no chance of committing a mutated page.
+
+```
+Self-test — ¿puede fallar este gate?
+
+  OK    pagina real .......................... 51/51 en verde
+  OK    un segundo tick de 15 s (la regla de un solo fetch por tick)
+          8 rojos, p.e. "un solo intervalo consulta el estado (15000 ms); encontrados: [15000, 15000]"
+  OK    la cadena deja de mandar sobre el tick
+          3 rojos, p.e. "tick en vivo: el cartel NO pasa a live"
+
+Todo bien - 6 mutaciones atrapadas.
+```
+
+Exit codes: `0` six mutations trapped, `1` one went uncaught or did not
+apply. Seven runs of the gate, about 0.3 s.
+
 **So neither slips past in a commit:**
 
 ```bash
@@ -477,6 +513,7 @@ if [ -x ./scripts/docs.sh ]; then
 fi
 if [ -x ./scripts/ui-gate.js ]; then
   ./scripts/ui-gate.js || exit 1
+  ./scripts/ui-gate.js --self-test || exit 1
 fi
 EOF
 chmod +x .git/hooks/pre-commit
