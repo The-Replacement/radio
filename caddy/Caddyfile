@@ -38,12 +38,12 @@
 	import tokens.caddy
 
 	# ---------------- CORS preflight (sin auth) ----------------
-	# Los pedidos cross-origin (frontend en radio.daza.ar) mandan un OPTIONS
+	# Los pedidos cross-origin (el frontend) mandan un OPTIONS
 	# previo que NO lleva cookie. Si no se responde acá, el gate devuelve
 	# 404 sin headers CORS y el navegador bloquea el request real.
 	@preflight method OPTIONS
 	handle @preflight {
-		header Access-Control-Allow-Origin https://radio.daza.ar
+		header Access-Control-Allow-Origin {$FRONTEND_URL}
 		header Access-Control-Allow-Methods GET, POST, OPTIONS
 		header Access-Control-Allow-Headers Content-Type
 		header Access-Control-Allow-Credentials true
@@ -63,13 +63,13 @@
 		header Set-Cookie "radio={radio_cookie}; Path=/; Max-Age=31536000; {$COOKIE_FLAGS}"
 		# El `*` no es decorativo: sin matcher explícito, Caddy lee el `/`
 		# como matcher y el `302` como destino, y manda "Location: 302".
-		# Tras el split, el player vive en Cloudflare Pages (radio.daza.ar).
+		# Tras el split, el player vive en Cloudflare Pages.
 		# El canje ocurre en el backend (stream.daza.ar): se deja la cookie
 		# (Domain=.daza.ar, asi que llega al frontend) y se redirige allá.
 		# El token se conserva en la URL: así el frontend puede usarlo como
 		# respaldo si el navegador bloquea la cookie (Safari ITP, etc.).
 		# De sacarlo de la barra se encarga la página al cargar (S3/F-01).
-		redir * https://radio.daza.ar/?t={http.request.uri.query.t} 302
+		redir * {$FRONTEND_URL}/?t={http.request.uri.query.t} 302
 	}
 
 	# ---------------- la cámara, para reproductores ----------------
@@ -89,7 +89,7 @@
 	handle @cam_path {
 		handle @cam_ok {
 			# CORS para el reproductor remoto (hls.js pide cross-origin)
-			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Origin {$FRONTEND_URL}
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
 			header Access-Control-Allow-Credentials true
@@ -101,7 +101,7 @@
 		}
 		# Token vencido, inválido o inventado: 404, igual que el resto.
 		handle {
-			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Origin {$FRONTEND_URL}
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
 			header Access-Control-Allow-Credentials true
@@ -122,7 +122,7 @@
 		# flush_interval -1 desactiva el buffering de Caddy: sin esto
 		# el audio se acumula y la radio suena con segundos de retraso.
 		handle /stream* {
-			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Origin {$FRONTEND_URL}
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
 			header Access-Control-Allow-Credentials true
@@ -137,7 +137,7 @@
 		# El poll de 15 s lleva ?t= mientras dure el fallback sin cookie:
 		# acá se borra igual, con el mismo '?' vacío.
 		handle /status-json.xsl {
-			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Origin {$FRONTEND_URL}
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
 			header Access-Control-Allow-Credentials true
@@ -169,7 +169,7 @@
 		# --- la cámara: HLS con CORS para reproductores remotos ---
 		handle_path /cam/* {
 			# CORS para playlists .m3u8 y segmentos .m4S (hls.js los pide cross-origin)
-			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Origin {$FRONTEND_URL}
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
 			header Access-Control-Allow-Credentials true
@@ -199,7 +199,7 @@
 	# navegador como "bloqueado por CORS" y es imposible distinguirlo de un
 	# problema de CORS real. El código sigue siendo 404.
 	handle {
-		header Access-Control-Allow-Origin https://radio.daza.ar
+		header Access-Control-Allow-Origin {$FRONTEND_URL}
 		header Access-Control-Allow-Methods GET, POST, OPTIONS
 		header Access-Control-Allow-Headers Content-Type
 		header Access-Control-Allow-Credentials true

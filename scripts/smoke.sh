@@ -6,8 +6,9 @@
 # Una radio "privada" que se ve sin credencial no es privada.
 #
 # Hay DOS puertas y este script mide las dos: la del backend (BASE) y la de
-# la página pública (radio.daza.ar). La segunda está abierta y medir una
-# puerta abierta no es lo mismo que no medirla: ver grupo 0 (F-02).
+# la página pública (FRONTEND, el origin del frontend). La segunda está
+# abierta y medir una puerta abierta no es lo mismo que no medirla:
+# ver grupo 0 (F-02).
 
 set -uo pipefail
 
@@ -39,14 +40,17 @@ echo
 # ----------------------------------------------- la segunda puerta (grupo 0)
 #
 # El backend cierra (el grupo de abajo); la PÁGINA no. Desde el split el
-# player vive en Cloudflare Pages (radio.daza.ar) y este repo no tiene
-# Pages, ni wrangler, ni Access, ni CI que lo gatee: nada impide servir la
-# página entera sin credencial (F-02, issue #2, slice S5). Se mide igual,
-# aunque duela, porque una radio privada cuyo cartel se lee sin credencial
-# también es un problema — y una puerta que nadie mira no es una puerta.
+# player vive en Cloudflare Pages y este repo no tiene Pages, ni wrangler,
+# ni Access, ni CI que lo gatee: nada impide servir la página entera sin
+# credencial (F-02, issue #2, slice S5). Se mide igual, aunque duela, porque
+# una radio privada cuyo cartel se lee sin credencial también es un problema
+# — y una puerta que nadie mira no es una puerta.
 #
+# FRONTEND sale del .env (FRONTEND_URL): el origin del frontend. Local, es
+# http://localhost:8090. Fallback: el .env no existe en esta máquina.
 # Medido el 2026-11-09: 200, 32252 bytes, byte a byte idéntico a
-# web/index.html. stream.daza.ar, en cambio, 404 en todas sus rutas.
+# web/index.html al momento de la medida. stream.daza.ar, en cambio, 404 en
+# todas sus rutas.
 #
 # EXCEPCIÓN DOCUMENTADA: la línea de abajo es lo único que autoriza un 200.
 # Borrála y este gate vuelve a exigir 404 — con la página abierta queda
@@ -54,7 +58,12 @@ echo
 # excepción: una puerta que se cerró no deja autorización escrita atrás.
 # Sin red el código es 000 y esto queda rojo a propósito: no se pudo medir,
 # y un check que no midió no pasa en verde (la lección de F-07).
-FRONTEND="${FRONTEND:-https://radio.daza.ar}"
+# Se lee FRONTEND_URL del .env y, si no está, cae a localhost. Lo único que
+# se permite hardcodear es la excepción documentada de abajo; todo el resto
+# del smoke mide con el origin del entorno (S8, F-06 / F-13).
+FRONTEND="${FRONTEND:-$(grep -E '^FRONTEND_URL=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)}"
+FRONTEND="${FRONTEND:-http://localhost:8090}"
+FRONTEND="${FRONTEND%/}"
 EXCEPCION_F02=200   # F-02: la página se sirve sin puerta (medido 2026-11-09)
 
 echo "la segunda puerta (la página, sin credencial):"
@@ -102,7 +111,7 @@ else
   # para el navegador que no guarda cookies. De sacarlo de la barra se
   # encarga la página al cargar (S3/F-01). Si esta línea falla, ese
   # navegador pierde el respaldo y ni siquiera se entera.
-  grep -qiF "location: https://radio.daza.ar/?t=$TOKEN" <<<"$CABECERAS" \
+  grep -qiF "location: $FRONTEND/?t=$TOKEN" <<<"$CABECERAS" \
     && pasa "y conserva el ?t= en la URL (el respaldo del navegador sin cookie)" \
     || falla "la redirección perdió el ?t=: el navegador sin cookie pierde el respaldo"
 

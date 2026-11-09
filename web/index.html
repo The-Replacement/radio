@@ -245,10 +245,13 @@
   }
 
   // Backend (Icecast/Caddy) vive en otro origen tras el split: el frontend
-  // está en Cloudflare Pages (radio.daza.ar) y el backend en el tunnel
-  // (stream.daza.ar). Las cookies usan Domain=.daza.ar, así que el gate
-  // sigue funcionando cross-origin.
+  // está en Cloudflare Pages y el backend en el tunnel. A localhost el
+  // backend es este mismo origen (sin split); desde cualquier otra parte,
+  // el tunnel, sin importar configurar nada.
   var BACKEND_URL = 'https://stream.daza.ar';
+  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+    BACKEND_URL = location.origin;
+  }
 
   /*
     Reconexión automática. Un stream en vivo se corta: cambia la red, el

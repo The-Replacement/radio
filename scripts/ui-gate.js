@@ -196,11 +196,11 @@ async function abrirPagina(config) {
   // La direccion CON historia: replaceState de la pagina se ve aca.
   // Sin esto "la barra queda limpia" seria una opinion del gate, no una
   // medicion (F-01: el token tiene que salir de la barra de verdad).
-  const loc = { search: config.search || '', host: 'radio.daza.ar', pathname: '/' };
+  const loc = { search: config.search || '', host: 'localhost:8090', hostname: 'localhost', origin: 'http://localhost:8090', pathname: '/' };
   const reemplazos = [];
   const historia = {
     replaceState(_estado, _titulo, url) {
-      const u = new URL(String(url), 'https://radio.daza.ar');
+      const u = new URL(String(url), 'http://localhost:8090');
       loc.search = u.search;
       loc.pathname = u.pathname;
       reemplazos.push(String(url));

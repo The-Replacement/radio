@@ -401,13 +401,24 @@ Ask for any of these and we add it.
 
 ## If you want to publish it on the internet
 
-In `.env`, change:
+Since the split, the player's page and the radio **live on different
+places**: Cloudflare Pages serves the page; the gate (Caddy, Icecast,
+everything behind it) lives behind a tunnel. So `SITE_ADDRESS` is no
+longer where the link lands — the invitation redirects out from the
+backend to the page. Write the split down in `.env`:
 
 ```
-SITE_ADDRESS=radio.daza.ar                          # where Caddy serves
-PUBLIC_URL=https://radio.daza.ar                    # the URL you give people
-COOKIE_FLAGS=HttpOnly; SameSite=Lax; Secure         # here Secure DOES go
+SITE_ADDRESS=stream.daza.ar                # where the gate listens (tunnel)
+FRONTEND_URL=https://radio.daza.ar         # where the anonymous player lives
+PUBLIC_URL=https://stream.daza.ar          # the URL you give people (invitations)
+COOKIE_FLAGS=HttpOnly; SameSite=Lax; Secure # here Secure DOES go
 ```
+
+`FRONTEND_URL` is the one knob that matters for the split: Caddy's
+`canje` redirect points there, and every CORS header the page needs is
+inserted from the same value. There is exactly one documented
+`radio.daza.ar` line in the tree — the production example in
+`.env.example` — and `scripts/claims.sh` keeps it that way.
 
 And uncomment `email {$ACME_EMAIL}` in `caddy/Caddyfile` (there the
 `ACME_EMAIL` is actually used for certificate expiry notices).
@@ -416,9 +427,12 @@ And uncomment `email {$ACME_EMAIL}` in `caddy/Caddyfile` (there the
 over HTTPS. Locally (`http://localhost`) it must be off, which is why
 `.env.example` does not include it. In production it must be on.
 
-In Cloudflare put the record **grey (DNS only)**, never orange. Cloudflare's
-CDN rule restricts content not hosted on Cloudflare, and an audio stream
-falls right there.
+**The record is grey (DNS only), never orange**, for `stream.daza.ar`
+(the tunnel). Cloudflare's CDN rule restricts content not hosted on
+Cloudflare, and an audio stream falls right there. The frontend, by
+contrast, **is** hosted by Cloudflare (Pages builds it from `master`
+and `radio.daza.ar` is the project's alias) — push a change to `web/`
+and it lands in production.
 
 Caddy gets the certificate on its own.
 
@@ -648,6 +662,31 @@ Being fast and stack-free, it can join the pre-commit hook above.
 
 ---
 
+## One origin, one place
+
+The frontend is a static page, the backend lives behind the tunnel —
+between them, nothing should hold the domain written out by hand. It
+used to be in seven places across three languages: Caddyfile (the
+canje and every CORS block), the JS, and the smoke test. A domain rename
+would be a hunt, and every copy was a chance to assert the wrong origin
+(issue #13). One knob, four consumers:
+
+```bash
+./scripts/claims.sh
+```
+
+`FRONTEND_URL` in `.env` is the one seam — the canje's redirect target,
+the CORS origin of the Caddyfile, the frontend origin the smoke test
+curls, the assertion that the invitation's `Location` matches the
+configured origin. `claims.sh` measures it: the exact
+`radio.daza.ar` occurrences still standing in the deployable tree are
+an audited allowlist of two lines (the production example line in
+`.env.example`, and the station's firma in the About page — prose, not
+configuration). Any new one is red on introduction, not found in a
+hunt a year from now.
+
+---
+
 ## Deploying the backend on push
 
 The frontend deploys itself: every push to `master` builds on
@@ -858,6 +897,7 @@ radio/
 |   |-- smoke.sh              33 checks in 5 groups (group 0: the public page)
 |   |-- post-receive          after a push: log it, reload Caddy iff the Caddyfile changed
 |   |-- query-gate.sh         the token's query never crosses the door
+|   |-- claims.sh             one-origin claim: nobody writes the domain out by hand
 |   |-- docs.sh               validates the Mermaid diagrams
 |   `-- ui-gate.js            structure of the player's state machine
 `-- secrets/tokens.txt        WHO has access. chmod 600.
