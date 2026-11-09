@@ -88,6 +88,11 @@
 	@cam_path path_regexp cam ^/cam/([A-Za-z0-9][A-Za-z0-9._-]*)/([A-Za-z0-9][A-Za-z0-9._-]*)$
 	handle @cam_path {
 		handle @cam_ok {
+			# CORS para el reproductor remoto (hls.js pide cross-origin)
+			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Methods GET, OPTIONS
+			header Access-Control-Allow-Headers Content-Type
+			header Access-Control-Allow-Credentials true
 			@lista path *.m3u8
 			header @lista Cache-Control "no-store"
 			rewrite * /{re.cam.2}
@@ -96,6 +101,10 @@
 		}
 		# Token vencido, inválido o inventado: 404, igual que el resto.
 		handle {
+			header Access-Control-Allow-Origin https://radio.daza.ar
+			header Access-Control-Allow-Methods GET, OPTIONS
+			header Access-Control-Allow-Headers Content-Type
+			header Access-Control-Allow-Credentials true
 			respond 404
 		}
 	}
@@ -148,8 +157,9 @@
 		# se borra es el query — en el fallback sin cookie el player manda
 		# ?t= en el POST del SDP y mediamtx no tiene por qué verlo (F-07).
 		handle /cam/whep {
-			# mediamtx añade Allow-Origin; Caddy añade Allow-Credentials,
-			# que mediamtx no manda (el navegador lo exige con credentials:include).
+			# mediamtx ya manda Allow-Origin (origin exacto, con Vary: Origin).
+			# Caddy NO lo duplica: sólo aporta Allow-Credentials, que mediamtx
+			# no envía y el navegador exige con credentials:include.
 			header Access-Control-Allow-Credentials true
 			reverse_proxy mediamtx:8889 {
 				rewrite /cam/whep?
@@ -185,7 +195,14 @@
 
 	# ---------------- sin autorización ----------------
 	# 404 y no 401: no le confirmamos a nadie que acá hay una radio.
+	# Los headers CORS van igual: sin ellos, un 404 cross-origin se ve en el
+	# navegador como "bloqueado por CORS" y es imposible distinguirlo de un
+	# problema de CORS real. El código sigue siendo 404.
 	handle {
+		header Access-Control-Allow-Origin https://radio.daza.ar
+		header Access-Control-Allow-Methods GET, POST, OPTIONS
+		header Access-Control-Allow-Headers Content-Type
+		header Access-Control-Allow-Credentials true
 		respond 404
 	}
 }
