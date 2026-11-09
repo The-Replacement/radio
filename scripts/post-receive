@@ -1,0 +1,47 @@
+#!/bin/sh
+# post-receive — corre EN el box que sirve la radio, después de cada push.
+#
+# git actualiza el working tree solo (con receive.denyCurrentBranch=
+# updateInstead en este repo, el push fast-forwardea el árbol local), así
+# que acá NO hay fetch, ni pull, ni credenciales: el push es la
+# sincronización. El proceso acaba con la working tree en el commit
+# empujado y este hook decide qué, en caliente, cambia de verdad.
+#
+# Qué toca, y qué NUNCA toca:
+#   - caddy/Caddyfile o caddy/tokens.caddy cambiaron -> `caddy reload`
+#     adentro del contenedor: reload graceful, sin cortar a los oyentes.
+#   - todo lo demás: sólo se registra. web/ la despliega Pages; cam,
+#     liquidsoap y mediamtx NO se reinician por un push — reiniciar
+#     Liquidsoap corta el stream, y eso es una decisión humana.
+#
+# Registra todo en data/deploy.log (gitignored). Si el reload falla, abre
+# un reclamo en el log y sale 1 — el push llega igual (ya estaba escrito)
+# y la config anterior sigue en pie.
+set -u
+
+RAIZ="$(git rev-parse --show-toplevel)"
+LOG="$RAIZ/data/deploy.log"
+mkdir -p "$RAIZ/data"
+log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"; }
+
+while read -r OLD NEW REF; do
+  [ "$REF" = "refs/heads/master" ] || continue
+  log "push recibido ${OLD}..${NEW}"
+  CAMBIOS="$(git diff --name-only "$OLD" "$NEW" || true)"
+  if [ -n "$CAMBIOS" ]; then
+    printf '%s\n' "$CAMBIOS" | sed 's/^/         /' >> "$LOG"
+  fi
+  if printf '%s\n' "$CAMBIOS" | grep -qE '^caddy/(Caddyfile|tokens\.caddy)$'; then
+    if docker compose -f "$RAIZ/docker-compose.yml" exec -T caddy \
+         caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+      log "caddy recargó en caliente (Caddyfile/tokens.caddy) — oyentes intactos"
+    else
+      log "FALLO: caddy reload no cuajó; la config anterior sigue sirviendo"
+      exit 1
+      fi
+  else
+    log "sin cambios de Caddyfile/tokens.caddy: nada que recargar"
+  fi
+done
+log "deploy listo"
+exit 0

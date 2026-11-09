@@ -648,6 +648,59 @@ Being fast and stack-free, it can join the pre-commit hook above.
 
 ---
 
+## Deploying the backend on push
+
+The frontend deploys itself: every push to `master` builds on
+Cloudflare Pages (`build_command: exit 0`, `destination_dir: web`)
+and `radio.daza.ar` is live with the new page within a minute.
+
+The backend is the machine that runs the compose project, and it
+follows master in the same push — without a cron and without a
+self-hosted runner. git has no `post-push` hook, but the box has the
+right one: a **`post-receive`** hook on its checked-out clone.
+
+`origin` has two push destinations. GitHub gets the repo (and Pages
+deploys the frontend); the backend box gets the push over SSH, and
+git itself fast-updates the working tree (`receive.denyCurrentBranch=
+updateInstead`), so the working tree IS the deployment and no
+credentials ever live on it for this path:
+
+- a push to master fast-forwards the box's clone and updates its
+  working tree — the exact commit, post-pull;
+- the `post-receive` hook then does exactly one thing en caliente:
+  if `caddy/Caddyfile` or `caddy/tokens.caddy` changed, `caddy reload`
+  inside the container — graceful, listeners and streams stay up;
+- everything else is pull-only and never restarted by a push.
+  `web/` is read by Caddy as files (and Pages deploys it anyway).
+  `cam/`, `liquidsoap/`, `mediamtx/` are not touched: restarting
+  Liquidsoap drops the stream — that is a human decision, not one a
+  push gets to make;
+- every run appends to `data/deploy.log` (what came in, what was
+  reloaded, or why it stopped). If the reload fails, the previous
+  config keeps serving and the log says so loudly.
+
+Wiring it on a new box (or after a rebuild), once:
+
+```bash
+cd ~/servers/radio
+cp scripts/post-receive .git/hooks/post-receive
+chmod +x .git/hooks/post-receive
+git config receive.denyCurrentBranch updateInstead
+```
+
+And on the machine you push from — the second destination:
+
+```bash
+git remote set-url --add --push origin 'git@THE-BOX:THE-REPO-DIR'
+```
+
+Plain `git push` stays the same command; it now lands in both places.
+Pushing from any machine without the destination (GitHub web, another
+laptop) leaves the backend behind — syncing it is just making a push
+from a configured machine.
+
+---
+
 ## Common problems
 
 **The stream delivers 0 bytes**
@@ -784,6 +837,7 @@ radio/
 |-- scripts/
 |   |-- token.sh              grant / revoke / list access
 |   |-- smoke.sh              33 checks in 5 groups (group 0: the public page)
+|   |-- post-receive          after a push: log it, reload Caddy iff the Caddyfile changed
 |   |-- query-gate.sh         the token's query never crosses the door
 |   |-- docs.sh               validates the Mermaid diagrams
 |   `-- ui-gate.js            structure of the player's state machine
