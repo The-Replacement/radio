@@ -27,7 +27,13 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"
 while read -r OLD NEW REF; do
   [ "$REF" = "refs/heads/master" ] || continue
   log "push recibido ${OLD}..${NEW}"
-  CAMBIOS="$(git diff --name-only "$OLD" "$NEW" || true)"
+  # Si el diff falla, no hay cambios que leer: eso NO es verde, es
+  # falsa alarma — el reload no puede depender de una comparación
+  # que no se hizo. Se frena ruidoso.
+  CAMBIOS="$(git diff --name-only "$OLD" "$NEW")" || {
+    log "FALLO: no pude comparar $OLD..$NEW — no se tocó nada"
+    exit 1
+  }
   if [ -n "$CAMBIOS" ]; then
     printf '%s\n' "$CAMBIOS" | sed 's/^/         /' >> "$LOG"
   fi
