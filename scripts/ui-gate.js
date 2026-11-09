@@ -25,6 +25,9 @@
  *   S2  una falla transitoria no apaga la radio.                  [F-04]
  *   S2  la copia de la puerta es UNA sola, y la escriben los dos
  *       caminos que pueden descubrir el 404.
+ *   S3  el token sale de la barra: replaceState al decidir, el t en
+ *       los pedidos sólo con la cookie muerta, y nada decidido si la
+ *       red no respondió.                                         [F-01]
  *
  * Self-test (ver issue #23): un gate verde no prueba nada si no se lo vio
  * fallar. Rompe el codigo en memoria —una garantía por mutación— y exige
@@ -127,6 +130,14 @@ function elemento(id, escrituras) {
  * `pedidos` registra cada /status-json.xsl — de ahi salen los conteos por
  * tick. Cualquier otro endpoint (WHEP, playlist) queda fuera del gate y
  * rechaza: si el codigo llega a pedirlo, la escenario lo delata.
+ *
+ * Tres perillas, como en la realidad:
+ *   alcanzable  la red/tunel esta caido (rechaza, no responde)
+ *   codigo      lo que la puerta responde a un pedido con credencial
+ *               (404 = link muerto, 502 = tunel roto)
+ *   cookie      'muerta' = sin el token, la cookie NO abre: 404. Con el
+ *               token el pedido pasa igual (es el respaldo). Con la
+ *               cookie viva (default), el pedido sin token pasa tambien.
  */
 function crearFetch(fuente) {
   const pedidos = [];
@@ -137,18 +148,22 @@ function crearFetch(fuente) {
     }
     pedidos.push(u);
     if (!fuente.alcanzable) return Promise.reject(new Error('red caida'));
-    if (fuente.codigo && fuente.codigo !== 200) {
-      return Promise.resolve({
-        ok: false,
-        status: fuente.codigo,
-        json() { return Promise.resolve({}); },
-      });
-    }
-    return Promise.resolve({
-      ok: true,
-      status: 200,
-      json() { return Promise.resolve({ icestats: { source: fuente.datos } }); },
+
+    const responde = (codigo) => ({
+      ok: codigo === 200,
+      status: codigo,
+      json() { return Promise.resolve(codigo === 200 ? { icestats: { source: fuente.datos } } : {}); },
     });
+
+    // La puerta/tunel manda para cualquier pedido: es lo que responde
+    // quien tiene la ultima palabra (404 = sin credencial valida).
+    if (fuente.codigo && fuente.codigo !== 200) return Promise.resolve(responde(fuente.codigo));
+
+    // Sin el token en el pedido, unicamente la cookie puede abrir.
+    if (!/[?&]t=/.test(u) && fuente.cookie === 'muerta') {
+      return Promise.resolve(responde(404));
+    }
+    return Promise.resolve(responde(200));
   };
   f.pedidos = pedidos;
   return f;
@@ -166,6 +181,20 @@ async function abrirPagina(config) {
   const timeouts = [];
   const fetchFuente = Object.assign({ alcanzable: true, codigo: 200, datos: null }, config);
   const fetch = crearFetch(fetchFuente);
+
+  // La direccion CON historia: replaceState de la pagina se ve aca.
+  // Sin esto "la barra queda limpia" seria una opinion del gate, no una
+  // medicion (F-01: el token tiene que salir de la barra de verdad).
+  const loc = { search: config.search || '', host: 'radio.daza.ar', pathname: '/' };
+  const reemplazos = [];
+  const historia = {
+    replaceState(_estado, _titulo, url) {
+      const u = new URL(String(url), 'https://radio.daza.ar');
+      loc.search = u.search;
+      loc.pathname = u.pathname;
+      reemplazos.push(String(url));
+    },
+  };
 
   const doc = {
     title: 'Radio',
@@ -185,7 +214,8 @@ async function abrirPagina(config) {
   const ctx = {
     document: doc,
     window: {},
-    location: { search: '', host: 'radio.daza.ar', pathname: '/' },
+    location: loc,
+    history: historia,
     fetch,
     URLSearchParams,
     console,
@@ -204,6 +234,8 @@ async function abrirPagina(config) {
     intervalos,
     timeouts,
     fetch,
+    location: loc,
+    reemplazos,
     // El objeto que el fetch lee: se puede cambiar en vivo para que el
     // proximo tick vea otra realidad (404, red caida, 502...).
     config: fetchFuente,
@@ -447,6 +479,92 @@ async function escenarioPuerta() {
   check(veces === 1, `la frase de la puerta esta escrita una sola vez en el codigo (${veces})`);
 }
 
+/* ------------------------------------------- el token en la barra (F-01) */
+
+// Cualquier string: el gate no valida tokens, valida por donde viajan.
+const TOKEN_DE_PRUEBA = 'f00dfeed';
+
+async function escenarioTokenFueraDeLaBarra() {
+  titular('\nel token sale de la barra (F-01):');
+
+  // 1) Navegador normal: la cookie abre y el primer pedido — SIN el
+  //    token — ya lo demuestra. Ese pedido es el que tiene que existir:
+  //    preguntar con el token no es preguntar, es gastarlo.
+  const viva = await abrirPagina({ datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA });
+  check(viva.location.search === '',
+    `cookie viva: la barra queda limpia al cargar (quedo "${viva.location.search}")`);
+  check(viva.reemplazos.length === 1,
+    `cookie viva: un replaceState, no cero ni tres (${viva.reemplazos.length})`);
+  check(viva.fetch.pedidos.length === 1,
+    `cookie viva: un solo pedido — el que prueba la cookie (${viva.fetch.pedidos.length})`);
+  check(viva.fetch.pedidos.every((u) => !/[?&]t=/.test(u)),
+    'cookie viva: NINGUN pedido lleva el token');
+  check(viva.el('estado').textContent === 'live',
+    'cookie viva: la radio arranca viva sin gastar el token');
+  await viva.disparar(15000);
+  check(viva.fetch.pedidos.length === 2 && !/[?&]t=/.test(viva.fetch.pedidos[1]),
+    'cookie viva: el tick sigue sin token');
+
+  // 2) Navegador sin cookies (Safari ITP, etc.): el respaldo tiene que
+  //    seguir vivo — el t viaja en los pedidos — y la barra limpia igual.
+  //    Principio 6 primero: el token no vive en la dirección.
+  const muerta = await abrirPagina({ datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA, cookie: 'muerta' });
+  check(muerta.location.search === '',
+    `cookie muerta: la barra TAMBIEN queda limpia (quedo "${muerta.location.search}")`);
+  check(muerta.fetch.pedidos.length === 2,
+    `cookie muerta: prueba sin t (404) + veredicto con t (${muerta.fetch.pedidos.length})`);
+  check(!/[?&]t=/.test(muerta.fetch.pedidos[0]),
+    'cookie muerta: el primer pedido prueba la cookie SIN el token');
+  check(/[?&]t=/.test(muerta.fetch.pedidos[1]),
+    'cookie muerta: el veredicto viene con el token (el respaldo)');
+  check(muerta.el('estado').textContent === 'live',
+    'cookie muerta: el respaldo sostiene la radio');
+  await muerta.disparar(15000);
+  check(/[?&]t=/.test(muerta.fetch.pedidos[2]),
+    'cookie muerta: los ticks siguen llevando el token');
+  check(muerta.el('estado').textContent === 'live',
+    'cookie muerta: en el tick siguiente sigue viva (no se cayo al 404)');
+
+  // 3) Link muerto: la puerta habla, con la barra igual de limpia.
+  const expirado = await abrirPagina({
+    datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA, cookie: 'muerta', codigo: 404,
+  });
+  check(verErr(expirado) === FRASE_PUERTA, 'link muerto: la frase de la puerta, no "off air"');
+  check(expirado.location.search === '',
+    'link muerto: la barra se limpia aunque el link haya muerto');
+
+  // 4) No se pudo preguntar: no se decide nada. Limpiar la barra acá
+  //    seria tirar el respaldo al vacío — y decidir "cookie muerta" con
+  //    la radio caída seria mentir.
+  const caida = await abrirPagina({ datos: AIRE, alcanzable: false, search: '?t=' + TOKEN_DE_PRUEBA });
+  check(caida.location.search === '?t=' + TOKEN_DE_PRUEBA,
+    'radio caida: la barra NO se limpia — nada probado, nada tirado');
+  check(caida.fetch.pedidos.length === 1, 'radio caida: un intento por tick');
+  check(intacto(caida), 'radio caida: y no pinta nada');
+  caida.config.alcanzable = true;
+  await caida.disparar(15000);
+  check(caida.location.search === '',
+    'radio de vuelta: el tick que puede responder limpia la barra');
+  check(!/[?&]t=/.test(caida.fetch.pedidos[caida.fetch.pedidos.length - 1]),
+    'radio de vuelta: y el token ya no viaja');
+  check(caida.el('estado').textContent === 'live',
+    'radio de vuelta: el veredicto sale del probe, no de un fantasma');
+
+  // 5) Tunel roto (502): un error de proxy tampoco prueba nada.
+  const tunel = await abrirPagina({ codigo: 502, search: '?t=' + TOKEN_DE_PRUEBA });
+  check(tunel.location.search === '?t=' + TOKEN_DE_PRUEBA,
+    '502: la barra se queda como estaba — 502 no prueba nada');
+  check(tunel.fetch.pedidos.length === 1,
+    '502: un solo intento (la pregunta se repite, no se contesta)');
+  check(intacto(tunel), '502: y no pinta nada');
+
+  // 6) ?debug=1 sobrevive al token: se borra el t, no la perilla.
+  const dbg = await abrirPagina({ datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA + '&debug=1' });
+  check(dbg.location.search === '?debug=1',
+    `debug: se borra el t y queda el debug (quedo "${dbg.location.search}")`);
+  check(dbg.intervalos.some((i) => i.ms === 1000), 'debug: el panel sigue encendido');
+}
+
 /* ------------------------------------------------------------------ corrida */
 
 async function correrEscenarios() {
@@ -457,6 +575,7 @@ async function correrEscenarios() {
   await escenarioMatriz();
   await escenarioTransitoria();
   await escenarioPuerta();
+  await escenarioTokenFueraDeLaBarra();
   return { ok, mal, rojas: rojas.slice() };
 }
 
@@ -501,6 +620,25 @@ const MUTACIONES = [
     que: 'la frase de la puerta se escribe dos veces',
     aplica: (h) => h.replace('var PUERTA = ',
       "var PUERTA_COPIA = 'Access expired or the browser did not save the cookie.';\n  var PUERTA = "),
+  },
+  {
+    que: 'la barra nunca se limpia (el t se queda en la direccion)',
+    aplica: (h) => h.replace("    q.delete('t');\n", ''),
+  },
+  {
+    que: 'el sufijo se borra aunque la cookie este muerta',
+    aplica: (h) => h.replace('          cookieProbada = true;\n          limpiarBarra();',
+      "          cookieProbada = true;\n          sufijo = '';\n          limpiarBarra();"),
+  },
+  {
+    que: 'la prueba de cookie ya llega con el token (nunca se pregunta)',
+    aplica: (h) => h.replace("return fetch(BACKEND_URL + '/status-json.xsl', OPCIONES_ESTADO)",
+      'return fetch(conT, OPCIONES_ESTADO)'),
+  },
+  {
+    que: 'un 502 se lee como 404: se decide aunque no se sabe nada',
+    aplica: (h) => h.replace('        if (r.status === 404) {',
+      '        if (r.status === 404 || r.status === 502) {'),
   },
 ];
 

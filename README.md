@@ -120,8 +120,10 @@ docker compose up -d --build
 ```
 
 Step 3 prints the link. **That link is the key.** It is opened once in the
-browser: the token is exchanged for the cookie, the URL is cleaned, and from
-then on the token never travels again.
+browser: the page exchanges the token for the cookie and then takes it out
+of the address bar. From then on the token travels only while the browser
+refuses the cookie — then it rides the page's requests, still never the
+address bar.
 
 If instead you start from a clone and want to bring it up before granting
 access, copy the template: `cp caddy/tokens.caddy.example caddy/tokens.caddy`
@@ -184,7 +186,8 @@ sequenceDiagram
     participant I as Icecast
 
     O->>C: GET /?t=TOKEN   (once, from the link)
-    C-->>O: Set-Cookie + 302 to /
+    C-->>O: Set-Cookie + 302 to /?t=TOKEN
+    Note over O: replaceState - the token leaves the address bar
     O->>C: GET /   (now sends the cookie)
     C-->>O: the player
     O->>C: GET /stream   (cookie)
@@ -196,8 +199,11 @@ sequenceDiagram
 Four layers, each doing something different:
 
 1. **Caddy validates the credential** against `caddy/tokens.caddy` (generated).
-2. **The exchange**: the `?t=...` of the link becomes a cookie and the URL is
-   cleaned with a 302. From then on the token never travels again.
+2. **The exchange**: the `?t=...` of the link becomes a cookie. Caddy's 302
+   keeps the `?t=` in the redirect **on purpose** — it is the fallback for a
+   browser that refuses the cookie — and the page takes the token out of the
+   address bar as soon as it loads. From then on the token travels only in
+   the page's requests, and only while that fallback is in use.
 3. **`rewrite` strips the query** before proxying: the token never reaches
    Icecast, so it cannot appear in its logs.
 4. **Icecast publishes no ports.** It lives in Docker's internal network. Even
@@ -442,7 +448,11 @@ verdict matrix is measured row by row: `200` with source, `200` without,
 anything — no "off air", no disabled button while the audio plays). The door's
 sentence is asserted verbatim, and it must appear **once** in the source: the
 chain and the tick write the same fact, so they cannot be allowed to drift
-apart.
+apart. The fake `fetch` can also be told the cookie is dead — then any
+request *without* the token gets a 404, which is how the fallback is
+measured — and the stub carries a mutable `location` plus a real
+`history.replaceState`, so "the token leaves the address bar" is a reading,
+not a hope: the gate reads the bar and every status URL, before and after.
 
 ```
 UI gate — web/index.html
@@ -459,13 +469,19 @@ la matriz del tick al cargar (F-03 / F-04):
   OK    404 -> la frase exacta de la puerta
   OK    red caida -> no pinta nada: ni off air, ni puerta, ni boton muerto
 
-Todo bien - 51 chequeos.
+el token sale de la barra (F-01):
+  OK    cookie viva: la barra queda limpia al cargar (quedo "")
+  OK    cookie viva: NINGUN pedido lleva el token
+  OK    cookie muerta: la barra TAMBIEN queda limpia (quedo "")
+  OK    502: la barra se queda como estaba — 502 no prueba nada
+
+Todo bien - 77 chequeos.
 ```
 
 Exit codes: `0` all good, `1` a check failed. No network, no stack running:
 only `node`, the dependency `docs.sh` already had. Every check is binary, so
 the gate can fail: against the pre-S1 page 12 checks go red, against the
-pre-S2 page 13 do.
+pre-S2 page 13 do, against the pre-S3 page 13 do.
 
 ### Proving that it can fail
 
@@ -478,10 +494,13 @@ invented the `btn` id it was asked for, and the row passed for nothing
 ./scripts/ui-gate.js --self-test
 ```
 
-It breaks the page's source **in memory**, one guarantee per mutation, six in
+It breaks the page's source **in memory**, one guarantee per mutation, ten in
 all: a second status tick, the chain guard dropped, the `404` read as any
 other response, the transient lie restored, the two endpoint shapes read
-differently, the door's sentence written twice. It then demands **red on every
+differently, the door's sentence written twice — and, for the token out of
+the address bar: the bar never cleaned, the suffix cleared despite a dead
+cookie, the cookie probe arriving already carrying the token, and a `502`
+read as a decision. It then demands **red on every
 mutation** and **green on the real page**. A mutation that stays green means
 the gate stopped measuring that thing — that is a failure, not a pass. A
 mutation that no longer applies, because the code changed shape, fails too: a
@@ -491,17 +510,19 @@ to restore and no chance of committing a mutated page.
 ```
 Self-test — ¿puede fallar este gate?
 
-  OK    pagina real .......................... 51/51 en verde
+  OK    pagina real .......................... 77/77 en verde
   OK    un segundo tick de 15 s (la regla de un solo fetch por tick)
-          8 rojos, p.e. "un solo intervalo consulta el estado (15000 ms); encontrados: [15000, 15000]"
+          9 rojos, p.e. "un solo intervalo consulta el estado (15000 ms); encontrados: [15000, 15000]"
   OK    la cadena deja de mandar sobre el tick
           3 rojos, p.e. "tick en vivo: el cartel NO pasa a live"
+  OK    la barra nunca se limpia (el t se queda en la direccion)
+          5 rojos, p.e. "cookie viva: la barra queda limpia al cargar (quedo "?t=f00dfeed")"
 
-Todo bien - 6 mutaciones atrapadas.
+Todo bien - 10 mutaciones atrapadas.
 ```
 
-Exit codes: `0` six mutations trapped, `1` one went uncaught or did not
-apply. Seven runs of the gate, about 0.3 s.
+Exit codes: `0` ten mutations trapped, `1` one went uncaught or did not
+apply. Eleven runs of the gate, about 1 s.
 
 **So neither slips past in a commit:**
 

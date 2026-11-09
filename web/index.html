@@ -170,12 +170,37 @@
   tel.textContent = location.host;
 
   /*
-    Normalmente el token ya no está en la URL: el servidor lo canjeó por
-    una cookie antes de servir esta página. Igual lo leemos, porque sirve
-    para reproductores y como respaldo si el navegador no guarda cookies.
+    El canje del servidor RE-APENDE el ?t= a propósito: es el respaldo
+    para el navegador que no guarda cookies (Safari ITP, etc.). Esta
+    página lo lee una vez y lo retira de la barra apenas puede (F-01):
+    primero pregunta si la cookie abre —un pedido SIN sufijo— y sólo si
+    la respuesta es 404 el token sigue viajando en los pedidos. Queda
+    en memoria, nunca en la dirección. Ver pedidoDeEstado().
+
+    Excepción: la cámara usa `t` en el CAMINO de sus URLs (los segmentos
+    HLS relativos no heredan el query — ver caddy/Caddyfile). Eso es
+    otra vía, no la barra, y no es de esta rebanada.
   */
   var t = new URLSearchParams(location.search).get('t');
   var sufijo = t ? '?t=' + encodeURIComponent(t) : '';
+
+  // Un solo lugar para las opciones de la encuesta de estado: el probe
+  // de credencial (pedidoDeEstado) y el reintento (alFallar) tienen que
+  // pedir con las mismas reglas, o la decisión se toma con otra vara.
+  var OPCIONES_ESTADO = { cache: 'no-store', credentials: 'include' };
+
+  /*
+    Saca el ?t= de la dirección y deja el resto del query intacto:
+    borrar la URL entera también borraría ?debug=1, la única perilla
+    de diagnóstico. Idempotente: sin t no hay nada que hacer.
+  */
+  function limpiarBarra() {
+    var q = new URLSearchParams(location.search);
+    if (!q.has('t')) return;
+    q.delete('t');
+    var resto = q.toString();
+    history.replaceState(null, '', location.pathname + (resto ? '?' + resto : ''));
+  }
 
   // Backend (Icecast/Caddy) vive en otro origen tras el split: el frontend
   // está en Cloudflare Pages (radio.daza.ar) y el backend en el tunnel
@@ -244,7 +269,7 @@
     */
     if (reintentando) return;
     reintentando = true;
-    fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
+    fetch(BACKEND_URL + '/status-json.xsl' + sufijo, OPCIONES_ESTADO)
       .then(function (r) { sinCredencial = r.status === 404; })
       .catch(function () { sinCredencial = false; })
       .then(function () {
@@ -404,8 +429,57 @@
   */
   var TICK_MS = 15000;
 
+  /*
+    ------------------------------------------------------------------
+    ¿La cookie sirve? — la pregunta que decide si el token sigue viajando
+    ------------------------------------------------------------------
+
+    Con ?t= en la URL, el primer pedido de estado se hace SIN sufijo.
+    Tres respuestas, tres decisiones:
+
+      200  -> la cookie abre. El token no viaja más: sufijo = '' y la
+              barra queda limpia. Ni el stream, ni el estado, ni el
+              WHEP vuelven a gastarlo.
+      404  -> la cookie no abre. El token queda viajando en sufijo —
+              en memoria, nunca en la dirección — y la barra se limpia
+              igual (F-01: el principio 6 es de la dirección, no del
+              respaldo). El segundo pedido, con el token, decide el
+              veredicto: 200 = el respaldo sostiene la radio, 404 = el
+              link también murió (la puerta).
+      otra (502, red) -> no prueba nada. Ni sufijo ni barra se tocan y
+              la pregunta se repite en el próximo tick: decidir con la
+              radio caída sería tirar el respaldo al vacío.
+
+    Mientras la cookie no esté probada, sufijo sigue siendo el que vino
+    en la URL: pedir con él no es un error, es el estado anterior.
+  */
+  var cookieProbada = false;
+
+  function pedidoDeEstado() {
+    var conT = BACKEND_URL + '/status-json.xsl' + sufijo;
+    if (!t || cookieProbada) return fetch(conT, OPCIONES_ESTADO);
+
+    return fetch(BACKEND_URL + '/status-json.xsl', OPCIONES_ESTADO)
+      .then(function (r) {
+        if (r.status === 404) {
+          // El 404 vino SIN token: la cookie ya quedó decidida. La
+          // barra se limpia acá, antes del segundo pedido — aunque ese
+          // falle, la decisión no queda pendiente.
+          cookieProbada = true;
+          limpiarBarra();
+          return fetch(conT, OPCIONES_ESTADO);
+        }
+        if (r.status === 200) {
+          cookieProbada = true;
+          sufijo = '';
+          limpiarBarra();
+        }
+        return r;
+      });
+  }
+
   function leerEstado() {
-    return fetch(BACKEND_URL + '/status-json.xsl' + sufijo, { cache: 'no-store', credentials: 'include' })
+    return pedidoDeEstado()
       .then(function (r) {
         // 404 = LA PUERTA cerró (Caddy `respond 404`): es la credencial,
         // no la radio. Es la misma discriminación que ya hacía alFallar

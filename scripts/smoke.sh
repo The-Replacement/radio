@@ -57,11 +57,18 @@ else
     && pasa "el link de invitación deja la cookie" \
     || falla "el link de invitación NO dejó la cookie"
   grep -qE '^HTTP/[0-9.]+ 302' <<<"$CABECERAS" \
-    && pasa "y redirige a la URL limpia (302)" \
+    && pasa "y redirige al reproductor (302)" \
     || falla "no redirigió con 302"
   grep -qiE '^location: https://radio\.daza\.ar' <<<"$CABECERAS" \
-    && pasa "la redirección apunta al frontend (token puede ir en la URL como respaldo)" \
+    && pasa "la redirección apunta al frontend" \
     || falla "la redirección no apunta al frontend"
+  # El 302 NO limpia la URL: conserva el ?t= a propósito, es el respaldo
+  # para el navegador que no guarda cookies. De sacarlo de la barra se
+  # encarga la página al cargar (S3/F-01). Si esta línea falla, ese
+  # navegador pierde el respaldo y ni siquiera se entera.
+  grep -qiF "location: https://radio.daza.ar/?t=$TOKEN" <<<"$CABECERAS" \
+    && pasa "y conserva el ?t= en la URL (el respaldo del navegador sin cookie)" \
+    || falla "la redirección perdió el ?t=: el navegador sin cookie pierde el respaldo"
 
   # LA CADENA COMPLETA, no las mitades.
   #

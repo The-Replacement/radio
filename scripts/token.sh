@@ -237,7 +237,9 @@ cmd_add() {
   echo "  $(url_de "$t")"
   echo
   echo "  Al abrirlo en el navegador, el token se canjea por una cookie y"
-  echo "  desaparece de la URL."
+  echo "  la pagina lo saca de la URL. Si el navegador no guarda la cookie,"
+  echo "  el token sigue viajando en los pedidos de la pagina, pero nunca"
+  echo "  mas en la direccion."
   echo
   echo "  Para VLC/mpv, el audio va con ese mismo link. La cámara no: los"
   echo "  segmentos de HLS no heredan el query, así que el token va en el"

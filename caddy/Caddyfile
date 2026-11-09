@@ -68,6 +68,7 @@
 		# (Domain=.daza.ar, asi que llega al frontend) y se redirige allá.
 		# El token se conserva en la URL: así el frontend puede usarlo como
 		# respaldo si el navegador bloquea la cookie (Safari ITP, etc.).
+		# De sacarlo de la barra se encarga la página al cargar (S3/F-01).
 		redir * https://radio.daza.ar/?t={http.request.uri.query.t} 302
 	}
 
