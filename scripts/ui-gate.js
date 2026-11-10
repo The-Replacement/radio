@@ -279,7 +279,7 @@ async function abrirPagina(config) {
   };
 
   const doc = {
-    title: 'Drift',
+    title: 'comechingona',
     head: { appendChild() {} },
     createElement(tag) { const e = elemento(tag + '#nuevo', escrituras); creados.push(e); return e; },
     getElementById(id) {
@@ -421,7 +421,7 @@ async function escenarioUnTick() {
   check((p.escrituras.now || 0) - ahora.now === 1, 'another tick: #now, 1 time again');
 
   check(p.el('now').textContent.trim() === AIRE.title, '#now shows the title, not server_name');
-  check(p.doc.title === `${AIRE.title} — Drift`, 'the document title follows the track');
+  check(p.doc.title === `${AIRE.title} — comechingona`, 'the document title follows the track');
 }
 
 async function escenarioCadenaManda() {
