@@ -938,6 +938,22 @@ async function escenarioViajeCorteReconexion() {
   check(p.el('err').style.display !== 'block', 'and the banner clears');
 }
 
+/* ----------------------------- journey: expiry at load (S13 / F-19) */
+
+async function escenarioViajeExpiracion() {
+  titular('\\njourney: an expired link shows the door (S13):');
+
+  // Dead cookie at load: the probe answers 404 -> door copy, and "ask for a
+  // new link" is reachable (F-03).
+  const p = await abrirPagina({ codigo: 404, search: '?t=' + TOKEN_DE_PRUEBA, cookie: 'muerta' });
+  await flush();
+  await p.disparar(15000);
+  await flush();
+  check(/Ask for a new link/.test(String(p.el('err').innerHTML || '')),
+    'expired link: the door copy is shown');
+  check(p.el('estado').textContent === 'error', 'the status reads error (door closed)');
+}
+
 /* --------------------------------------------- the camera, for now (F-08) */
 
 async function escenarioCamara() {
@@ -987,6 +1003,7 @@ async function correrEscenarios() {
   await escenarioProbeAcotado();
   await escenarioSemilla();
   await escenarioViajeCorteReconexion();
+  await escenarioViajeExpiracion();
   await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }
