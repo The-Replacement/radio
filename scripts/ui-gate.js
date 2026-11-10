@@ -954,6 +954,28 @@ async function escenarioViajeExpiracion() {
   check(p.el('estado').textContent === 'error', 'the status reads error (door closed)');
 }
 
+/* ----------------------------- journey: off-air at runtime (S13 / F-19) */
+
+async function escenarioViajeFueraDeAire() {
+  titular('\\njourney: the radio goes off-air (S13):');
+
+  const p = await abrirPagina({ datos: AIRE });
+  p.el('audio').dispara('playing');
+  await flush();
+  await p.disparar(15000);
+  await flush();
+  check(p.el('estado').textContent === 'live', 'starts live');
+
+  // The source disappears: next tick answers 200 with no source.
+  p.config.datos = null;
+  const antes = p.escrituras.estado || 0;
+  await p.disparar(15000);
+  await flush();
+  check(p.el('estado').textContent === 'stopped', 'off-air: the banner says stopped');
+  check(p.el('aviso').style.display === 'block', 'and the notice appears');
+  check(p.el('play').disabled === true, 'the button is disabled while off-air');
+}
+
 /* --------------------------------------------- the camera, for now (F-08) */
 
 async function escenarioCamara() {
@@ -1004,6 +1026,7 @@ async function correrEscenarios() {
   await escenarioSemilla();
   await escenarioViajeCorteReconexion();
   await escenarioViajeExpiracion();
+  await escenarioViajeFueraDeAire();
   await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }
