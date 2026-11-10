@@ -31,6 +31,10 @@ services:
     volumes:
       - ./liquidsoap/radio.liq:/etc/radio.liq:ro
       - ./music:/music:ro
+      # Mario (the host voice): pre-rendered segments, read-only. Mounted at
+      # /host so radio.liq can play them between tracks. Never under /music:
+      # Liquidsoap must not scan them into the playlist.
+      - ./data/host:/host:ro
     # The generator publishes with an atomic rename, so it writes each file
     # first into ./music/.tmp and renames it to the final name. That staging
     # lives INSIDE the tree this container scans: `playlist("/music")` walks
@@ -189,6 +193,8 @@ services:
       # The library's sidecars (indiegenerator's per-track JSON with lane/seed/
       # plan_sha256). Read-only: the radio only reads them, never writes.
       - ./music:/srv-music:ro
+      # Mario (the host voice): pre-rendered segments, served under the door.
+      - ./data/host:/srv-host:ro
       - ./data/caddy:/data
     networks:
       - radio

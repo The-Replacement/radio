@@ -181,6 +181,16 @@
 			file_server
 		}
 
+		# --- Mario (el host): segmentos pre-renderizados (solo lectura) ---
+		handle_path /host/* {
+			header Access-Control-Allow-Origin {$FRONTEND_URL}
+			header Access-Control-Allow-Methods GET, OPTIONS
+			header Access-Control-Allow-Headers Content-Type
+			header Access-Control-Allow-Credentials true
+			root * /srv-host
+			file_server
+		}
+
 		# --- la biblioteca: sidecars del indiegenerator (solo lectura) ---
 		handle_path /music/* {
 			header Access-Control-Allow-Origin {$FRONTEND_URL}

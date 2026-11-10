@@ -308,6 +308,35 @@ else
   fi
 fi
 
+
+# ---------------------------------------------------------- Mario (the host voice)
+# Optional: if Mario has not rendered any segment yet, there is nothing to test.
+# Mirrors the camera group: SKIP (no fail) when no cached wav exists.
+if ls "$RAIZ"/data/host/*.wav >/dev/null 2>&1; then
+  echo
+  echo "host (Mario):"
+  seg="$(ls "$RAIZ"/data/host/*.wav | head -n1)"
+  name="$(basename "$seg")"
+
+  [[ "$(codigo "$BASE/host/$name")" == "404" ]] \
+    && pasa "segment without a credential -> 404" \
+    || falla "segment without a credential -> $(codigo "$BASE/host/$name")"
+
+  if [[ -n "$COOKIE_ENTREGADA" ]]; then
+    c="$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/host/$name")"
+    [[ "$c" == "200" ]] && pasa "segment with cookie -> 200 ($name)" \
+                      || falla "segment with cookie -> $c ($name)"
+
+    tipo="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_ENTREGADA" \
+            "$BASE/host/$name" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-type:" {print $2}')"
+    [[ "$tipo" == audio/* ]] && pasa "segment content-type is audio/* ($tipo)" \
+                            || falla "segment content-type '$tipo' (expected audio/*)"
+  fi
+else
+  echo
+  echo "host (Mario): SKIP — no cached segment in data/host/*.wav"
+fi
+
 echo
 if [[ "$mal" -eq 0 ]]; then
   printf '\033[32mAll good\033[0m — %d checks passed.\n\n' "$ok"
