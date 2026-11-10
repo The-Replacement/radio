@@ -36,6 +36,11 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"
 while read -r OLD NEW REF; do
   [ "$REF" = "refs/heads/master" ] || continue
   log "push recibido ${OLD}..${NEW}"
+  # La caja no puede fetch (no tiene credenciales de GitHub), así que su
+  # refs/remotes/origin/master queda congelado y `git status` mentía
+  # "ahead N". El push ES la sincronización: apuntar el ref al commit que
+  # acaba de llegar deja el status honesto ("up to date").
+  git update-ref refs/remotes/origin/master "$NEW" 2>/dev/null || true
   # Si el diff falla, no hay cambios que leer: eso NO es verde, es
   # falsa alarma — el reload no puede depender de una comparación
   # que no se hizo. Se frena ruidoso.
@@ -53,7 +58,7 @@ while read -r OLD NEW REF; do
     else
       log "FALLO: caddy reload no cuajó; la config anterior sigue sirviendo"
       exit 1
-      fi
+    fi
   else
     log "sin cambios de Caddyfile/tokens.caddy: nada que recargar"
   fi
