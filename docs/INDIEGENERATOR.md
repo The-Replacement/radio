@@ -56,6 +56,17 @@ docker compose logs -f indiegen
 docker compose stop indiegen
 ```
 
+**NO correr `docker compose up -d --build indiegen` a secas.** `--build`
+reconstruye también la imagen de icecast (su servicio tiene `build: ./icecast`)
+y recrea el contenedor → corta el stream ~40 s (medido: EPIPE + reconexión de
+liquidsoap a los 4 s, todo el montaje de oyentes desconectado). Para
+rebuildear SÓLO el generador:
+
+```bash
+docker compose build indiegen
+docker compose up -d --no-deps --no-recreate indiegen
+```
+
 ## Coordinación
 
 Cambios que afectan el contrato música↔radio (formato/nombre, montaje de
