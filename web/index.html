@@ -71,6 +71,7 @@
   <div class="estado"><span class="dot" id="dot"></span><span id="estado" aria-live="polite">stopped</span><span id="listeners" style="margin-left:.6rem;font-size:.7rem;color:#9a9aa2;"></span></div>
   <h1>Radio</h1>
   <p class="now" id="now">&nbsp;</p>
+  <p class="seed" id="seed" hidden></p>
   <button id="play" aria-label="Play">&#9654;</button>
   <div class="aviso" id="aviso" aria-live="polite"></div>
   <div class="err" id="err" aria-live="polite"></div>
@@ -163,6 +164,7 @@
   var estado = document.getElementById('estado');
   var listeners = document.getElementById('listeners');
   var now = document.getElementById('now');
+  var seed = document.getElementById('seed');
   var err = document.getElementById('err');
   var aviso = document.getElementById('aviso');
   var tel = document.getElementById('tel');
@@ -432,6 +434,90 @@
     HAVE_FUTURE_DATA). On a live stream that only happens when data is truly
     flowing; at 0-2 it is not playing and reconnecting is the right move.
   */
+  /*
+    S11: the seed on stage. indiegenerator publishes a per-track sidecar next
+    to each FLAC (`/music/<stem>.json`, schema "indiegen/sidecar/1") with
+    lane, seed and plan_sha256. When the current track's sidecar is found, the
+    radio renders `lane · seed · plan_sha256` under #now. When it is not (no
+    manifest, network down, no match), the line stays hidden: never faked.
+    The aggregated index `/music/catalog.json` is used to find the sidecar for
+    the track that is playing, because the Icecast title does not carry the
+    file name. Best effort, never throws: a missing manifest is a valid state.
+  */
+  var catalogo = null;
+  var catalogoCargando = false;
+  var catalogoFallido = false;
+  function normalizarTitulo(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+  function buscarEntradaCatalogo(titulo) {
+    if (!catalogo || !Array.isArray(catalogo.entries || catalogo)) return null;
+    var lista = catalogo.entries || catalogo;
+    var clave = normalizarTitulo(titulo);
+    if (!clave) return null;
+    var palabras = clave.split(/\s+/).filter(Boolean);
+    for (var i = 0; i < lista.length; i++) {
+      var e = lista[i];
+      var ruta = String(e.path || e.file || '');
+      var base = normalizarTitulo(ruta.replace(/\.flac$/i, ''));
+      if (!base) continue;
+      // Match: every word of the title appears in the file stem, or vice versa.
+      // The Icecast title carries the station suffix ("Radio Privada") that is
+      // not part of the file name: require only that at least one significant
+      // word of the title (4+ letters) appears in the file stem.
+      var significativas = palabras.filter(function (w) { return w.length >= 4; });
+      if (significativas.length === 0) continue;
+      var coincide = significativas.some(function (w) { return base.indexOf(w) !== -1; });
+      if (coincide) return e;
+    }
+    return null;
+  }
+  function ocultarSeed() {
+    if (seed) { seed.hidden = true; seed.textContent = ''; }
+  }
+  function cargarManifiesto(titulo) {
+    if (!seed) return;
+    if (!titulo) { ocultarSeed(); return; }
+    var mostrar = function (sidecar) {
+      if (!sidecar || !sidecar.lane || sidecar.seed == null || !sidecar.plan_sha256) {
+        ocultarSeed(); return;
+      }
+      seed.textContent = sidecar.lane + ' \\u00b7 ' + sidecar.seed + ' \\u00b7 ' + sidecar.plan_sha256;
+      seed.hidden = false;
+    };
+    var entrada = buscarEntradaCatalogo(titulo);
+    if (entrada && entrada.lane && entrada.seed != null) {
+      // The catalog already has lane + seed; fetch the sidecar only for plan_sha256.
+      var ruta = String(entrada.path || entrada.file || '');
+      var sidecarUrl = BACKEND_URL + '/music/' + ruta.replace(/\.flac$/i, '.json');
+      fetch(sidecarUrl, OPCIONES_ESTADO)
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (j && j.plan_sha256) mostrar(j);
+          else if (entrada.lane && entrada.seed != null) mostrar({ lane: entrada.lane, seed: entrada.seed, plan_sha256: (entrada.plan_sha256 || '') });
+          else ocultarSeed();
+        })
+        .catch(ocultarSeed);
+      return;
+    }
+    // No catalog yet: try to load it once, then retry.
+    if (catalogoFallido) { ocultarSeed(); return; }
+    if (!catalogo && !catalogoCargando) {
+      catalogoCargando = true;
+      fetch(BACKEND_URL + '/music/catalog.json', OPCIONES_ESTADO)
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          catalogo = j;
+          catalogoCargando = false;
+          if (!catalogo) { catalogoFallido = true; ocultarSeed(); return; }
+          cargarManifiesto(titulo);
+        })
+        .catch(function (e) { catalogoCargando = false; catalogoFallido = true; ocultarSeed(); });
+      return;
+    }
+    ocultarSeed();
+  }
+
   function sonando() {
     return !audio.paused && audio.readyState >= 3;
   }
@@ -691,6 +777,7 @@
       dot.classList.remove('live');
       estado.textContent = STR.error;
       btn.disabled = true;
+      ocultarSeed();
       return;
     }
 
@@ -701,6 +788,7 @@
       // different fields and the caption flickered.
       now.textContent = (titulo || s.server_name || s.server_description || STR.station) + '\u00a0';
       if (titulo) document.title = titulo + ' — ' + STR.station;
+      cargarManifiesto(titulo);
       var n = (s && s.listeners != null) ? s.listeners : 0;
       listeners.textContent = STR.listeners(n);
       aviso.style.display = 'none';
@@ -712,6 +800,7 @@
       // 'sin-aire': it answered 200 and there is no source. This is known.
       now.textContent = '';
       listeners.textContent = '';
+      ocultarSeed();
       aviso.style.display = 'block';
       aviso.textContent = STR.broadcastStopped;
       btn.disabled = true;

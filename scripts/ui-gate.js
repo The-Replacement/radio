@@ -193,6 +193,20 @@ function crearFetch(fuente) {
         text() { return Promise.resolve(text); },
       });
     }
+    if (u.indexOf('/music/') !== -1 && /\.json(\?|$)/.test(u)) {
+      pedidos.push(u);
+      if (!fuente.alcanzable) return Promise.reject(new Error('network down'));
+      var cuerpo = null;
+      if (u.indexOf('catalog.json') !== -1) cuerpo = fuente.catalogo;
+      else cuerpo = fuente.sidecar;
+      if (!cuerpo) {
+        // debug
+      }
+      if (!cuerpo) {
+        return Promise.resolve({ ok: false, status: 404, json() { return Promise.resolve({}); }, text() { return Promise.resolve(''); } });
+      }
+      return Promise.resolve({ ok: true, status: 200, json() { return Promise.resolve(cuerpo); }, text() { return Promise.resolve(JSON.stringify(cuerpo)); } });
+    }
     if (u.indexOf('/status-json.xsl') === -1) {
       return Promise.reject(new Error('outside the gate: ' + u));
     }
@@ -246,6 +260,7 @@ async function abrirPagina(config) {
   const timeouts = [];
   let proximoId = 1;
   const fetchFuente = Object.assign({ alcanzable: true, codigo: 200, datos: null }, config);
+
   const fetch = crearFetch(fetchFuente);
   const creados = [];
 
@@ -867,6 +882,36 @@ async function escenarioProbeAcotado() {
 }
 
 
+/* ------------------------------------- the seed on stage (S11 / D-1) */
+
+async function escenarioSemilla() {
+  titular('\\nthe seed on stage (S11):');
+
+  // Absent: no manifest, no sidecar -> the line stays hidden, never faked.
+  const sin = await abrirPagina({ datos: AIRE });
+  sin.el('audio').dispara('playing');
+  await flush();
+  await sin.disparar(15000);
+  check(sin.el('seed').hidden === true, 'no manifest: the seed line stays hidden');
+
+  // Present: catalog + sidecar match the playing track -> lane · seed · plan_sha256.
+  const hash = '1ce57e51abcdef';
+  const cfgCon = {
+    datos: AIRE,
+    catalogo: { entries: [{ path: 'motorik_steady_hand_s100.flac', lane: 'motorik', seed: 100 }] },
+    sidecar: { lane: 'motorik', seed: 100, plan_sha256: hash },
+  };
+  const con = await abrirPagina(cfgCon);
+  con.el('audio').dispara('playing');
+  await flush();
+  await con.disparar(15000);
+  check(con.el('seed').hidden === false, 'manifest present: the seed line appears');
+  check(String(con.el('seed').textContent).indexOf('motorik') !== -1
+     && String(con.el('seed').textContent).indexOf('100') !== -1
+     && String(con.el('seed').textContent).indexOf(hash) !== -1,
+    'the line reads lane · seed · plan_sha256');
+}
+
 /* --------------------------------------------- the camera, for now (F-08) */
 
 async function escenarioCamara() {
@@ -914,6 +959,7 @@ async function correrEscenarios() {
   await escenarioVozDeLaEstacion();
   await escenarioAutoplayBloqueado();
   await escenarioProbeAcotado();
+  await escenarioSemilla();
   await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }

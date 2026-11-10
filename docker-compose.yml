@@ -186,6 +186,9 @@ services:
       # read-only mount: "Read-only file system (os error 30)". That is why the
       # directory goes to /srv-cam and the Caddyfile uses handle_path.
       - ./data/cam:/srv-cam:ro
+      # The library's sidecars (indiegenerator's per-track JSON with lane/seed/
+      # plan_sha256). Read-only: the radio only reads them, never writes.
+      - ./music:/srv-music:ro
       - ./data/caddy:/data
     networks:
       - radio
