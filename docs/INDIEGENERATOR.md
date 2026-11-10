@@ -103,6 +103,23 @@ o sea que con una imagen nueva dejaría corriendo la vieja en silencio
 (`docker compose up --help`, v2.40.3). Recrear indiegen es gratis —no sirve
 audio—; recrear icecast cuesta ~40 s de stream.
 
+### Dos tiempos medidos que conviene tener presentes
+
+1. **El watcher es cron, no es instantáneo.** Entre que el generador escribe
+   `restart-request` y el cron lo ve pasa hasta ~60 s (medido: 10 s y 53 s en
+   dos ciclos seguidos, según dónde caiga el tick). En esa ventana liquidsoap
+   sigue con la playlist vieja cuyos archivos ya no existen; si intenta uno,
+   falla el decode y salta. Medido hasta ahora: cero errores de decode y cero
+   desconexiones de icecast, pero la exposición es real. Si alguna vez molesta,
+   se arregla del lado radio (poll más fino que `* * * * *`), no en el
+   generador.
+2. **Un push durante un render tira ese render.** El hook hace `up -d` (recrea
+   el contenedor) y recién después escribe el trigger, así que el ciclo en
+   vuelo muere y arranca uno nuevo desde cero. La biblioteca queda consistente
+   (el publish es posterior al batch completo), pero el CPU se paga dos veces.
+   Con renders de ~7 min y pushes en ráfaga, la colisión es realista: si vas a
+   pushear varios commits, juntalos.
+
 ## Coordinación
 
 Cambios que afectan el contrato música↔radio (formato/nombre, montaje de
