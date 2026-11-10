@@ -64,8 +64,10 @@
 		# El `*` no es decorativo: sin matcher explícito, Caddy lee el `/`
 		# como matcher y el `302` como destino, y manda "Location: 302".
 		# Tras el split, el player vive en Cloudflare Pages.
-		# El canje ocurre en el backend (stream.daza.ar): se deja la cookie
-		# (Domain=.daza.ar, asi que llega al frontend) y se redirige allá.
+		# El canje ocurre en el backend (stream.daza.ar): la cookie sale
+		# host-only para stream.daza.ar — sin Domain — y llega igual al
+		# frontend porque son el mismo site (daza.ar), same-site con
+		# credentials:include. Se redirige allá.
 		# El token se conserva en la URL: así el frontend puede usarlo como
 		# respaldo si el navegador bloquea la cookie (Safari ITP, etc.).
 		# De sacarlo de la barra se encarga la página al cargar (S3/F-01).

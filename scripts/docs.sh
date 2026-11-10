@@ -64,11 +64,53 @@ mapfile -t ARCHIVOS < <(
     -not -path '*/data/*' -not -path '*/data' -not -path '*/secrets/*' 2>/dev/null | sort
 )
 
+# ------------------------------------------ truth pass (F-12, F-14, F-20)
+#
+# Lo que el docs afirma y el código desmiente no puede volver. Tres
+# afirmaciones, tres gates; cualquiera de ellas rojo hace salir docs.sh.
+# La lista crece con cada "documenté esto y nadie lo notó".
+#
+echo
+echo "Truth — lo que el docs afirma y el código desmiente"
+echo
+
+trucos=0
+fallas=0
+
+# F-12: la cookie está host-only para stream.daza.ar — ningún sitio del
+# árbol del despliegue puede afirmar un Domain= que no existe.
+# (docs.sh se excluye: el gate contiene la afirmación por definición.)
+if git grep -qF 'Domain=.daza.ar' -- caddy web README.md 2>/dev/null; then
+  printf '  %sFALLA%s  "Domain=.daza.ar" aparece — la cookie es host-only (F-12)\n' "$ROJO" "$FIN"
+  trucos=$((trucos + 1))
+else
+  printf '  %sOK%s    ninguna mención a Domain=.daza.ar en el árbol\n' "$VERDE" "$FIN"
+fi
+
+# F-14: el vendor README presenta la carga de hls.js como rara; el código la carga siempre.
+if grep -qE 'sólo si|only if' web/vendor/README.md 2>/dev/null; then
+  printf '  %sFALLA%s  vendor README presenta la carga de hls.js como condicional — el código la carga siempre (F-14)\n' "$ROJO" "$FIN"
+  trucos=$((trucos + 1))
+else
+  printf '  %sOK%s    vendor README no presenta la carga de hls.js como condicional\n' "$VERDE" "$FIN"
+fi
+
+# F-20: $CK no se usa nunca sin definir.
+ck_block="$(awk '/^```/{f=!f; next} f && /CK/' README.md 2>/dev/null || true)"
+if grep -qF '$CK' README.md 2>/dev/null && ! grep -qE '^CK=' <<<"$ck_block"; then
+  printf '  %sFALLA%s  README.md usa $CK sin definir CK= (F-20)\n' "$ROJO" "$FIN"
+  trucos=$((trucos + 1))
+else
+  printf '  %sOK%s    toda aparición de $CK está precedida por CK= en el mismo bloque\n' "$VERDE" "$FIN"
+fi
+
+fallas=$((fallas + trucos))
+
 echo
 echo "Validando diagramas Mermaid"
 echo
 
-cuenta=0; fallas=0
+cuenta=0
 
 for f in "${ARCHIVOS[@]}"; do
   rel="${f#"$RAIZ"/}"
@@ -104,9 +146,8 @@ if [ "$fallas" -eq 0 ]; then
   fi
   exit 0
 else
-  printf '%s%d archivo(s) con diagramas rotos%s, de %d diagrama(s).\n' \
-    "$ROJO" "$fallas" "$FIN" "$cuenta"
-  echo "Arreglá el diagrama o mirá qué esperaba el parser en el mensaje de arriba."
+  printf '%s%d check(s) fallan%s\n' "$ROJO" "$fallas" "$FIN"
+  echo "Arreglá el diagrama o las afirmaciones del docs que el gate acaba de cazar."
   echo
   exit 1
 fi

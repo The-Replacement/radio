@@ -28,4 +28,8 @@ cp package/dist/hls.light.min.js web/vendor/
 cp package/LICENSE web/vendor/hls.js.LICENSE
 ```
 
-Cargado sólo si el navegador no reproduce HLS nativo (ver `web/index.html`).
+Cargado **siempre**: sin importar si el navegador soporta HLS nativo o no.
+Chrome 154 responde `"maybe"` a `canPlayType` y deja el stream atrasado ~10s
+sin perilla (medido). Así que todos usan hls.js + MSE: un solo camino,
+predecible. La implementación nativa de Safari tampoco se usa — mismo MSE,
+mismo reproductor, sin fork por plataforma.

@@ -807,6 +807,7 @@ nothing (that is the normal case of "camera unplugged"). To find out which:
 ```bash
 docker compose ps cam                      # is it up?
 ls -l data/cam/                            # is there index.m3u8 and seg*.m4s?
+CK=$(awk 'NF>=3 {print $3; exit}' secrets/tokens.txt)
 curl -s -o /dev/null -w '%{http_code}\n' -H "Cookie: radio=$CK" localhost:8090/cam/index.m3u8
 ```
 If the `cam` container does not start on bring-up, the camera is unplugged:
