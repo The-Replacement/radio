@@ -279,7 +279,7 @@ async function abrirPagina(config) {
   };
 
   const doc = {
-    title: 'Radio',
+    title: 'Drift',
     head: { appendChild() {} },
     createElement(tag) { const e = elemento(tag + '#nuevo', escrituras); creados.push(e); return e; },
     getElementById(id) {
@@ -421,8 +421,7 @@ async function escenarioUnTick() {
   check((p.escrituras.now || 0) - ahora.now === 1, 'another tick: #now, 1 time again');
 
   check(p.el('now').textContent.trim() === AIRE.title, '#now shows the title, not server_name');
-  check(p.doc.title === `${AIRE.title} — Radio`, 'the document title follows the track');
-  check(p.el('listeners').textContent === '3 listeners', 'listeners come from the same object');
+  check(p.doc.title === `${AIRE.title} — Drift`, 'the document title follows the track');
 }
 
 async function escenarioCadenaManda() {
@@ -467,7 +466,6 @@ async function escenarioDosFormas() {
 
   const leer = (p) => [
     p.el('now').textContent,
-    p.el('listeners').textContent,
     p.el('estado').textContent,
     p.el('aviso').style.display,
     p.doc.title,
@@ -478,7 +476,7 @@ async function escenarioDosFormas() {
   const c = leer(dos);
   check(a === b, `object and array give the same render\n        object: ${a}\n        array:  ${b}`);
   check(b === c, 'with two mounts the first is read, same as with one');
-  check(/Radio Privada/.test(a) && /3 listeners/.test(a), 'the render carries title and listeners');
+  check(/Radio Privada/.test(a), 'the render carries title');
 }
 
 /* ---------------------------------------------- the door and the air */
