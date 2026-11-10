@@ -31,6 +31,10 @@
  *   S10 la encuesta de credencial tiene cota: un pedido que no vuelve
  *       nunca no congela la cadena — el aborto se lee como red y la
  *       cadena alcanza el intento 1 (el número) (F-09).
+ *   F-17 el reintento manual después de agotar los 5 intentos arranca con
+ *       presupuesto nuevo, no con el contador agotado.
+ *   F-18 la mano del oyente manda: el click cancela lo agendado (un solo
+ *       intento en vuelo) y la cadena no resucita una radio pausada.
  *
  * Self-test (ver issue #23): un gate verde no prueba nada si no se lo vio
  * fallar. Rompe el codigo en memoria —una garantía por mutación— y exige
@@ -109,6 +113,9 @@ function elemento(id, escrituras) {
     // El gate dispara los eventos que un navegador dispararía solo.
     dispara(t, ev) { (oyendo[t] || []).slice().forEach((f) => f(ev || {})); },
     play() {
+      // Cada llamada cuenta: "un solo intento en vuelo" es un número, no
+      // una opinion (F-18).
+      this._plays = (this._plays || 0) + 1;
       if (this._playError) {
         const e = new Error(this._playError.message || 'play() rechazado');
         e.name = this._playError.name || 'Error';
@@ -719,6 +726,75 @@ async function escenarioAutoplayBloqueado() {
   check(p.el('play')._attrs['aria-label'] === 'Pause', 'y el botón dice Pause');
 }
 
+/* ------------------------------- la mano del oyente (F-17 / F-18) */
+
+const MAX_R = Number((CODIGO.match(/var MAX_REINTENTOS = (\d+);/) || [])[1] || 0);
+
+async function escenarioManoDelOyente() {
+  titular('\nla mano del oyente manda sobre la cadena (F-17 / F-18):');
+
+  check(MAX_R > 0, `el presupuesto de la cadena se lee del código (${MAX_R})`);
+
+  // F-17: después de agotar los intentos, un reintento manual arranca con el
+  // presupuesto entero — el primer fallo del reintento vuelve a (1/5), no al
+  // cartel definitivo.
+  const p = await abrirPagina({ datos: AIRE });
+  p.el('audio').dispara('playing');
+  for (let i = 0; i <= MAX_R; i++) {   // MAX_R fallos + el que agota
+    p.el('audio').dispara('error');
+    await flush();
+    await p.correrTimeouts();
+  }
+  check(/Could not connect/.test(String(p.el('err').innerHTML || '')),
+    'agotado el presupuesto: cartel definitivo');
+  check(pendientes(p).length === 0, 'y no queda nada agendado');
+
+  p.el('play').dispara('click');       // el oyente reintenta a mano
+  p.el('audio').dispara('error');      // y vuelve a fallar
+  await flush();
+  check(String(p.el('err').textContent).indexOf('(1/' + MAX_R + ')') !== -1,
+    `el reintento manual empieza en (1/${MAX_R}), no choca con el contador agotado`);
+
+  // F-18: un click durante la espera cancela el agendado — un solo intento
+  // en vuelo, siempre.
+  const q = await abrirPagina({ datos: AIRE });
+  q.el('audio').dispara('playing');
+  q.el('audio').dispara('error');
+  await flush();
+  check(pendientes(q).filter((t) => t.ms === 800).length === 1,
+    'el primer intento quedó agendado (800 ms)');
+  const antes = q.el('audio')._plays || 0;
+  q.el('play').dispara('click');
+  check((q.el('audio')._plays || 0) - antes === 1, 'el click arranca UN intento, ya');
+  check(pendientes(q).filter((t) => t.ms === 800).length === 0,
+    'y el agendado quedó cancelado');
+  await q.correrTimeouts();
+  check((q.el('audio')._plays || 0) - antes === 1,
+    'correr el reloj después no arranca un segundo intento en paralelo');
+
+  // F-18: la radio apagada a mano no se resucita sola. El elemento pausado
+  // también puede emitir `error`; la cadena no lo escucha.
+  const r = await abrirPagina({ datos: AIRE });
+  r.el('audio').dispara('playing');
+  r.el('audio').readyState = 4;        // sonando de verdad
+  r.el('audio').paused = false;
+  r.el('play').dispara('click');       // el oyente pulsa Pause
+  check(r.el('estado').textContent === 'stopped',
+    'pausa a mano: el cartel dice stopped (no queda clavado en reconnecting)');
+  const playsR = r.el('audio')._plays || 0;
+  r.el('audio').dispara('error');      // un error posterior del elemento pausado
+  await flush();
+  check(r.el('estado').textContent === 'stopped', 'la cadena no lo resucita');
+  check((r.el('audio')._plays || 0) === playsR, 'ni un intento arrancó');
+  check(pendientes(r).length === 0, 'ni un reintento agendado');
+  await r.correrTimeouts();
+  check((r.el('audio')._plays || 0) === playsR, 'y correr el reloj tampoco: el audio no vuelve solo');
+
+  // Y el click de Play lo vuelve a encender: apagado no es un candado.
+  r.el('play').dispara('click');
+  check((r.el('audio')._plays || 0) - playsR === 1, 'Play lo enciende otra vez');
+}
+
 /* ----------------------------------- la encuesta acotada (F-09 / S10) */
 
 // La cota vive en el código, escrita una vez: el gate la lee de ahí en vez
@@ -829,6 +905,7 @@ async function correrEscenarios() {
   ok = 0; mal = 0; rojas = [];
   await escenarioUnTick();
   await escenarioCadenaManda();
+  await escenarioManoDelOyente();
   await escenarioDosFormas();
   await escenarioMatriz();
   await escenarioTransitoria();
@@ -935,6 +1012,21 @@ const MUTACIONES = [
     que: 'el signal de la cota se le pega al objeto de opciones compartido',
     aplica: (h) => h.replace("    var opciones = corte\n      ? Object.assign({}, OPCIONES_ESTADO, { signal: corte.signal })\n      : OPCIONES_ESTADO;",
       '    var opciones = OPCIONES_ESTADO;\n    if (corte) opciones.signal = corte.signal;'),
+  },
+  {
+    que: 'el click no cancela el reintento agendado (la radio vuelve sola)',
+    aplica: (h) => h.replace("    cancelarReintento();\n    reintentando = false;\n    reintentos = 0;\n    if (sonando()) {",
+      '    reintentando = false;\n    reintentos = 0;\n    if (sonando()) {'),
+  },
+  {
+    que: 'el click no renueva el presupuesto (el comentario vuelve a mentir, F-17)',
+    aplica: (h) => h.replace("    cancelarReintento();\n    reintentando = false;\n    reintentos = 0;\n    if (sonando()) {",
+      '    cancelarReintento();\n    reintentando = false;\n    if (sonando()) {'),
+  },
+  {
+    que: 'la cadena resucita la radio que el oyente apagó a mano (F-18)',
+    aplica: (h) => h.replace('    if (pausadoAMano) return;\n    reintentando = true;',
+      '    reintentando = true;'),
   },
 ];
 

@@ -289,6 +289,12 @@
   var sinCredencial = false;
   // ¿Hay una cadena de reconexión en vuelo? Ver alFallar().
   var reintentando = false;
+  // Reloj del próximo intento agendado. Uno solo, y cancelable: la mano del
+  // oyente lo tira (F-18 — la cadena no arranca la radio por encima de él).
+  var relojReintento = null;
+  // El oyente apagó la radio a mano. Un `error` posterior —el elemento
+  // pausado también puede emitirlo— no la resucita: apagado es apagado.
+  var pausadoAMano = false;
   // ¿El navegador bloqueó el autoplay y todavía no hubo click con
   // gesto? La red no puede desbloquearlo: el tick no pisa este estado
   // (la regla 1 tiene una prima local — la regla 0, por decirlo).
@@ -359,6 +365,9 @@
       medido también.
     */
     if (reintentando) return;
+    // Lo apagó el oyente a mano: la cadena no resucita lo que él apagó
+    // (F-18). El click de Play lo vuelve a encender.
+    if (pausadoAMano) return;
     reintentando = true;
     /*
       La encuesta se corta sola a los PROBE_MS. Un aborto NO prueba nada de
@@ -383,6 +392,17 @@
       });
   }
 
+  /*
+    El único intento agendado que hay. Cancelarlo es lo que hace que un
+    click del oyente sea una decisión y no un intento más: sin esto la
+    cadena arranca el audio por encima de su mano (F-18).
+  */
+  function cancelarReintento() {
+    if (relojReintento === null) return;
+    clearTimeout(relojReintento);
+    relojReintento = null;
+  }
+
   function reintentar() {
     reintentos++;
     if (reintentos > MAX_REINTENTOS) { falloDefinitivo(); return; }
@@ -390,11 +410,12 @@
     err.textContent = STR.reconnectingLine(reintentos, MAX_REINTENTOS);
     estado.textContent = STR.reconnecting;
     dot.classList.remove('live');
-    setTimeout(function () {
+    relojReintento = setTimeout(function () {
       // El intento corre: con esto, los eventos del SU fallo (error o
       // ended) vuelven a abrir alFallar() y la cadena sigue. Mientras
       // estaba agendado, la guarda cohibía a los disparadores duplicados
       // del mismo corte.
+      relojReintento = null;
       reintentando = false;
       conectar(true);
     }, 800 * reintentos);
@@ -416,12 +437,28 @@
   }
 
   btn.addEventListener('click', function () {
-    if (sonando()) { audio.pause(); }
-    else { conectar(true); }
+    /*
+      Un click es del oyente, no de la cadena: lo agendado se tira y el
+      presupuesto se renueva (F-17/F-18). Sin esto, el reintento agendado
+      arrancaba la radio después de que él la hubiera apagado, y un reintento
+      manual después de agotar los 5 intentos no tenía ninguno: moría en el
+      primer fallo.
+    */
+    cancelarReintento();
+    reintentando = false;
+    reintentos = 0;
+    if (sonando()) {
+      pausadoAMano = true;
+      audio.pause();
+      return;
+    }
+    pausadoAMano = false;
+    conectar(true);
   });
   audio.addEventListener('playing', function () {
     reintentos = 0;
     reintentando = false;
+    pausadoAMano = false;
     bloqueadoPorAutoplay = false;
     reproduciendo = true;
     btn.innerHTML = STR.pauseIcon;
@@ -465,9 +502,11 @@
   });
 
   function falloDefinitivo() {
-    // Se libera la cadena: si el usuario reintenta a mano y vuelve a
-    // fallar, eso debe empezar un presupuesto nuevo, no quedar bloqueado.
+    // Se libera la cadena. El presupuesto nuevo lo da el click del oyente
+    // (ver el handler del botón): reintentar a mano empieza en (1/5), no
+    // choca contra el contador agotado (F-17).
     reintentando = false;
+    cancelarReintento();
     err.style.display = 'block';
     err.innerHTML = sinCredencial
       ? STR.door

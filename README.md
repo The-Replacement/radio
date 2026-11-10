@@ -527,6 +527,19 @@ written twice, an abort read as "the door", or the bound's `signal` pasted
 onto the shared options object (where an aborted one would kill every later
 tick) all go red.
 
+The listener's hand outranks the chain, and that is measured too. The button
+is the only way to say "stop" or "try now", so a click cancels the scheduled
+attempt, renews the budget and does exactly one thing: pause if it is playing,
+one attempt if it is not. Two bugs died there: a manual retry after the five
+attempts were spent used to get **zero** further retries (the counter was
+already exhausted, so the first failure went straight back to the banner,
+although the comment promised a fresh budget), and a retry already scheduled
+kept running after the listener pressed pause — the radio started itself.
+The stub counts `play()` calls, so "one attempt in flight" is a number: click
+during the wait → one attempt starts, the scheduled one is cancelled, and
+running the clock afterwards starts no second one; pause by hand → a later
+`error` starts nothing; `Play` lights it up again.
+
 ```
 UI gate — web/index.html
 
@@ -537,6 +550,13 @@ un solo tick de estado:
 
 la cadena de reconexion manda sobre el tick:
   OK    tick en vivo: el cartel NO pasa a live
+
+la mano del oyente manda sobre la cadena (F-17 / F-18):
+  OK    agotado el presupuesto: cartel definitivo
+  OK    el reintento manual empieza en (1/5), no choca con el contador agotado
+  OK    el click arranca UN intento, ya
+  OK    y el agendado quedó cancelado
+  OK    la cadena no lo resucita
 
 la matriz del tick al cargar (F-03 / F-04):
   OK    404 -> la frase exacta de la puerta
@@ -567,16 +587,17 @@ la cámara, la pregunta antes del arranque (F-08):
   OK    playlist 404 -> cero loads de hls.js
   OK    playlist vieja (>10 s) -> la caja NO aparece
 
-Todo bien - 120 chequeos.
+Todo bien - 134 chequeos.
 ```
 
 Exit codes: `0` all good, `1` a check failed. No network, no stack running:
 only `node`, the dependency `docs.sh` already had. Every check is binary, so
 the gate can fail: against the pre-S1 page 12 checks go red, against the
-pre-S2 page 13 do, against the pre-S3 page 13 do, against the pre-S10 page 7
-do (no bound, no `signal`, the chain never reaches attempt 1), and against the
-pre-S7 page it fails before a single check runs — the ids its new checks
-measure are no longer there.
+pre-S2 page 13 do, against the pre-S3 page 13 do, against the page before
+F-17/F-18 6 do (the exhausted budget, the uncancelled retry, the radio coming
+back on its own), against the pre-S10 page 7 do (no bound, no `signal`, the
+chain never reaches attempt 1), and against the pre-S7 page it fails before a
+single check runs — the ids its new checks measure are no longer there.
 
 ### Proving that it can fail
 
@@ -589,7 +610,7 @@ invented the `btn` id it was asked for, and the row passed for nothing
 ./scripts/ui-gate.js --self-test
 ```
 
-It breaks the page's source **in memory**, one guarantee per mutation, seventeen in
+It breaks the page's source **in memory**, one guarantee per mutation, twenty in
 all: a second status tick, the chain guard dropped, the `404` read as any
 other response, the transient lie restored, the two endpoint shapes read
 differently, the door's sentence written twice — and, for the camera: the playlist considered forever fresh; for the token out of
@@ -599,7 +620,10 @@ read as a decision. For the station's voice: an autoplay blocked by the
 browser swallowed into silence, and a phrase visible somewhere that it is
 not in `STR`. For the bounded probe: the bound removed (the chain hangs
 forever again), the abort read as the door, the constant declared twice, and
-its `signal` pasted onto the shared options object. It then demands **red on every
+its `signal` pasted onto the shared options object. For the listener's hand:
+the click not cancelling the scheduled retry (the radio comes back on its
+own), the click not renewing the budget (the comment lies again), and the
+chain resurrecting a radio that was paused by hand. It then demands **red on every
 mutation** and **green on the real page**. A mutation that stays green means
 the gate stopped measuring that thing — that is a failure, not a pass. A
 mutation that no longer applies, because the code changed shape, fails too: a
@@ -609,7 +633,7 @@ to restore and no chance of committing a mutated page.
 ```
 Self-test — ¿puede fallar este gate?
 
-  OK    pagina real .......................... 120/120 en verde
+  OK    pagina real .......................... 134/134 en verde
   OK    un segundo tick de 15 s (la regla de un solo fetch por tick)
           9 rojos, p.e. "un solo intervalo consulta el estado (15000 ms); encontrados: [15000, 15000]"
   OK    la cadena deja de mandar sobre el tick
@@ -618,12 +642,14 @@ Self-test — ¿puede fallar este gate?
           5 rojos, p.e. "cookie viva: la barra queda limpia al cargar (quedo "?t=f00dfeed")"
   OK    la encuesta de credencial vuelve a no tener cota (F-09: se cuelga para siempre)
           4 rojos, p.e. "la cota de 3000 ms quedó armada (0)"
+  OK    el click no cancela el reintento agendado (la radio vuelve sola)
+          2 rojos, p.e. "y el agendado quedó cancelado"
 
-Todo bien - 17 mutaciones atrapadas.
+Todo bien - 20 mutaciones atrapadas.
 ```
 
-Exit codes: `0` seventeen mutations trapped, `1` one went uncaught or did not
-apply. Eighteen runs of the gate, about 1.6 s.
+Exit codes: `0` twenty mutations trapped, `1` one went uncaught or did not
+apply. Twenty-one runs of the gate, about 1.5 s.
 
 **So neither slips past in a commit:**
 
@@ -868,7 +894,10 @@ cut does not always fire `error`, the browser waits for data forever. That
 question itself is bounded at 3 s: a connection that swallows the request
 (cuts the audio, never answers) is read as the network after that, so the
 chain always reaches its first attempt instead of waiting on a request that
-will never come back.
+will never come back. The button belongs to the listener: pressing **Play**
+cancels whatever was scheduled and starts a fresh budget of 5; pressing
+**Pause** stops the chain for good — nothing restarts the audio behind your
+back.
 
 **No sound on iPhone**
 It is the exception to "MP3 plays everywhere" only if you change the encoder
