@@ -31,6 +31,16 @@ services:
     volumes:
       - ./liquidsoap/radio.liq:/etc/radio.liq:ro
       - ./music:/music:ro
+    # El generador publica con rename atómico, así que escribe cada archivo
+    # primero en ./music/.tmp y lo renombra al nombre final. Ese staging vive
+    # DENTRO del árbol que este contenedor escanea: `playlist("/music")`
+    # recorre subdirectorios, así que Liquidsoap intentaba decodificar los
+    # archivos a medio escribir (y los .mix viejos que quedaban ahí). Un
+    # tmpfs vacío montado sobre /music/.tmp le tapa esa carpeta: el generador
+    # sigue viendo la real, Liquidsoap ve un directorio vacío. Medido: con el
+    # canary en el host, adentro se ven 0 entradas.
+    tmpfs:
+      - /music/.tmp:size=1m
     command: ["--verbose", "/etc/radio.liq"]
     networks:
       - radio
