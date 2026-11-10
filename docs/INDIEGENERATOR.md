@@ -64,8 +64,15 @@ rebuildear SÓLO el generador:
 
 ```bash
 docker compose build indiegen
-docker compose up -d --no-deps --no-recreate indiegen
+docker compose up -d --no-deps indiegen
 ```
+
+`--no-deps` es la parte que importa: nombra SÓLO `indiegen`, así que compose no
+toca la cadena `indiegen → liquidsoap → icecast`. **No agregues
+`--no-recreate`**: su contrato es "si el contenedor ya existe, no lo recreen",
+o sea que con una imagen nueva dejaría corriendo la vieja en silencio
+(`docker compose up --help`, v2.40.3). Recrear indiegen es gratis —no sirve
+audio—; recrear icecast cuesta ~40 s de stream.
 
 ## Coordinación
 
