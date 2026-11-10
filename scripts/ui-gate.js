@@ -28,6 +28,9 @@
  *   S3  el token sale de la barra: replaceState al decidir, el t en
  *       los pedidos sólo con la cookie muerta, y nada decidido si la
  *       red no respondió.                                         [F-01]
+ *   S10 la encuesta de credencial tiene cota: un pedido que no vuelve
+ *       nunca no congela la cadena — el aborto se lee como red y la
+ *       cadena alcanza el intento 1 (el número) (F-09).
  *
  * Self-test (ver issue #23): un gate verde no prueba nada si no se lo vio
  * fallar. Rompe el codigo en memoria —una garantía por mutación— y exige
@@ -149,11 +152,18 @@ function elemento(id, escrituras) {
  *   cookie      'muerta' = sin el token, la cookie NO abre: 404. Con el
  *               token el pedido pasa igual (es el respaldo). Con la
  *               cookie viva (default), el pedido sin token pasa tambien.
+ *   cuelga      agujero negro: el pedido no vuelve NUNCA. Solo un aborto
+ *               del que espera lo despierta (F-09: sin cota, la cadena
+ *               de reconexion se congela para siempre).
  */
 function crearFetch(fuente) {
   const pedidos = [];
-  const f = function (url) {
+  // Cada llamada con sus opciones: el gate puede leer si el pedido llevo
+  // signal (la cota) o si arrastra uno que no le corresponde.
+  const llamadas = [];
+  const f = function (url, opciones) {
     const u = String(url);
+    llamadas.push({ url: u, opciones: opciones || {} });
     // El playlist de la camara, primero: si no hay, la pagina no arranca.
     if (u.indexOf('/cam/index.m3u8') !== -1) {
       pedidos.push(u);
@@ -180,6 +190,21 @@ function crearFetch(fuente) {
     pedidos.push(u);
     if (!fuente.alcanzable) return Promise.reject(new Error('red caida'));
 
+    // Agujero negro: nadie contesta. El unico despertador es el aborto de
+    // quien espera; si el codigo no lo corta, la promesa (y la cadena de
+    // reconexion detras) queda pendiente para siempre.
+    if (fuente.cuelga) {
+      return new Promise(function (_listo, fallo) {
+        const s = opciones && opciones.signal;
+        if (!s) return;
+        s.addEventListener('abort', function () {
+          const e = new Error('cortado por la cota');
+          e.name = 'AbortError';
+          fallo(e);
+        });
+      });
+    }
+
     const responde = (codigo) => ({
       ok: codigo === 200,
       status: codigo,
@@ -197,6 +222,7 @@ function crearFetch(fuente) {
     return Promise.resolve(responde(200));
   };
   f.pedidos = pedidos;
+  f.llamadas = llamadas;
   return f;
 }
 
@@ -210,6 +236,7 @@ async function abrirPagina(config) {
   const elementos = {};
   const intervalos = [];
   const timeouts = [];
+  let proximoId = 1;
   const fetchFuente = Object.assign({ alcanzable: true, codigo: 200, datos: null }, config);
   const fetch = crearFetch(fetchFuente);
   const creados = [];
@@ -253,8 +280,20 @@ async function abrirPagina(config) {
     console,
     setInterval(fn, ms) { intervalos.push({ fn, ms }); return intervalos.length; },
     clearInterval() {},
-    setTimeout(fn, ms) { timeouts.push({ fn, ms }); return timeouts.length; },
-    clearTimeout() {},
+    // Los ids son estables (y unicos) porque `correrTimeouts()` vacia la
+    // lista: con ids posicionales, un clearTimeout tardio apagaria el reloj
+    // equivocado y el gate mentiria en verde.
+    setTimeout(fn, ms) {
+      const t = { id: proximoId++, fn, ms, cancelado: false };
+      timeouts.push(t);
+      return t.id;
+    },
+    clearTimeout(id) {
+      const t = timeouts.filter((x) => x.id === id)[0];
+      if (t) t.cancelado = true;
+    },
+    // El navegador lo tiene; el codigo de la pagina lo usa para la cota.
+    AbortController,
   };
   vm.createContext(ctx);
   new vm.Script(CODIGO, { filename: 'web/index.html#<script>' }).runInContext(ctx);
@@ -288,9 +327,10 @@ async function abrirPagina(config) {
     },
     async correrTimeouts() {
       const viejos = timeouts.splice(0, timeouts.length);
-      viejos.forEach((t) => t.fn());
+      const vivos = viejos.filter((t) => !t.cancelado);
+      vivos.forEach((t) => t.fn());
       await flush();
-      return viejos.length;
+      return vivos.length;
     },
   };
 }
@@ -679,6 +719,78 @@ async function escenarioAutoplayBloqueado() {
   check(p.el('play')._attrs['aria-label'] === 'Pause', 'y el botón dice Pause');
 }
 
+/* ----------------------------------- la encuesta acotada (F-09 / S10) */
+
+// La cota vive en el código, escrita una vez: el gate la lee de ahí en vez
+// de repetir el número por su cuenta (dos copias del mismo número es cómo
+// se llega a medir el lugar equivocado).
+const BOUND_MS = Number((CODIGO.match(/var PROBE_MS = (\d+);/) || [])[1] || 0);
+
+const pendientes = (p) => p.timeouts.filter((t) => !t.cancelado);
+
+async function escenarioProbeAcotado() {
+  titular('\nla encuesta de credencial tiene cota (F-09):');
+
+  check(BOUND_MS > 0, `la cota existe y es un número (${BOUND_MS} ms)`);
+  const declaraciones = CODIGO.split('var PROBE_MS =').length - 1;
+  check(declaraciones === 1, `la cota se declara una sola vez (${declaraciones})`);
+
+  const p = await abrirPagina({ datos: AIRE });
+  p.el('audio').dispara('playing');
+  check(p.el('estado').textContent === 'live', 'arranca live, sonando');
+
+  // El corte, y el gate se traga el pedido: agujero negro, sin RST.
+  p.config.cuelga = true;
+  const antes = soloEstado(p).length;
+  p.el('audio').dispara('error');
+  await flush();
+  check(soloEstado(p).length - antes === 1, 'el corte pregunta por la credencial (1 pedido)');
+
+  const probe = p.fetch.llamadas.filter((c) => c.url.indexOf('/status-json.xsl') !== -1).pop();
+  check(!!(probe.opciones && probe.opciones.signal), 'el pedido lleva signal: se puede cortar');
+  check(probe.opciones.cache === 'no-store' && probe.opciones.credentials === 'include',
+    'y pide con las mismas reglas que el tick (cache/credentials)');
+  const cota = pendientes(p).filter((t) => t.ms === BOUND_MS);
+  check(cota.length === 1, `la cota de ${BOUND_MS} ms quedó armada (${cota.length})`);
+
+  // Sin la cota, acá se queda: la guarda `reintentando` traga el tick, el
+  // `ended` y el `error`, no hay cartel y el reloj no corre. La página se ve
+  // viva: es exactamente la falla que F-09 describe.
+  const pintadas = p.escrituras.estado || 0;
+  await p.disparar(15000);
+  check(p.el('estado').textContent === 'live', 'colgada: el cartel no cambia (el corte no se anunció)');
+  check((p.escrituras.estado || 0) === pintadas, 'colgada: el tick mide pero no pinta');
+  check(p.el('err').style.display !== 'block', 'colgada: ni un cartel de error');
+
+  // Y entonces la cota dispara: el aborto se lee como red, la cadena avanza.
+  await p.correrTimeouts();   // abort -> catch -> reintentar -> intento 1 agendado
+  check(p.el('estado').textContent === 'reconnecting', 'la cota dispara: la cadena avanza sola');
+  check(String(p.el('err').textContent).indexOf('(1/5)') !== -1,
+    'llegó al intento 1 (1/5)');
+  check(!/Ask for a new link/.test(String(p.el('err').innerHTML || '')),
+    'el aborto NO se lee como puerta: no prueba nada de la credencial');
+  check(pendientes(p).filter((t) => t.ms === 800).length === 1,
+    'el intento 1 quedó agendado (800 ms)');
+
+  // La cadena no queda trabada: con la red de vuelta, el intento corre y el
+  // stream vuelve.
+  p.config.cuelga = false;
+  await p.correrTimeouts();   // intento 1: conectar(true)
+  p.el('audio').dispara('playing');
+  check(p.el('estado').textContent === 'live', 'vuelta del stream: la cadena cierra en live');
+
+  // Y la cota no se le pega al objeto compartido: el tick siguiente pide
+  // sin signal (un signal abortado ahí mataría cada tick para siempre).
+  const q = await abrirPagina({ datos: AIRE });
+  q.el('audio').dispara('error');
+  await flush();
+  await q.disparar(15000);
+  const tickQ = q.fetch.llamadas.filter((c) => c.url.indexOf('/status-json.xsl') !== -1).pop();
+  check(!(tickQ.opciones && tickQ.opciones.signal),
+    'la cota no se le pega al objeto compartido: el tick pide sin signal');
+}
+
+
 /* --------------------------------------------- la cámara, por ahora (F-08) */
 
 async function escenarioCamara() {
@@ -724,6 +836,7 @@ async function correrEscenarios() {
   await escenarioTokenFueraDeLaBarra();
   await escenarioVozDeLaEstacion();
   await escenarioAutoplayBloqueado();
+  await escenarioProbeAcotado();
   await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }
@@ -803,6 +916,25 @@ const MUTACIONES = [
     que: 'la cámara se muestra aunque el playlist esté viejo (F-08)',
     aplica: (h) => h.replace('        return (Date.now() - t) < 10000;',
       '        return true; // mutado: siempre fresca'),
+  },
+  {
+    que: 'la encuesta de credencial vuelve a no tener cota (F-09: se cuelga para siempre)',
+    aplica: (h) => h.replace('    var reloj = corte ? setTimeout(function () { corte.abort(); }, PROBE_MS) : null;',
+      '    var reloj = null; // mutado: sin cota'),
+  },
+  {
+    que: 'el aborto se lee como puerta (un no-responder "prueba" la credencial)',
+    aplica: (h) => h.replace('      .catch(function () { sinCredencial = false; })',
+      '      .catch(function () { sinCredencial = true; })'),
+  },
+  {
+    que: 'la cota se declara dos veces (dos números que se creen el mismo)',
+    aplica: (h) => h.replace('  var PROBE_MS = 3000;', '  var PROBE_MS = 3000;\n  var PROBE_MS = 3000;'),
+  },
+  {
+    que: 'el signal de la cota se le pega al objeto de opciones compartido',
+    aplica: (h) => h.replace("    var opciones = corte\n      ? Object.assign({}, OPCIONES_ESTADO, { signal: corte.signal })\n      : OPCIONES_ESTADO;",
+      '    var opciones = OPCIONES_ESTADO;\n    if (corte) opciones.signal = corte.signal;'),
   },
 ];
 

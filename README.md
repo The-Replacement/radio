@@ -512,6 +512,21 @@ content reaches `textContent`/`innerHTML` as a hand-written literal, that
 `play()` rejects with `NotAllowedError` and the dedicated copy must appear —
 not "stopped", not silence, not an eternal "reconnecting".
 
+The chain's own question (`/status-json.xsl`, the one that decides credential
+versus network) is bounded. The stub can swallow that request — a black-holed
+connection that never resets, which is the failure the watchdog exists for —
+and the page used to wait forever on it: `reintentando` stayed true, so the
+tick, `ended` and `error` were all swallowed, and the page looked alive with no
+banner and no counter. The gate now hangs the stub and demands the opposite:
+a declared bound, a request that carries a `signal`, the frozen page while the
+bound has not fired, and the chain reaching **attempt 1** once it does. The
+number in the source is the one the gate reads — `3000`, 9× the p95 of 40
+measured requests (333 ms through the tunnel, 195 ms on the box's loopback),
+8× the maximum, in the same order as the watchdog's 3 s window. A bound
+written twice, an abort read as "the door", or the bound's `signal` pasted
+onto the shared options object (where an aborted one would kill every later
+tick) all go red.
+
 ```
 UI gate — web/index.html
 
@@ -540,20 +555,28 @@ el cartel de la estación, en una sola voz (F-10 / F-11):
 el autoplay bloqueado dice lo que es (F-16):
   OK    play() rechazado con NotAllowedError -> la copia dedicada, NO el silencio
 
+la encuesta de credencial tiene cota (F-09):
+  OK    el pedido lleva signal: se puede cortar
+  OK    la cota de 3000 ms quedó armada (1)
+  OK    colgada: el tick mide pero no pinta
+  OK    la cota dispara: la cadena avanza sola
+  OK    llegó al intento 1 (1/5)
+
 la cámara, la pregunta antes del arranque (F-08):
   OK    playlist 404 -> la caja NO aparece
   OK    playlist 404 -> cero loads de hls.js
   OK    playlist vieja (>10 s) -> la caja NO aparece
 
-Todo bien - 104 chequeos.
+Todo bien - 120 chequeos.
 ```
 
 Exit codes: `0` all good, `1` a check failed. No network, no stack running:
 only `node`, the dependency `docs.sh` already had. Every check is binary, so
 the gate can fail: against the pre-S1 page 12 checks go red, against the
-pre-S2 page 13 do, against the pre-S3 page 13 do, and against the pre-S7
-page it fails before a single check runs — the ids its new checks measure
-are no longer there.
+pre-S2 page 13 do, against the pre-S3 page 13 do, against the pre-S10 page 7
+do (no bound, no `signal`, the chain never reaches attempt 1), and against the
+pre-S7 page it fails before a single check runs — the ids its new checks
+measure are no longer there.
 
 ### Proving that it can fail
 
@@ -566,7 +589,7 @@ invented the `btn` id it was asked for, and the row passed for nothing
 ./scripts/ui-gate.js --self-test
 ```
 
-It breaks the page's source **in memory**, one guarantee per mutation, twelve in
+It breaks the page's source **in memory**, one guarantee per mutation, seventeen in
 all: a second status tick, the chain guard dropped, the `404` read as any
 other response, the transient lie restored, the two endpoint shapes read
 differently, the door's sentence written twice — and, for the camera: the playlist considered forever fresh; for the token out of
@@ -574,7 +597,9 @@ the address bar: the bar never cleaned, the suffix cleared despite a dead
 cookie, the cookie probe arriving already carrying the token, and a `502`
 read as a decision. For the station's voice: an autoplay blocked by the
 browser swallowed into silence, and a phrase visible somewhere that it is
-not in `STR`. It then demands **red on every
+not in `STR`. For the bounded probe: the bound removed (the chain hangs
+forever again), the abort read as the door, the constant declared twice, and
+its `signal` pasted onto the shared options object. It then demands **red on every
 mutation** and **green on the real page**. A mutation that stays green means
 the gate stopped measuring that thing — that is a failure, not a pass. A
 mutation that no longer applies, because the code changed shape, fails too: a
@@ -584,19 +609,21 @@ to restore and no chance of committing a mutated page.
 ```
 Self-test — ¿puede fallar este gate?
 
-  OK    pagina real .......................... 104/104 en verde
+  OK    pagina real .......................... 120/120 en verde
   OK    un segundo tick de 15 s (la regla de un solo fetch por tick)
           9 rojos, p.e. "un solo intervalo consulta el estado (15000 ms); encontrados: [15000, 15000]"
   OK    la cadena deja de mandar sobre el tick
           3 rojos, p.e. "tick en vivo: el cartel NO pasa a live"
   OK    la barra nunca se limpia (el t se queda en la direccion)
           5 rojos, p.e. "cookie viva: la barra queda limpia al cargar (quedo "?t=f00dfeed")"
+  OK    la encuesta de credencial vuelve a no tener cota (F-09: se cuelga para siempre)
+          4 rojos, p.e. "la cota de 3000 ms quedó armada (0)"
 
-Todo bien - 13 mutaciones atrapadas.
+Todo bien - 17 mutaciones atrapadas.
 ```
 
-Exit codes: `0` thirteen mutations trapped, `1` one went uncaught or did not
-apply. Fourteen runs of the gate, about 1.2 s.
+Exit codes: `0` seventeen mutations trapped, `1` one went uncaught or did not
+apply. Eighteen runs of the gate, about 1.6 s.
 
 **So neither slips past in a commit:**
 
@@ -837,7 +864,11 @@ cases: if `/status-json.xsl` also returns 404, it is the credential and
 retrying is pointless; if it responds, it is network or server. If the banner
 says "replied 404", ask for a new link. If it says "connection dropped",
 look at the network. The watchdog watches `currentTime` advance: a network
-cut does not always fire `error`, the browser waits for data forever.
+cut does not always fire `error`, the browser waits for data forever. That
+question itself is bounded at 3 s: a connection that swallows the request
+(cuts the audio, never answers) is read as the network after that, so the
+chain always reaches its first attempt instead of waiting on a request that
+will never come back.
 
 **No sound on iPhone**
 It is the exception to "MP3 plays everywhere" only if you change the encoder
