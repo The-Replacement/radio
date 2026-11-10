@@ -992,6 +992,31 @@ async function escenarioViajeSilencio() {
   check(String(p.el('aviso').textContent).length > 0, 'the notice carries copy (not empty)');
 }
 
+/* ----------------------------- journey: the chain outranks the tick (S13) */
+
+async function escenarioViajeCadenaManda() {
+  titular('\\njourney: the chain outranks the tick (S13):');
+
+  const p = await abrirPagina({ datos: AIRE });
+  p.el('audio').dispara('playing');
+  await flush();
+  await p.disparar(15000);
+  await flush();
+  check(p.el('estado').textContent === 'live', 'starts live');
+
+  // The cut opens the chain.
+  p.el('audio').dispara('error');
+  await flush();
+  check(p.el('estado').textContent === 'reconnecting', 'reconnecting');
+
+  // A tick fires while reconnecting: it must NOT paint 'live' over it.
+  const antes = p.escrituras.estado || 0;
+  await p.disparar(15000);
+  await flush();
+  check(p.el('estado').textContent === 'reconnecting', 'the tick does not overwrite reconnecting with live');
+  check((p.escrituras.estado || 0) === antes, 'and does not even repaint');
+}
+
 /* --------------------------------------------- the camera, for now (F-08) */
 
 async function escenarioCamara() {
@@ -1044,6 +1069,7 @@ async function correrEscenarios() {
   await escenarioViajeExpiracion();
   await escenarioViajeFueraDeAire();
   await escenarioViajeSilencio();
+  await escenarioViajeCadenaManda();
   await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }
