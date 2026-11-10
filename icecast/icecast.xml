@@ -1,16 +1,16 @@
 <?xml version="1.0"?>
 <!--
-  Icecast — radio privada.
+  Icecast — private radio.
 
-  Dos decisiones que hacen a la privacidad:
+  Two decisions that make for privacy:
 
-  1. NO existe la sección <directory>. Icecast no se anuncia en NINGÚN
-     directorio público (dir.xiph.org y similares). Es lo que hace que la
-     radio no aparezca en los listados de radios de internet.
+  1. There is NO <directory> section. Icecast does not announce itself in ANY
+     public directory (dir.xiph.org and the like). That is what keeps the radio
+     out of internet radio listings.
 
-  2. <public>0</public> en el mount, como segunda barrera.
+  2. <public>0</public> on the mount, as a second barrier.
 
-  Además: este contenedor no publica puertos. Solo Caddy lo alcanza.
+  Besides: this container publishes no ports. Only Caddy reaches it.
 -->
 <icecast>
     <location>AR</location>
@@ -49,9 +49,9 @@
         <charset>UTF-8</charset>
     </mount>
 
-    <!-- fileserve 0: sólo emitimos, no servimos archivos estáticos del
-         webroot. Menos superficie y nada que lo justifique (el stream y
-         el status son handlers, no archivos). -->
+    <!-- fileserve 0: we only broadcast, we do not serve static files from the
+         webroot. Less surface, and nothing justifies it (the stream and the
+         status are handlers, not files). -->
     <fileserve>0</fileserve>
 
     <paths>
@@ -62,9 +62,9 @@
     </paths>
 
     <logging>
-        <!-- "-" = stdout/stderr. En Docker esto es lo correcto: los logs
-             aparecen en `docker compose logs` y no chocan con los permisos
-             de un bind-mount, que anula el chown de la imagen. -->
+        <!-- "-" = stdout/stderr. In Docker this is the right thing: the logs
+             appear in `docker compose logs` and do not clash with a bind-mount's
+             permissions, which cancels the image's chown. -->
         <accesslog>-</accesslog>
         <errorlog>-</errorlog>
         <loglevel>3</loglevel>

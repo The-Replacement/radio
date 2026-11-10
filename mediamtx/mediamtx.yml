@@ -1,22 +1,25 @@
-# MediaMTX — el tramo de WebRTC.
+# MediaMTX — the WebRTC leg.
 #
-# No toca la cámara: ffmpeg sigue siendo el único que abre /dev/video0 y le
-# empuja el H.264 ya codificado por RTSP. Acá sólo se reempaqueta a RTP.
+# It does not touch the camera: ffmpeg is still the only one opening
+# /dev/video0 and pushing the already-encoded H.264 over RTSP. Here it is only
+# repackaged into RTP.
 #
-# Por qué existe: HLS es por segmentos y no baja de ~1.5s de colchón. WebRTC
-# manda los frames apenas salen, con un jitter buffer de decenas de ms.
+# Why it exists: HLS is segment-based and does not go below ~1.5s of cushion.
+# WebRTC sends frames as soon as they come out, with a jitter buffer of tens of
+# ms.
 #
-# La consecuencia que hay que tener presente: el pedido de señalización (SDP)
-# sí pasa por Caddy y por el gate, pero el video NO. Viaja por UDP directo
-# del navegador a este contenedor, y Caddy no lo ve. Ver docker-compose.yml.
+# The consequence to keep in mind: the signalling request (SDP) does go through
+# Caddy and through the gate, but the video does NOT. It travels over direct UDP
+# from the browser to this container, and Caddy never sees it. See
+# docker-compose.yml.
 logLevel: info
 
-# Entrada desde ffmpeg (red interna de Docker, sin publicar).
+# Input from ffmpeg (Docker's internal network, not published).
 rtsp: yes
 rtspAddress: :8554
 rtspTransports: [tcp]
 
-# Salidas que no usamos: menos superficie, menos puertos.
+# Outputs we do not use: less surface, fewer ports.
 rtmp: no
 hls: no
 srt: no
@@ -28,14 +31,14 @@ webrtc: yes
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
 
-# Sin esto MediaMTX anuncia las IPs internas del contenedor (172.x), que el
-# navegador no puede alcanzar. Los candidatos ICE tienen que ser direcciones
-# que el navegador sí vea. Para LAN o internet se agrega acá la IP pública o
-# el dominio, y se publica el UDP en 0.0.0.0.
+# Without this MediaMTX announces the container's internal IPs (172.x), which
+# the browser cannot reach. The ICE candidates have to be addresses the browser
+# does see. For LAN or the internet, add the public IP or the domain here, and
+# publish the UDP on 0.0.0.0.
 webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts: [127.0.0.1]
 
 paths:
   cam:
-    # ffmpeg publica; nadie más escribe en este path.
+    # ffmpeg publishes; nobody else writes to this path.
     source: publisher

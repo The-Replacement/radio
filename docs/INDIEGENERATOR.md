@@ -1,171 +1,170 @@
 # indiegenerator ↔ radio
 
-Integración del generador de música (`indiegenerator`) con el stack de radio.
+Integration of the music generator (`indiegenerator`) with the radio stack.
 
-## Qué hace
+## What it does
 
-El servicio `indiegen` (ver `docker-compose.yml`) corre en el mainframe junto
-a la radio y, en cada ciclo:
+The `indiegen` service (see `docker-compose.yml`) runs on the mainframe next to
+the radio and, on every cycle:
 
-1. Renderiza un batch fresco de tracks (preset `station`, seeds que avanzan).
-2. **Reemplaza toda la biblioteca** en `./music` (borra tracks viejos, publica
-   los nuevos de forma atómica).
-3. Reinicia `radio-liquidsoap` para que la playlist en memoria olvide los
-   borrados. Liquidsoap hace `reload_mode="watch"` para altas, pero conserva
-   las bajas en memoria (`radio.liq`): sin reinicio, los temas borrados
-   siguen sonando como fantasmas.
+1. Renders a fresh batch of tracks (preset `station`, advancing seeds).
+2. **Replaces the whole library** in `./music` (deletes old tracks, publishes
+   the new ones atomically).
+3. Restarts `radio-liquidsoap` so the in-memory playlist forgets the deletions.
+   Liquidsoap does `reload_mode="watch"` for additions, but keeps deletions in
+   memory (`radio.liq`): without a restart, the deleted tracks keep playing like
+   ghosts.
 
-## Disparo
+## Trigger
 
-- **Continuo**: `INDIEGEN_INTERVAL_SECONDS` (default 6 h). Al arrancar NO corre
-  un ciclo (`--no-run-on-start` en el compose): el primer ciclo llega por el
-  intervalo o por trigger. A propósito — un ciclo en frío reemplazaría
-  `./music` entero en el `up -d` (y hay un batch sin trackear en el box).
-- **Push a indiegenerator**: el hook `scripts/post-receive` del repo
-  `indiegenerator` (instalado en el remoto del mainframe) reconstruye el
-  servicio y, si la política está encendida, toca `data/indiegen/trigger` y
-  dispara un ciclo inmediato. La política se lee del `.env` de la radio en
-  cada push — **no** está hardcodeada en el hook:
+- **Continuous**: `INDIEGEN_INTERVAL_SECONDS` (default 6 h). On start it does NOT
+  run a cycle (`--no-run-on-start` in the compose): the first cycle arrives by
+  interval or by trigger. On purpose — a cold cycle would replace all of
+  `./music` during `up -d` (and there is an untracked batch on the box).
+- **Push to indiegenerator**: the `scripts/post-receive` hook of the
+  `indiegenerator` repo (installed on the mainframe's remote) rebuilds the
+  service and, if the policy is on, touches `data/indiegen/trigger` and fires an
+  immediate cycle. The policy is read from the radio's `.env` on every push — it
+  is **not** hardcoded in the hook:
 
-  - `INDIEGEN_AUTO_TRIGGER=1` → cada push rota la biblioteca (render completo
-    ~7 min + reinicio de liquidsoap + ~10 s de corte).
-  - `INDIEGEN_AUTO_TRIGGER=0` (o ausente) → el push sólo despliega código; el
-    contenido rota por intervalo o con `scripts/indiegen-cycle.sh`.
+  - `INDIEGEN_AUTO_TRIGGER=1` → every push rotates the library (full render
+    ~7 min + liquidsoap restart + ~10 s of cut).
+  - `INDIEGEN_AUTO_TRIGGER=0` (or absent) → the push only deploys code; the
+    content rotates by interval or with `scripts/indiegen-cycle.sh`.
 
-  En este despliegue está en `1` por decisión del operador. El costo es real:
-  un push es un cambio de código, rotar por un comentario es caro. Si el hook
-  no puede escribir el trigger (permisos en `data/indiegen`), lo registra como
-  `FALLO` en `data/indiegen/deploy.log` y termina con error — no falla en
-  silencio.
+  In this deployment it is `1` by the operator's decision. The cost is real: a
+  push is a code change, rotating over a comment is expensive. If the hook
+  cannot write the trigger (permissions on `data/indiegen`), it records it as
+  `FAIL` in `data/indiegen/deploy.log` and exits with an error — it does not
+  fail silently.
 
-## Requisitos en el mainframe
+## Requirements on the mainframe
 
-- `~/servers/radio` (este repo) y `~/servers/indiegenerator` (contexto de
-  build, `INDIEGEN_CONTEXT`) como repos hermanos, o ajustar `INDIEGEN_CONTEXT`.
-- Restart en modo **signal** (default): el generador escribe
-  `data/indiegen/restart-request` al rotar, y un watcher del host hace el
-  `docker compose restart liquidsoap`. Instalarlo:
+- `~/servers/radio` (this repo) and `~/servers/indiegenerator` (build context,
+  `INDIEGEN_CONTEXT`) as sibling repos, or adjust `INDIEGEN_CONTEXT`.
+- Restart in **signal** mode (default): the generator writes
+  `data/indiegen/restart-request` on rotation, and a host watcher runs the
+  `docker compose restart liquidsoap`. To install it:
 
 ```bash
-# watcher: corre cada minuto, como kbdejavu (grupo docker). Sin sudo.
+# watcher: runs every minute, as kbdejavu (docker group). No sudo.
 crontab -l | { cat; echo "* * * * * /home/kbdejavu/servers/radio/scripts/restart-on-signal.sh"; } | crontab -
 ```
 
-No se monta `/var/run/docker.sock` en ningún contenedor: el socket en el
-generador daba control docker root-equivalente sobre todo el host (que además
-corre jellyfin/searxng/archive). El reinicio de liquidsoap es decisión de la
-radio, ejecutada por el host vía cron.
+`/var/run/docker.sock` is not mounted in any container: the socket in the
+generator gave root-equivalent docker control over the whole host (which also
+runs jellyfin/searxng/archive). The liquidsoap restart is the radio's decision,
+executed by the host via cron.
 
-## Operación
+## Operation
 
 ```bash
-# ciclo inmediato (desde el host del mainframe)
+# immediate cycle (from the mainframe host)
 ./scripts/indiegen-cycle.sh
 
 # logs
 docker compose logs -f indiegen
 
-# desactivar la generación automática sin tocar la radio
+# disable automatic generation without touching the radio
 docker compose stop indiegen
 ```
 
-### `.tmp` y el tmpfs de liquidsoap
+### `.tmp` and liquidsoap's tmpfs
 
-El generador publica con rename atómico: escribe cada archivo en
-`./music/.tmp` y lo renombra al nombre final. Ese staging vive dentro del
-árbol que liquidsoap escanea, y `playlist("/music")` recorre subdirectorios —
-así que liquidsoap intentaba decodificar archivos a medio escribir (y los
-`.mix` viejos que quedaran ahí), en loop, un error por intento.
+The generator publishes with an atomic rename: it writes each file into
+`./music/.tmp` and renames it to the final name. That staging lives inside the
+tree liquidsoap scans, and `playlist("/music")` walks subdirectories — so
+liquidsoap tried to decode half-written files (and the old `.mix` files left
+there), in a loop, one error per attempt.
 
-El servicio `liquidsoap` monta un `tmpfs` vacío sobre `/music/.tmp`: el
-generador sigue viendo su carpeta real (el publish no cambia), liquidsoap ve
-un directorio vacío. **No lo saques** creyendo que es un sobrante. Probado con
-un canary en el host: 0 entradas adentro del contenedor. (Antes de elegir esto
-se descartaron: `playlist` no tiene `recursive`; `request.directory` no existe
-en 2.4.6; y `check_next` no sirve porque `request.filename` devuelve `""`
-hasta que el request está resuelto.)
+The `liquidsoap` service mounts an empty `tmpfs` over `/music/.tmp`: the
+generator still sees its real folder (the publish does not change), liquidsoap
+sees an empty directory. **Do not remove it** thinking it is a leftover. Tested
+with a canary on the host: 0 entries inside the container. (Before choosing
+this, these were discarded: `playlist` has no `recursive`; `request.directory`
+does not exist in 2.4.6; and `check_next` is useless because `request.filename`
+returns `""` until the request is resolved.)
 
-### uid/gid: el generador corre como tu usuario, no como root
+### uid/gid: the generator runs as your user, not as root
 
-El servicio `indiegen` usa `user: "${INDIEGEN_UID}:${INDIEGEN_GID}"`, tomado
-del `.env`. Es obligatorio (el compose no arranca sin esos valores): sacalos
-con `id -u` / `id -g` en el box (acá `1000:1000`).
+The `indiegen` service uses `user: "${INDIEGEN_UID}:${INDIEGEN_GID}"`, taken
+from `.env`. It is mandatory (the compose does not start without those values):
+get them with `id -u` / `id -g` on the box (here `1000:1000`).
 
-Por qué: por defecto un contenedor corre como root y todo lo que escribe en
-los volúmenes queda `root:root`. Leer y borrar sigue funcionando, pero
-cualquier herramienta del host que quiera **reescribir** esos archivos choca
-con `EACCES`. Medido: `echo >> state.json` como uid 1000 contra un `state.json`
-`root:root` → `Permission denied`; `mkdir` dentro de `runs/` `root:root` →
-`Permission denied`. Como esos dos se tocan en cada ciclo, el uid equivocado no
-rompe el deploy: rompe el ciclo siguiente.
+Why: by default a container runs as root and everything it writes on the volumes
+ends up `root:root`. Reading and deleting still work, but any host tool that
+wants to **rewrite** those files hits `EACCES`. Measured: `echo >> state.json`
+as uid 1000 against a `root:root` `state.json` → `Permission denied`; `mkdir`
+inside a `root:root` `runs/` → `Permission denied`. Since both are touched on
+every cycle, the wrong uid does not break the deploy: it breaks the next cycle.
 
-**Si cambiás el uid en un despliegue que ya corrió**, hay que migrar los
-artefactos que dejó root. El dueño del directorio alcanza para borrarlos, pero
-no para reescribirlos:
+**If you change the uid on a deployment that already ran**, the artefacts root
+left behind have to be migrated. Owning the directory is enough to delete them,
+but not to rewrite them:
 
 ```bash
 cd ~/servers/radio
-cp data/indiegen/state.json data/backup/state-cycleN.json   # preservá el contador
+cp data/indiegen/state.json data/backup/state-cycleN.json   # preserve the counter
 rm -rf data/indiegen/runs data/indiegen/restart-request data/indiegen/state.json
-cp data/backup/state-cycleN.json data/indiegen/state.json   # queda tuyo
+cp data/backup/state-cycleN.json data/indiegen/state.json   # now it is yours
 ```
 
-Los `music/*.flac` viejos `root:root` **no** necesitan chown: el publish
-renombra sobre el nombre final, y `rename(2)` sólo pide permiso de escritura
-sobre el directorio, no sobre el archivo destino.
+The old `music/*.flac` files owned `root:root` do **not** need chown: the
+publish renames over the final name, and `rename(2)` only asks for write
+permission on the directory, not on the destination file.
 
-**NO correr `docker compose up -d --build indiegen` a secas.** `--build`
-reconstruye también la imagen de icecast (su servicio tiene `build: ./icecast`)
-y recrea el contenedor → corta el stream ~40 s (medido: EPIPE + reconexión de
-liquidsoap a los 4 s, todo el montaje de oyentes desconectado). Para
-rebuildear SÓLO el generador:
+**Do NOT run plain `docker compose up -d --build indiegen`.** `--build` also
+rebuilds the icecast image (its service has `build: ./icecast`) and recreates
+the container → the stream cuts for ~40 s (measured: EPIPE + liquidsoap
+reconnecting at 4 s, the whole listener mount disconnected). To rebuild ONLY the
+generator:
 
 ```bash
 docker compose build indiegen
 docker compose up -d --no-deps indiegen
 ```
 
-`--no-deps` es la parte que importa: nombra SÓLO `indiegen`, así que compose no
-toca la cadena `indiegen → liquidsoap → icecast`. **No agregues
-`--no-recreate`**: su contrato es "si el contenedor ya existe, no lo recreen",
-o sea que con una imagen nueva dejaría corriendo la vieja en silencio
-(`docker compose up --help`, v2.40.3). Recrear indiegen es gratis —no sirve
-audio—; recrear icecast cuesta ~40 s de stream.
+`--no-deps` is the part that matters: it names ONLY `indiegen`, so compose does
+not touch the `indiegen → liquidsoap → icecast` chain. **Do not add
+`--no-recreate`**: its contract is "if the container already exists, do not
+recreate it", which with a new image would leave the old one running silently
+(`docker compose up --help`, v2.40.3). Recreating indiegen is free —it serves no
+audio—; recreating icecast costs ~40 s of stream.
 
-### Dos tiempos medidos que conviene tener presentes
+### Two measured timings worth keeping in mind
 
-1. **El watcher es cron, no es instantáneo.** Entre que el generador escribe
-   `restart-request` y el cron lo ve pasa hasta ~60 s (medido: 10 s y 53 s en
-   dos ciclos seguidos, según dónde caiga el tick). En esa ventana liquidsoap
-   sigue con la playlist vieja cuyos archivos ya no existen; si intenta uno,
-   falla el decode y salta. Medido hasta ahora: cero errores de decode y cero
-   desconexiones de icecast, pero la exposición es real. Si alguna vez molesta,
-   se arregla del lado radio (poll más fino que `* * * * *`), no en el
-   generador.
-2. **Un push durante un render tira ese render.** El hook hace `up -d` (recrea
-   el contenedor) y recién después escribe el trigger, así que el ciclo en
-   vuelo muere y arranca uno nuevo desde cero. La biblioteca queda consistente
-   (el publish es posterior al batch completo), pero el CPU se paga dos veces.
-   Con renders de ~7 min y pushes en ráfaga, la colisión es realista: si vas a
-   pushear varios commits, juntalos.
+1. **The watcher is cron, it is not instant.** Between the generator writing
+   `restart-request` and cron seeing it, up to ~60 s pass (measured: 10 s and
+   53 s in two consecutive cycles, depending on where the tick falls). In that
+   window liquidsoap still has the old playlist whose files no longer exist; if
+   it tries one, the decode fails and it skips. Measured so far: zero decode
+   errors and zero icecast disconnections, but the exposure is real. If it ever
+   bothers, it is fixed on the radio side (a finer poll than `* * * * *`), not
+   in the generator.
+2. **A push during a render kills that render.** The hook does `up -d` (it
+   recreates the container) and only afterwards writes the trigger, so the cycle
+   in flight dies and a new one starts from scratch. The library stays
+   consistent (the publish comes after the complete batch), but the CPU is paid
+   twice. With ~7 min renders and burst pushes, the collision is realistic: if
+   you are going to push several commits, batch them.
 
-### Un ciclo puede instalar MENOS de `INDIEGEN_COUNT` tracks
+### A cycle can install FEWER than `INDIEGEN_COUNT` tracks
 
-Un track que no pasa las gates se saltea (se loguea `WARNING skipping track`) y
-el ciclo sigue: 19 archivos instalados en vez de 21 en el ciclo 4 porque el seed
-1036 falló la gate 13. Nueve temas en el aire son mejores que cero, pero
-cualquier cosa que asuma "un ciclo = `COUNT` tracks" está mal: el conteo real es
+A track that does not pass the gates is skipped (logged as `WARNING skipping
+track`) and the cycle goes on: 19 files installed instead of 21 in cycle 4
+because seed 1036 failed gate 13. Nine tracks on air are better than zero, but
+anything that assumes "one cycle = `COUNT` tracks" is wrong: the real count is
 `<= COUNT`.
 
-Ojo con el corolario: el veredicto de una gate depende de `(seed, preset,
-form, contexto del batch)`, no del seed solo. `batch()` reparte las formas por
-slot (`batch_forms(..., count)[index]`), así que el mismo seed renderizado solo
-puede pasar la gate 13 y fallarla en la posición 6 de un batch de 10 — distinta
-forma, distinta duración/estructura, distinto conteo de compases. No es un bug
-del serve; es la consecuencia de que la gate mire el plan.
+Careful with the corollary: a gate's verdict depends on `(seed, preset, form,
+batch context)`, not on the seed alone. `batch()` distributes forms by slot
+(`batch_forms(..., count)[index]`), so the same seed rendered alone can pass
+gate 13 and fail it at position 6 of a batch of 10 — different form, different
+duration/structure, different bar count. It is not a bug in serve; it is the
+consequence of the gate looking at the plan.
 
-## Coordinación
+## Coordination
 
-Cambios que afectan el contrato música↔radio (formato/nombre, montaje de
-`./music`, reinicio de liquidsoap, variables `INDIEGEN_*`) deben revisarse en
-ambos repos: `juanmanueldaza/indiegenerator` y `juanmanueldaza/radio`.
+Changes that affect the music↔radio contract (format/name, the `./music` mount,
+the liquidsoap restart, the `INDIEGEN_*` variables) must be reviewed in both
+repos: `juanmanueldaza/indiegenerator` and `juanmanueldaza/radio`.

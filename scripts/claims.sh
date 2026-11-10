@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# claims.sh — la promesa de F-13 y F-06, medida: la config que va al sitio
-# nadie escribe a mano el dominio de producción. Todo pasa por el seam
-# FRONTEND_URL (Caddyfile, el JS del player, smoke, token.sh).
+# claims.sh — the promise of F-13 and F-06, measured: in the config that goes
+# to the site nobody hand-writes the production domain. Everything goes through
+# the FRONTEND_URL seam (Caddyfile, the player's JS, smoke, token.sh).
 #
-# Sale 0 si todas las ocurrencias de radio.daza.ar están en la allowlist
-# de acá abajo; sale 1 si aparece una nueva. La allowlist completa y con
-# nombre y apellido; nada más se cuela.
+# It exits 0 if every occurrence of radio.daza.ar is on the allowlist below; it
+# exits 1 if a new one appears. The allowlist is complete and explicit; nothing
+# else slips in.
 #
-# Busca con git grep sobre el árbol que se despliega (los configs + los
-# docs vivos del sitio, no los PLAN-LEGAL ni el prompt de la auditoría).
+# It searches with git grep over the tree that is deployed (the configs + the
+# site's living docs, not the PLAN-LEGAL nor the audit prompt).
 set -uo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -16,12 +16,12 @@ cd "$RAIZ"
 
 VERDE=$'\033[32m'; ROJO=$'\033[31m'; FIN=$'\033[0m'
 
-# La allowlist documentada, una línea por permiso explícito. Todo lo que no
-# esté acá, en esta config, es un hardcode nuevo y el gate se pone rojo.
-#   .env.example  — la línea documentada del seam (S8, F-06 / F-13)
-#   web/index.html — la firma pública de la estación, no un origin
-# claims.sh no se escanea a sí mismo: el script contiene literalmente
-# las líneas permitidas POR definición.
+# The documented allowlist, one line per explicit permission. Anything not here,
+# in this config, is a new hardcode and the gate goes red.
+#   .env.example  — the seam's documented line (S8, F-06 / F-13)
+#   web/index.html — the station's public signature, not an origin
+# claims.sh does not scan itself: the script literally contains the allowed
+# lines BY definition.
 PERMITIDAS=(
   '.env.example|FRONTEND_URL=https://radio.daza.ar'
   'web/index.html|radio.daza.ar · sierras de los comechingones'
@@ -40,7 +40,7 @@ permitida() {
 }
 
 echo
-echo "Claims — nadie escribe a mano el dominio en la config"
+echo "Claims — nobody hand-writes the domain in the config"
 echo
 
 mapfile -t HITS < <(git grep -niF 'radio.daza.ar' -- \
@@ -55,23 +55,23 @@ for hit in "${HITS[@]}"; do
   contenido="${resto#*:}"
   linea="${resto%%:*}"
   if permitida "$archivo" "$contenido"; then
-    printf '  %sOK%s    %-28s :%s — allowlist documentada\n' "$VERDE" "$FIN" "$archivo" "$linea"
+    printf '  %sOK%s    %-28s :%s — documented allowlist\n' "$VERDE" "$FIN" "$archivo" "$linea"
     buenas=$((buenas + 1))
   else
-    printf '  %sFALLA%s %s:%s — %s\n' "$ROJO" "$FIN" "$archivo" "$linea" "$contenido"
+    printf '  %sFAIL%s %s:%s — %s\n' "$ROJO" "$FIN" "$archivo" "$linea" "$contenido"
     malas=$((malas + 1))
   fi
 done
 
 echo
 if [[ "$malas" -eq 0 ]]; then
-  printf '%sTodo bien%s — %d ocurrencia(s), todas en la allowlist. El seam está intacto.\n\n' "$VERDE" "$FIN" "$buenas"
+  printf '%sAll good%s — %d occurrence(s), all on the allowlist. The seam is intact.\n\n' "$VERDE" "$FIN" "$buenas"
   exit 0
 else
-  printf '%s%d ocurrencia(s) sin allowlist%s — el dominio vuelve a estar escrito a mano.\n' "$ROJO" "$malas" "$FIN"
+  printf '%s%d occurrence(s) without allowlist%s — the domain is hand-written again.\n' "$ROJO" "$malas" "$FIN"
   echo
-  echo "Arreglalo por el seam (FRONTEND_URL) o, si de verdad hace falta, escribí la"
-  echo "línea en PERMITIDAS con su justificación — una línea concreta, a la vista."
+  echo "Fix it through the seam (FRONTEND_URL) or, if it is really needed, write the"
+  echo "line in PERMITIDAS with its justification — one concrete line, in plain sight."
   echo
   exit 1
 fi

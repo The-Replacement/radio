@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
-# capture.sh — la cámara del webcam, convertida en HLS.
+# capture.sh — the webcam's camera, turned into HLS.
 #
-# Qué hace, en una línea: agarra el video de /dev/video0 y lo escribe como
-# segmentos .m4s + un índice .m3u8 en /out. Caddy sirve esos archivos; no
-# hay servidor de video propio.
+# What it does, in one line: it takes the video from /dev/video0 and writes it as
+# .m4s segments + an .m3u8 index in /out. Caddy serves those files; there is no
+# video server of our own.
 #
-# Sobre el retraso: en HLS, el piso lo pone el tamaño del segmento. ffmpeg no
-# publica un segmento hasta que lo terminó de escribir, así que con
-# -hls_time 1 el mínimo es ~1s. Con 2s eran 2s, y encima el reproductor suma
-# su propio colchón. Por eso 1s y keyframe cada 1s: si el GOP es más largo
-# que el segmento, los segmentos no son independientes y el reproductor no
-# puede arrancar en cualquiera de ellos.
+# About the delay: in HLS the floor is set by the segment size. ffmpeg does not
+# publish a segment until it has finished writing it, so with -hls_time 1 the
+# minimum is ~1s. With 2s it was 2s, and on top of that the player adds its own
+# cushion. That is why 1s and a keyframe every 1s: if the GOP is longer than the
+# segment, the segments are not independent and the player cannot start on any
+# of them.
 #
-# El audio del webcam NO se toca (`-an`). La radio sigue siendo la fuente
-# de audio: acá sólo viaja imagen.
+# The webcam's audio is NOT touched (`-an`). The radio is still the audio source:
+# only image travels here.
 #
-# Si la cámara está desconectada, ffmpeg falla, se borra el índice viejo y
-# se reintenta. El índice VA PRIMERO: un playlist que apunta a segmentos
-# que ya no existen deja reproductores colgados para siempre.
+# If the camera is disconnected, ffmpeg fails, the old index is deleted and it
+# retries. The index goes FIRST: a playlist pointing at segments that no longer
+# exist leaves players hung forever.
 #
 # Variables:
-#   CAM_DEVICE  device dentro del contenedor (default /dev/video0)
+#   CAM_DEVICE  device inside the container (default /dev/video0)
 
 set -uo pipefail
 
@@ -34,9 +34,9 @@ limpiar() {
 }
 
 salir() {
-  # Matar a ffmpeg ANTES de borrar el playlist: si el proceso queda vivo
-  # mientras borramos los .m4s, el índice apunta a segmentos que ya
-  # no existen y los reproductores se cuelgan para siempre.
+  # Kill ffmpeg BEFORE deleting the playlist: if the process stays alive while
+  # we delete the .m4s files, the index points at segments that no longer exist
+  # and players hang forever.
   if [ -n "${ff_pid:-}" ]; then
     kill "$ff_pid" 2>/dev/null || true
     wait "$ff_pid" 2>/dev/null || true
@@ -51,9 +51,9 @@ reintento=3
 while :; do
   limpiar
 
-  # Las opciones de encode están en un array porque hay DOS salidas y en
-  # ffmpeg los -c:v aplican sólo al próximo output: si no se repiten, la
-  # segunda salida se va con el encoder por defecto.
+  # The encode options are in an array because there are TWO outputs and in
+  # ffmpeg -c:v applies only to the next output: if they are not repeated, the
+  # second output goes with the default encoder.
   ENC=(
     -an
     -c:v libx264 -preset veryfast -tune zerolatency
@@ -62,9 +62,9 @@ while :; do
     -g 15 -keyint_min 15 -sc_threshold 0
   )
 
-  # CAM_CLOCK=1 quema la hora en el cuadro. Es para medir retraso de verdad
-  # (vidrio a vidrio): se mira la hora del video y se compara con el reloj.
-  # Apagado por defecto; no lo dejes prendido en uso normal.
+  # CAM_CLOCK=1 burns the time into the frame. It is for measuring real delay
+  # (glass to glass): you look at the time in the video and compare it with the
+  # clock. Off by default; do not leave it on in normal use.
   if [[ "${CAM_CLOCK:-0}" == "1" ]]; then
     ENC+=(
       -vf "drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='%{localtime\:%H%M%S}':fontsize=32:fontcolor=white:box=1:boxcolor=black@0.5:x=10:y=10"
@@ -93,12 +93,12 @@ while :; do
   ff_pid=$!
   wait "$ff_pid"
 
-  # temp_file: ffmpeg escribe segNNN.m4s.tmp y renombra al terminar.
-  # Caddy nunca ve un segmento a medio escribir.
+  # temp_file: ffmpeg writes segNNN.m4s.tmp and renames when it finishes.
+  # Caddy never sees a half-written segment.
 
   if (( reintento < 30 )); then
     reintento=$(( reintento * 2 ))
   fi
-  echo "capture: ffmpeg salió, reintento en ${reintento}s" >&2
+  echo "capture: ffmpeg exited, retrying in ${reintento}s" >&2
   sleep "$reintento"
 done

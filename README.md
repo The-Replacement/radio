@@ -543,51 +543,51 @@ running the clock afterwards starts no second one; pause by hand → a later
 ```
 UI gate — web/index.html
 
-un solo tick de estado:
-  OK    al cargar la pagina: exactamente 1 fetch de estado
-  OK    15 s: el tick hace exactamente 1 fetch
-  OK    15 s: #now se escribe 1 vez
+one status tick:
+  OK    on load: exactly 1 status fetch
+  OK    15 s: the tick makes exactly 1 fetch
+  OK    15 s: #now is written 1 time
 
-la cadena de reconexion manda sobre el tick:
-  OK    tick en vivo: el cartel NO pasa a live
+the reconnection chain outranks the tick:
+  OK    tick live: the banner does NOT turn live
 
-la mano del oyente manda sobre la cadena (F-17 / F-18):
-  OK    agotado el presupuesto: cartel definitivo
-  OK    el reintento manual empieza en (1/5), no choca con el contador agotado
-  OK    el click arranca UN intento, ya
-  OK    y el agendado quedó cancelado
-  OK    la cadena no lo resucita
+the listener's hand outranks the chain (F-17 / F-18):
+  OK    budget spent: definitive banner
+  OK    the manual retry starts at (1/5), it does not hit the exhausted counter
+  OK    the click starts ONE attempt, now
+  OK    and the scheduled one was cancelled
+  OK    the chain does not revive it
 
-la matriz del tick al cargar (F-03 / F-04):
-  OK    404 -> la frase exacta de la puerta
-  OK    red caida -> no pinta nada: ni off air, ni puerta, ni boton muerto
+the tick matrix at load (F-03 / F-04):
+  OK    404 -> the door's exact sentence
+  OK    network down -> paints nothing: not off air, not the door, not a dead button
 
-el token sale de la barra (F-01):
-  OK    cookie viva: la barra queda limpia al cargar (quedo "")
-  OK    cookie viva: NINGUN pedido lleva el token
-  OK    cookie muerta: la barra TAMBIEN queda limpia (quedo "")
-  OK    502: la barra se queda como estaba — 502 no prueba nada
+the token leaves the address bar (F-01):
+  OK    live cookie: the bar is clean on load (left "")
+  OK    live cookie: NO request carries the token
+  OK    dead cookie: the bar is clean TOO (left "")
+  OK    502: the bar stays as it was — 502 proves nothing
 
-el cartel de la estación, en una sola voz (F-10 / F-11):
-  OK    ni una frase visible escrita a mano fuera de STR
-  OK    aria-live="polite" en #estado
+the station's banner, in one voice (F-10 / F-11):
+  OK    not one visible sentence hand-written outside STR
+  OK    aria-live="polite" on #estado
 
-el autoplay bloqueado dice lo que es (F-16):
-  OK    play() rechazado con NotAllowedError -> la copia dedicada, NO el silencio
+blocked autoplay says what it is (F-16):
+  OK    play() rejected with NotAllowedError -> the dedicated copy, NOT silence
 
-la encuesta de credencial tiene cota (F-09):
-  OK    el pedido lleva signal: se puede cortar
-  OK    la cota de 3000 ms quedó armada (1)
-  OK    colgada: el tick mide pero no pinta
-  OK    la cota dispara: la cadena avanza sola
-  OK    llegó al intento 1 (1/5)
+the credential poll is bounded (F-09):
+  OK    the request carries a signal: it can be cut
+  OK    the 3000 ms bound was armed (1)
+  OK    hung: the tick measures but does not paint
+  OK    the bound fires: the chain advances on its own
+  OK    it reached attempt 1 (1/5)
 
-la cámara, la pregunta antes del arranque (F-08):
-  OK    playlist 404 -> la caja NO aparece
-  OK    playlist 404 -> cero loads de hls.js
-  OK    playlist vieja (>10 s) -> la caja NO aparece
+the camera, the question before start-up (F-08):
+  OK    playlist 404 -> the box does NOT appear
+  OK    playlist 404 -> zero hls.js loads
+  OK    stale playlist (>10 s) -> the box does NOT appear
 
-Todo bien - 134 chequeos.
+All good - 134 checks.
 ```
 
 Exit codes: `0` all good, `1` a check failed. No network, no stack running:
@@ -631,21 +631,21 @@ blind gate is not a lucky one. Nothing is written to disk, so there is nothing
 to restore and no chance of committing a mutated page.
 
 ```
-Self-test — ¿puede fallar este gate?
+Self-test — can this gate fail?
 
-  OK    pagina real .......................... 134/134 en verde
-  OK    un segundo tick de 15 s (la regla de un solo fetch por tick)
-          9 rojos, p.e. "un solo intervalo consulta el estado (15000 ms); encontrados: [15000, 15000]"
-  OK    la cadena deja de mandar sobre el tick
-          3 rojos, p.e. "tick en vivo: el cartel NO pasa a live"
-  OK    la barra nunca se limpia (el t se queda en la direccion)
-          5 rojos, p.e. "cookie viva: la barra queda limpia al cargar (quedo "?t=f00dfeed")"
-  OK    la encuesta de credencial vuelve a no tener cota (F-09: se cuelga para siempre)
-          4 rojos, p.e. "la cota de 3000 ms quedó armada (0)"
-  OK    el click no cancela el reintento agendado (la radio vuelve sola)
-          2 rojos, p.e. "y el agendado quedó cancelado"
+  OK    real page .......................... 134/134 green
+  OK    a second 15 s tick (the one fetch per tick rule)
+          9 reds, e.g. "only one interval polls the status (15000 ms); found: [15000, 15000]"
+  OK    the chain stops outranking the tick
+          3 reds, e.g. "tick live: the banner does NOT turn live"
+  OK    the bar is never cleaned (the t stays in the address)
+          5 reds, e.g. "live cookie: the bar is clean on load (left "?t=f00dfeed")"
+  OK    the credential poll becomes unbounded again (F-09: it hangs forever)
+          4 reds, e.g. "the 3000 ms bound was armed (0)"
+  OK    the click does not cancel the scheduled retry (the radio comes back alone)
+          2 reds, e.g. "and the scheduled one was cancelled"
 
-Todo bien - 20 mutaciones atrapadas.
+All good - 20 mutations caught.
 ```
 
 Exit codes: `0` twenty mutations trapped, `1` one went uncaught or did not
@@ -696,19 +696,19 @@ demands that the leak **appears**. A mutation that stays clean means the
 gate stopped measuring that route: a failure, not a pass.
 
 ```
-Query gate — el query no cruza la puerta (F-07)
+Query gate — the query does not cross the door (F-07)
 
-  OK Caddyfile: /stream tiene 'rewrite /stream?' dentro de su bloque
-  OK Caddyfile: /status-json.xsl tiene 'rewrite /status-json.xsl?' dentro de su bloque
-  OK Caddyfile: /cam/whep tiene 'rewrite /cam/whep?' dentro de su bloque
-  OK /stream: el origin recibio 'GET /stream' — sin '?', sin token
-  OK /status-json.xsl: el origin recibio 'GET /status-json.xsl' — sin '?', sin token
-  OK /cam/whep: el origin recibio 'POST /cam/whep' — sin '?', sin token
-  OK mutacion /stream: sin el '?', el query llego ('GET /stream?t=SECRETO') — este gate puede fallar
-  OK mutacion /status-json.xsl: sin el '?', el query llego ('GET /status-json.xsl?t=SECRETO') — este gate puede fallar
-  OK mutacion /cam/whep: sin el '?', el query llego ('POST /cam/whep?t=SECRETO') — este gate puede fallar
+  OK Caddyfile: /stream has 'rewrite /stream?' inside its block
+  OK Caddyfile: /status-json.xsl has 'rewrite /status-json.xsl?' inside its block
+  OK Caddyfile: /cam/whep has 'rewrite /cam/whep?' inside its block
+  OK /stream: the origin received 'GET /stream' — no '?', no token
+  OK /status-json.xsl: the origin received 'GET /status-json.xsl' — no '?', no token
+  OK /cam/whep: the origin received 'POST /cam/whep' — no '?', no token
+  OK mutation /stream: without the '?', the query arrived ('GET /stream?t=SECRETO') — this gate can fail
+  OK mutation /status-json.xsl: without the '?', the query arrived ('GET /status-json.xsl?t=SECRETO') — this gate can fail
+  OK mutation /cam/whep: without the '?', the query arrived ('POST /cam/whep?t=SECRETO') — this gate can fail
 
-Todo bien — 9 chequeos.
+All good — 9 checks.
 ```
 
 Exit codes: `0` three clean routes and three mutations trapped, `1`

@@ -1,41 +1,41 @@
 #!/usr/bin/env bash
-# query-gate.sh — el query del token NUNCA cruza la puerta (F-07, slice S4).
+# query-gate.sh — the token's query NEVER crosses the door (F-07, slice S4).
 #
-# La promesa vieja ("rewrite descarta el query") se sostenía en dos cosas
-# que no podían fallar:
+# The old promise ("rewrite drops the query") rested on two things that could
+# not fail:
 #
-#   1. Caddy NO descarta el query con `rewrite /stream`: sólo cambia el
-#      path y CONSERVA el query (modules/caddyhttp/rewrite/rewrite.go,
-#      campo URI: "a value of /foo.html will only change the path and will
-#      preserve any existing query string"). Lo que lo borra es el '?'
-#      vacío: "To clear the query string, explicitly set an empty one".
-#      Sin ese '?', ?t= llegaba a Icecast y a mediamtx en cada pedido.
-#   2. El grep de smoke buscaba 'stream?t=' en los logs de Icecast, pero
-#      Icecast corta el query en '?' antes de guardar el __uri: una cadena
-#      que su formato no puede contener — verde o rojo sin medir nada.
+#   1. Caddy does NOT drop the query with `rewrite /stream`: it only changes the
+#      path and PRESERVES the query (modules/caddyhttp/rewrite/rewrite.go,
+#      URI field: "a value of /foo.html will only change the path and will
+#      preserve any existing query string"). What clears it is the empty '?':
+#      "To clear the query string, explicitly set an empty one". Without that
+#      '?', ?t= reached Icecast and mediamtx on every request.
+#   2. smoke's grep looked for 'stream?t=' in Icecast's logs, but Icecast cuts
+#      the query at the '?' before storing __uri: a string its format cannot
+#      contain — green or red without measuring anything.
 #
-# Este gate mide la config en vez de esperarla:
+# This gate measures the config instead of trusting it:
 #
-#   - extrae los tres bloques `handle` del Caddyfile que se despliega,
-#     tal cual: sólo se cambia la dirección del upstream por la de un
-#     origin local. Si el rewrite no está DENTRO del bloque (o el formato
-#     cambió), la extracción no devuelve nada y el gate falla ruidoso;
-#   - levanta un origin chiquito que anota la línea de pedido que recibe;
-#   - corre el Caddy pineado de docker-compose.yml contra él y exige que
-#     NO llegue ningún '?' en /stream, /status-json.xsl y /cam/whep;
-#   - muta cada bloque (le saca el '?' a su rewrite — el config tal como
-#     estaba antes de S4) y exige que la filtración APAREZCA. Una mutación
-#     que queda limpia significa que el gate dejó de medir esa ruta: eso
-#     es un rojo, no un verde.
+#   - it extracts the three `handle` blocks from the Caddyfile that is deployed,
+#     exactly as they are: only the upstream address is swapped for a local
+#     origin's. If the rewrite is not INSIDE the block (or the format changed),
+#     the extraction returns nothing and the gate fails loudly;
+#   - it starts a tiny origin that records the request line it receives;
+#   - it runs the pinned Caddy from docker-compose.yml against it and demands
+#     that NO '?' arrives on /stream, /status-json.xsl and /cam/whep;
+#   - it mutates each block (removes the '?' from its rewrite — the config as it
+#     was before S4) and demands that the leak APPEARS. A mutation that stays
+#     clean means the gate stopped measuring that route: that is a red, not a
+#     green.
 #
-# Corre sin stack y sin .env: necesita docker (el daemon) y python3.
-# CADDYFILE=/otro/Caddyfile apunta el gate a otra versión del archivo —
-# así se le muestra rojo al anterior: git show <rev>:caddy/Caddyfile.
+# It runs with no stack and no .env: it needs docker (the daemon) and python3.
+# CADDYFILE=/other/Caddyfile points the gate at another version of the file —
+# that is how the previous one is shown red: git show <rev>:caddy/Caddyfile.
 #
-# Códigos de salida:
-#   0  las tres rutas limpias Y las tres mutaciones atrapadas
-#   1  algo midió otra cosa de lo que decía medir
-#   2  faltan dependencias (docker, python3, la imagen de caddy)
+# Exit codes:
+#   0  the three routes clean AND the three mutations caught
+#   1  something measured something other than what it claimed to measure
+#   2  missing dependencies (docker, python3, the caddy image)
 
 set -uo pipefail
 
@@ -48,15 +48,15 @@ ORIGEN_PID=""
 
 ok=0; mal=0
 pasa()  { printf '  \033[32mOK\033[0m %s\n' "$1"; ok=$((ok+1)); }
-falla() { printf '  \033[31mFALLA\033[0m %s\n' "$1"; mal=$((mal+1)); }
+falla() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; mal=$((mal+1)); }
 
 resumen() {
   echo
   if [ "$mal" -eq 0 ]; then
-    printf '\033[32mTodo bien\033[0m — %d chequeos.\n\n' "$ok"
+    printf '\033[32mAll good\033[0m — %d checks.\n\n' "$ok"
     exit 0
   fi
-  printf '\033[31m%d fallas\033[0m de %d chequeos.\n' "$mal" "$((ok+mal))"
+  printf '\033[31m%d failures\033[0m out of %d checks.\n' "$mal" "$((ok+mal))"
   echo
   exit 1
 }
@@ -69,33 +69,33 @@ limpiar() {
 trap limpiar EXIT
 
 faltan() {
-  printf '\n\033[31mFALTAN DEPENDENCIAS\033[0m\n  %s\n\n' "$1" >&2
+  printf '\n\033[31mMISSING DEPENDENCIES\033[0m\n  %s\n\n' "$1" >&2
   exit 2
 }
 
 # ------------------------------------------------------------ dependencias
 
-command -v python3 >/dev/null 2>&1 || faltan "no encontre 'python3' en el PATH"
-command -v docker  >/dev/null 2>&1 || faltan "no encontre 'docker' en el PATH"
-docker info >/dev/null 2>&1        || faltan "el demonio de docker no responde"
-[ -f "$CADDYFILE" ]                || faltan "no encontre $CADDYFILE"
+command -v python3 >/dev/null 2>&1 || faltan "'python3' not found on PATH"
+command -v docker  >/dev/null 2>&1 || faltan "'docker' not found on PATH"
+docker info >/dev/null 2>&1        || faltan "the docker daemon does not answer"
+[ -f "$CADDYFILE" ]                || faltan "$CADDYFILE not found"
 
-# La imagen pineada en docker-compose.yml: la misma que corre en producción,
-# ni una de "latest" por las dudas.
+# The image pinned in docker-compose.yml: the same one production runs, not a
+# "latest" one just in case.
 IMG="$(awk '/image:[[:space:]]*caddy:/ {print $2; exit}' "$COMPOSE")"
-[ -n "$IMG" ] || faltan "no encontre la imagen de caddy en $COMPOSE"
+[ -n "$IMG" ] || faltan "the caddy image was not found in $COMPOSE"
 if ! docker image inspect "$IMG" >/dev/null 2>&1; then
-  echo "Bajando $IMG (solo la primera vez)..."
-  docker pull "$IMG" >/dev/null 2>&1 || faltan "no pude bajar $IMG"
+  echo "Pulling $IMG (first time only)..."
+  docker pull "$IMG" >/dev/null 2>&1 || faltan "could not pull $IMG"
 fi
 
-# ------------------------------------------- sacar los bloques del archivo
+# ------------------------------------------- extracting the blocks from the file
 
-# El bloque handle COMPLETO, tal cual está en el archivo que se despliega:
-# después sólo se le cambia la dirección del upstream. Si el rewrite vive
-# fuera del bloque, o el formato del archivo cambió, esto no devuelve nada
-# y el gate falla ruidoso en vez de medir una copia idealizada.
-bloque() { # $1 = linea exacta que abre el bloque, ej: 'handle /stream* {'
+# The COMPLETE handle block, exactly as it is in the file that is deployed:
+# afterwards only the upstream address is changed. If the rewrite lives outside
+# the block, or the file's format changed, this returns nothing and the gate
+# fails loudly instead of measuring an idealized copy.
+bloque() { # $1 = the exact line that opens the block, e.g. 'handle /stream* {'
   awk -v apertura="$1" '
     !dentro {
       linea = $0
@@ -114,28 +114,28 @@ bloque() { # $1 = linea exacta que abre el bloque, ej: 'handle /stream* {'
   ' "$CADDYFILE"
 }
 
-# La línea de rewrite del bloque (por stdin), exactamente una. Devuelve el
-# par completo ("rewrite /stream?"), que es lo que se inserta en el config
-# de prueba: la línea que corre en producción, no una reimplementación.
-rewrite_de() { # $1 = ruta, ej: /stream
+# The block's rewrite line (on stdin), exactly one. It returns the complete pair
+# ("rewrite /stream?"), which is what gets inserted into the test config: the
+# line that runs in production, not a reimplementation.
+rewrite_de() { # $1 = path, e.g. /stream
   awk -v r="$1?" '
     $1 == "rewrite" && $2 == r && NF == 2 { n++; l = $1 " " $2 }
     END { if (n == 1) print l }
   '
 }
 
-mutar() { # stdin: bloque; $1 = ruta — le saca el '?' al rewrite (pre-S4)
+mutar() { # stdin: block; $1 = path — removes the '?' from the rewrite (pre-S4)
   sed "s|rewrite $1?|rewrite $1|"
 }
 
-localizar() { # el upstream del archivo -> el origin de este gate
+localizar() { # the file's upstream -> this gate's origin
   sed -E "s|reverse_proxy[[:space:]]+[^ {]+|reverse_proxy 127.0.0.1:$ORIGEN|g"
 }
 
 # ----------------------------------------------------------------- origen
 
-# Un origin que anota la línea de pedido que recibe (method + path + query).
-# Si acá aparece un '?', es que el query cruzó la puerta.
+# An origin that records the request line it receives (method + path + query).
+# If a '?' shows up here, the query crossed the door.
 cat > "$TMP/origen.py" <<'PY'
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -146,7 +146,7 @@ class Origin(BaseHTTPRequestHandler):
     def _atender(self):
         n = int(self.headers.get("Content-Length") or 0)
         if n:
-            self.rfile.read(n)  # consume el body (el SDP del whep)
+            self.rfile.read(n)  # consume the body (whep's SDP)
         with open(LOG, "a") as f:
             f.write(f"{self.command} {self.path}\n")  # path = path + query
         self.send_response(200)
@@ -156,7 +156,7 @@ class Origin(BaseHTTPRequestHandler):
     do_GET = do_POST = _atender
 
     def log_message(self, *args):
-        pass  # lo que importa está en el archivo, no en stderr
+        pass  # what matters is in the file, not on stderr
 
 HTTPServer(("127.0.0.1", int(sys.argv[1])), Origin).serve_forever()
 PY
@@ -177,7 +177,7 @@ done
 
 # ------------------------------------------------------------------ caddy
 
-config() { # $1 $2 $3 = los tres bloques, ya con upstream local
+config() { # $1 $2 $3 = the three blocks, already with a local upstream
   {
     printf '{\n\tauto_https off\n\tadmin off\n}\n\n'
     printf 'http://127.0.0.1:%s {\n' "$PUERTA"
@@ -193,8 +193,8 @@ arrancar() {
     -v "$TMP/Caddyfile:/etc/caddy/Caddyfile:ro" \
     "$IMG" caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 \
     || return 1
-  # --network host: en Linux el contenedor comparte el loopback del host,
-  # así ve al origin en 127.0.0.1 y el gate lo escucha en el mismo puerto.
+  # --network host: on Linux the container shares the host's loopback, so it
+  # sees the origin on 127.0.0.1 and the gate listens on the same port.
   for _ in $(seq 1 50); do
     curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$PUERTA/" 2>/dev/null && return 0
     sleep 0.1
@@ -206,7 +206,7 @@ diagnostico() {
   docker logs "$NOMBRE" 2>&1 | tail -n 5 | sed 's/^/        /'
 }
 
-pedir() { # $1 = ruta; el token de mentira viaja en el query, como en la vida real
+pedir() { # $1 = path; the fake token travels in the query, as in real life
   if [ "$1" = /cam/whep ]; then
     curl -s -o /dev/null --max-time 5 -X POST --data 'v=0' \
       -H 'Content-Type: application/sdp' \
@@ -225,22 +225,22 @@ SIN_QUERY=("GET /stream" "GET /status-json.xsl" "POST /cam/whep")
 CON_QUERY=("GET /stream?t=SECRETO" "GET /status-json.xsl?t=SECRETO" "POST /cam/whep?t=SECRETO")
 
 echo
-echo "Query gate — el query no cruza la puerta (F-07)"
+echo "Query gate — the query does not cross the door (F-07)"
 echo
 
 BLOQUES=(); roto=0
 for i in 0 1 2; do
   b="$(bloque "${APERTURAS[$i]}")"
   if [ -z "$b" ]; then
-    falla "no encontre '${APERTURAS[$i]}' en $CADDYFILE — sin ese bloque no hay nada que medir"
+    falla "did not find '${APERTURAS[$i]}' in $CADDYFILE — without that block there is nothing to measure"
     roto=1; BLOQUES+=(""); continue
   fi
   r="$(printf '%s\n' "$b" | rewrite_de "${RUTAS[$i]}")"
   if [ -z "$r" ]; then
-    falla "el bloque ${RUTAS[$i]} no contiene una unica 'rewrite ${RUTAS[$i]}?' — sin ese '?' el query cruza"
+    falla "the ${RUTAS[$i]} block does not contain exactly one 'rewrite ${RUTAS[$i]}?' — without that '?' the query crosses"
     roto=1; BLOQUES+=(""); continue
   fi
-  pasa "Caddyfile: ${RUTAS[$i]} tiene '$r' dentro de su bloque"
+  pasa "Caddyfile: ${RUTAS[$i]} has '$r' inside its block"
   BLOQUES+=("$b")
 done
 [ "$roto" -eq 0 ] || resumen
@@ -252,7 +252,7 @@ for i in 0 1 2; do LOCAL+=("$(printf '%s\n' "${BLOQUES[$i]}" | localizar)"); don
 
 config "${LOCAL[0]}" "${LOCAL[1]}" "${LOCAL[2]}"
 if ! arrancar; then
-  falla "caddy no arranco con el config de prueba"
+  falla "caddy did not start with the test config"
   diagnostico
   resumen
 fi
@@ -262,10 +262,10 @@ for i in 0 1 2; do pedir "${RUTAS[$i]}"; done
 
 for i in 0 1 2; do
   if grep -qFx "${SIN_QUERY[$i]}" "$TMP/pedidos.log"; then
-    pasa "${RUTAS[$i]}: el origin recibio '${SIN_QUERY[$i]}' — sin '?', sin token"
+    pasa "${RUTAS[$i]}: the origin received '${SIN_QUERY[$i]}' — no '?', no token"
   else
     llego="$(grep -F "${RUTAS[$i]}" "$TMP/pedidos.log" | tail -n1)"
-    falla "${RUTAS[$i]}: el origin recibio '${llego:-nada}' — el query cruzo"
+    falla "${RUTAS[$i]}: the origin received '${llego:-nothing}' — the query crossed"
   fi
 done
 [ "$mal" -eq 0 ] || resumen
@@ -286,7 +286,7 @@ for i in 0 1 2; do
          "$(printf '%s\n' "${mut[1]}" | localizar)" \
          "$(printf '%s\n' "${mut[2]}" | localizar)"
   if ! arrancar; then
-    falla "mutacion ${RUTAS[$i]}: caddy no arranco con el config roto"
+    falla "mutation ${RUTAS[$i]}: caddy did not start with the broken config"
     diagnostico
     continue
   fi
@@ -295,10 +295,10 @@ for i in 0 1 2; do
   pedir "${RUTAS[$i]}"
 
   if grep -qFx "${CON_QUERY[$i]}" "$TMP/pedidos.log"; then
-    pasa "mutacion ${RUTAS[$i]}: sin el '?', el query llego ('${CON_QUERY[$i]}') — este gate puede fallar"
+    pasa "mutation ${RUTAS[$i]}: without the '?', the query arrived ('${CON_QUERY[$i]}') — this gate can fail"
   else
     llego="$(grep -F "${RUTAS[$i]}" "$TMP/pedidos.log" | tail -n1)"
-    falla "mutacion ${RUTAS[$i]}: saque el '?' pero el query NO llego ('${llego:-nada}') — este gate dejo de medir ${RUTAS[$i]}"
+    falla "mutation ${RUTAS[$i]}: I removed the '?' but the query did NOT arrive ('${llego:-nothing}') — this gate stopped measuring ${RUTAS[$i]}"
   fi
 done
 

@@ -1,17 +1,17 @@
-# PLANTILLA de caddy/tokens.caddy.
+# TEMPLATE for caddy/tokens.caddy.
 #
-# El archivo real (caddy/tokens.caddy) NO se versiona: contiene los tokens
-# y las cookies de cada persona. Lo genera scripts/token.sh:
+# The real file (caddy/tokens.caddy) is NOT versioned: it contains each person's
+# tokens and cookies. scripts/token.sh generates it:
 #
-#     ./scripts/token.sh add <nombre> [vencimiento]
+#     ./scripts/token.sh add <name> [expiry]
 #
-# Este matcher es el estado valido con CERO credenciales: no entra nadie.
-# Sirve para que un clon nuevo pueda levantar el stack antes de dar acceso:
+# This matcher is the valid state with ZERO credentials: nobody gets in. It lets
+# a new clone bring the stack up before granting access:
 #
 #     cp caddy/tokens.caddy.example caddy/tokens.caddy
 #
-# (Si arrancás docker sin que el archivo exista, Docker crea un DIRECTORIO
-# en su lugar y el montaje queda roto. Por eso conviene este cp.)
+# (If you start docker without the file existing, Docker creates a DIRECTORY in
+# its place and the mount breaks. That is why this cp is worth it.)
 
 @gate expression `false`
 @canje expression `false`

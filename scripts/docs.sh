@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
-# docs.sh - valida que los diagramas Mermaid de los .md rendericen.
+# docs.sh - validates that the .md files' Mermaid diagrams render.
 #
 #   ./scripts/docs.sh
 #
-# Un diagrama con error de sintaxis no se nota hasta que alguien abre el
-# README. Esto lo agarra antes.
+# A diagram with a syntax error is not noticed until someone opens the README.
+# This catches it before that.
 #
-# Codigos de salida:
-#   0  todos los diagramas renderizan
-#   1  hay al menos un diagrama roto
-#   2  faltan dependencias (node, npm o un navegador)
+# Exit codes:
+#   0  every diagram renders
+#   1  at least one diagram is broken
+#   2  missing dependencies (node, npm or a browser)
 #
-# La primera vez instala mermaid-cli en .tools/ (esta en .gitignore).
-# Usa el Chrome del sistema a proposito: si no, bajaría ~300 MB de Chromium.
+# The first time it installs mermaid-cli in .tools/ (it is in .gitignore).
+# It uses the system's Chrome on purpose: otherwise it would download ~300 MB of
+# Chromium.
 
 set -uo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Dependencias de validacion. Van al cache del usuario, NO al repo:
-# mermaid-cli ocupa ~450 MB y no tiene por que vivir dentro del proyecto.
+# Validation dependencies. They go to the user's cache, NOT the repo:
+# mermaid-cli takes ~450 MB and has no reason to live inside the project.
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/radio-docs"
 MMDC="$CACHE/node_modules/.bin/mmdc"
 TMP="$(mktemp -d)"
@@ -30,34 +31,34 @@ INICIO="mermaid"
 # ------------------------------------------------------------ dependencias
 
 faltan() {
-  printf '\n%sFALTAN DEPENDENCIAS%s\n  %s\n\n' "$ROJO" "$FIN" "$1" >&2
+  printf '\n%sMISSING DEPENDENCIES%s\n  %s\n\n' "$ROJO" "$FIN" "$1" >&2
   exit 2
 }
 
-command -v node >/dev/null 2>&1 || faltan "no encontre 'node' en el PATH"
-command -v npm  >/dev/null 2>&1 || faltan "no encontre 'npm' en el PATH"
+command -v node >/dev/null 2>&1 || faltan "'node' not found on PATH"
+command -v npm  >/dev/null 2>&1 || faltan "'npm' not found on PATH"
 
 NAVEGADOR=""
 for b in google-chrome-stable google-chrome chromium chromium-browser; do
   if p="$(command -v "$b" 2>/dev/null)"; then NAVEGADOR="$p"; break; fi
 done
-[ -n "$NAVEGADOR" ] || faltan "mermaid necesita un navegador; no encontre Chrome ni Chromium"
+[ -n "$NAVEGADOR" ] || faltan "mermaid needs a browser; neither Chrome nor Chromium was found"
 
 if [ ! -x "$MMDC" ]; then
-  echo "Instalando mermaid-cli en $CACHE (solo la primera vez)..."
+  echo "Installing mermaid-cli in $CACHE (first time only)..."
   mkdir -p "$CACHE"
   [ -f "$CACHE/package.json" ] \
     || printf '{"name":"radio-docs","private":true}\n' > "$CACHE/package.json"
   if ! ( cd "$CACHE" && PUPPETEER_SKIP_DOWNLOAD=1 \
            npm install --no-audit --no-fund @mermaid-js/mermaid-cli >/dev/null 2>&1 ); then
-    faltan "no se pudo instalar mermaid-cli (¿sin red?)"
+    faltan "could not install mermaid-cli (no network?)"
   fi
-  echo "Listo."
+  echo "Done."
 fi
 
-# --------------------------------------------------------------- validacion
+# --------------------------------------------------------------- validation
 
-# Todos los .md, menos los que no nos interesan.
+# Every .md, except the ones we are not interested in.
 mapfile -t ARCHIVOS < <(
   find "$RAIZ" -name '*.md' -type f \
     -not -path '*/.git/*' -not -path '*/node_modules/*' \
@@ -66,55 +67,55 @@ mapfile -t ARCHIVOS < <(
 
 # ------------------------------------------ truth pass (F-12, F-14, F-20)
 #
-# Lo que el docs afirma y el código desmiente no puede volver. Tres
-# afirmaciones, tres gates; cualquiera de ellas rojo hace salir docs.sh.
-# La lista crece con cada "documenté esto y nadie lo notó".
+# What the docs claims and the code denies cannot come back. Three claims, three
+# gates; any of them red makes docs.sh exit. The list grows with every "I
+# documented this and nobody noticed".
 #
 echo
-echo "Truth — lo que el docs afirma y el código desmiente"
+echo "Truth — what the docs claims and the code denies"
 echo
 
 trucos=0
 fallas=0
 
-# F-12: la cookie está host-only para stream.daza.ar — ningún sitio del
-# árbol del despliegue puede afirmar un Domain= que no existe.
-# (docs.sh se excluye: el gate contiene la afirmación por definición.)
+# F-12: the cookie is host-only for stream.daza.ar — no place in the deployment
+# tree can claim a Domain= that does not exist.
+# (docs.sh excludes itself: the gate contains the claim by definition.)
 if git grep -qF 'Domain=.daza.ar' -- caddy web README.md 2>/dev/null; then
-  printf '  %sFALLA%s  "Domain=.daza.ar" aparece — la cookie es host-only (F-12)\n' "$ROJO" "$FIN"
+  printf '  %sFAIL%s  "Domain=.daza.ar" appears — the cookie is host-only (F-12)\n' "$ROJO" "$FIN"
   trucos=$((trucos + 1))
 else
-  printf '  %sOK%s    ninguna mención a Domain=.daza.ar en el árbol\n' "$VERDE" "$FIN"
+  printf '  %sOK%s    no mention of Domain=.daza.ar in the tree\n' "$VERDE" "$FIN"
 fi
 
-# F-14: el vendor README presenta la carga de hls.js como rara; el código la carga siempre.
+# F-14: the vendor README presents hls.js loading as unusual; the code always loads it.
 if grep -qE 'sólo si|only if' web/vendor/README.md 2>/dev/null; then
-  printf '  %sFALLA%s  vendor README presenta la carga de hls.js como condicional — el código la carga siempre (F-14)\n' "$ROJO" "$FIN"
+  printf '  %sFAIL%s  vendor README presents hls.js loading as conditional — the code always loads it (F-14)\n' "$ROJO" "$FIN"
   trucos=$((trucos + 1))
 else
-  printf '  %sOK%s    vendor README no presenta la carga de hls.js como condicional\n' "$VERDE" "$FIN"
+  printf '  %sOK%s    vendor README does not present hls.js loading as conditional\n' "$VERDE" "$FIN"
 fi
 
-# F-20: $CK no se usa nunca sin definir.
+# F-20: $CK is never used without being defined.
 ck_block="$(awk '/^```/{f=!f; next} f && /CK/' README.md 2>/dev/null || true)"
 if grep -qF '$CK' README.md 2>/dev/null && ! grep -qE '^CK=' <<<"$ck_block"; then
-  printf '  %sFALLA%s  README.md usa $CK sin definir CK= (F-20)\n' "$ROJO" "$FIN"
+  printf '  %sFAIL%s  README.md uses $CK without defining CK= (F-20)\n' "$ROJO" "$FIN"
   trucos=$((trucos + 1))
 else
-  printf '  %sOK%s    toda aparición de $CK está precedida por CK= en el mismo bloque\n' "$VERDE" "$FIN"
+  printf '  %sOK%s    every $CK appearance is preceded by CK= in the same block\n' "$VERDE" "$FIN"
 fi
 
 fallas=$((fallas + trucos))
 
 echo
-echo "Validando diagramas Mermaid"
+echo "Validating Mermaid diagrams"
 echo
 
 cuenta=0
 
 for f in "${ARCHIVOS[@]}"; do
   rel="${f#"$RAIZ"/}"
-  # Contar bloques ```mermaid de forma simple.
+  # Count ```mermaid blocks in a simple way.
   n="$(grep -c '^[[:space:]]*```mermaid' "$f" 2>/dev/null || true)"
   n="${n:-0}"
   [ "$n" -eq 0 ] && continue
@@ -123,11 +124,11 @@ for f in "${ARCHIVOS[@]}"; do
               "$MMDC" -i "$f" -o "$TMP/salida.png" -q 2>&1)"
 
   if [ $? -eq 0 ]; then
-    printf '  %sOK%s    %-22s %s diagrama(s)\n' "$VERDE" "$FIN" "$rel" "$n"
+    printf '  %sOK%s    %-22s %s diagram(s)\n' "$VERDE" "$FIN" "$rel" "$n"
     cuenta=$((cuenta + n))
   else
-    printf '  %sFALLA%s %-22s\n' "$ROJO" "$FIN" "$rel"
-    # Del volcado de Node solo sirve el bloque desde "Error:" hasta el stack.
+    printf '  %sFAIL%s %-22s\n' "$ROJO" "$FIN" "$rel"
+    # From Node's dump only the block from "Error:" to the stack is useful.
     mensaje="$(printf '%s\n' "$salida" | sed -n '/^Error:/,/^Parser\./p' | sed '$d')"
     if [ -z "$mensaje" ]; then
       mensaje="$(printf '%s\n' "$salida" | grep -iE 'error|parse' | head -4)"
@@ -140,14 +141,14 @@ done
 echo
 if [ "$fallas" -eq 0 ]; then
   if [ "$cuenta" -eq 0 ]; then
-    printf '%sNo hay diagramas Mermaid en el repo.%s\n\n' "$GRIS" "$FIN"
+    printf '%sThere are no Mermaid diagrams in the repo.%s\n\n' "$GRIS" "$FIN"
   else
-    printf '%sTodo bien%s - %d diagrama(s) renderizan.\n\n' "$VERDE" "$FIN" "$cuenta"
+    printf '%sAll good%s - %d diagram(s) render.\n\n' "$VERDE" "$FIN" "$cuenta"
   fi
   exit 0
 else
-  printf '%s%d check(s) fallan%s\n' "$ROJO" "$fallas" "$FIN"
-  echo "Arreglá el diagrama o las afirmaciones del docs que el gate acaba de cazar."
+  printf '%s%d check(s) fail%s\n' "$ROJO" "$fallas" "$FIN"
+  echo "Fix the diagram or the claims the gate just caught."
   echo
   exit 1
 fi

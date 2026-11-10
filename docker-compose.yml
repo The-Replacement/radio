@@ -1,9 +1,9 @@
-# Radio privada con token — Icecast + Liquidsoap + Caddy (+ indiegenerator)
+# Private radio with a token — Icecast + Liquidsoap + Caddy (+ indiegenerator)
 #
-# Principio de diseño: Icecast y Liquidsoap NO publican puertos.
-# Lo único expuesto al host es Caddy, que hace de única puerta.
-# Sin el token correcto, no se ve ni el stream ni el player.
-# indiegenerator genera/rota ./music y reinicia liquidsoap en cada ciclo.
+# Design principle: Icecast and Liquidsoap do NOT publish ports.
+# The only thing exposed to the host is Caddy, which acts as the only door.
+# Without the correct token, neither the stream nor the player is visible.
+# indiegenerator generates/rotates ./music and restarts liquidsoap every cycle.
 
 services:
   icecast:
@@ -11,41 +11,41 @@ services:
     container_name: radio-icecast
     restart: unless-stopped
     environment:
-      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?falta en .env}
-      ICECAST_RELAY_PASSWORD: ${ICECAST_RELAY_PASSWORD:?falta en .env}
-      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:?falta en .env}
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?missing from .env}
+      ICECAST_RELAY_PASSWORD: ${ICECAST_RELAY_PASSWORD:?missing from .env}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:?missing from .env}
     networks:
       - radio
-    # Sin sección "ports": Icecast es inalcanzable desde fuera de esta red.
-    # Sin volúmenes de log: escribe a stdout (ver <logging> en icecast.xml).
+    # No "ports" section: Icecast is unreachable from outside this network.
+    # No log volumes: it writes to stdout (see <logging> in icecast.xml).
 
   liquidsoap:
-    # Fijado por digest: reproducibilidad de la imagen exacta que corre hoy.
+    # Pinned by digest: reproducibility of the exact image running today.
     image: savonet/liquidsoap:v2.4.6@sha256:1d4ecfc1b53851c5f018d1ada430302a0678f789a6e96f6de5264255f679689c
     container_name: radio-liquidsoap
     restart: unless-stopped
     depends_on:
       - icecast
     environment:
-      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?falta en .env}
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?missing from .env}
     volumes:
       - ./liquidsoap/radio.liq:/etc/radio.liq:ro
       - ./music:/music:ro
-    # El generador publica con rename atómico, así que escribe cada archivo
-    # primero en ./music/.tmp y lo renombra al nombre final. Ese staging vive
-    # DENTRO del árbol que este contenedor escanea: `playlist("/music")`
-    # recorre subdirectorios, así que Liquidsoap intentaba decodificar los
-    # archivos a medio escribir (y los .mix viejos que quedaban ahí). Un
-    # tmpfs vacío montado sobre /music/.tmp le tapa esa carpeta: el generador
-    # sigue viendo la real, Liquidsoap ve un directorio vacío. Medido: con el
-    # canary en el host, adentro se ven 0 entradas.
+    # The generator publishes with an atomic rename, so it writes each file
+    # first into ./music/.tmp and renames it to the final name. That staging
+    # lives INSIDE the tree this container scans: `playlist("/music")` walks
+    # subdirectories, so Liquidsoap tried to decode half-written files (and the
+    # old .mix files left there). An empty tmpfs mounted over /music/.tmp covers
+    # that folder: the generator still sees the real one, Liquidsoap sees an
+    # empty directory. Measured: with the canary on the host, 0 entries are
+    # visible inside.
     tmpfs:
       - /music/.tmp:size=1m
     command: ["--verbose", "/etc/radio.liq"]
     networks:
       - radio
 
-  # MediaMTX: reempaqueta el H.264 como RTP/WebRTC. No abre la cámara.
+  # MediaMTX: repackages the H.264 as RTP/WebRTC. It does not open the camera.
   mediamtx:
     image: bluenviron/mediamtx:1.21.2@sha256:c7540465f868a02652118bea5a0daab12a29ac0f6cb8485abd535939ecddf886
     container_name: radio-mediamtx
@@ -53,17 +53,17 @@ services:
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     ports:
-      # El video WebRTC va por UDP directo del navegador al contenedor: NO
-      # pasa por Caddy. Atado a loopback a propósito: hoy sólo esta máquina.
-      # Para LAN: cambiar a "8189:8189/udp" Y agregar la IP al
-      # webrtcAdditionalHosts de mediamtx.yml. Para internet: además abrir
-      # el puerto en el router.
+      # The WebRTC video goes over direct UDP from the browser to the
+      # container: it does NOT go through Caddy. Tied to loopback on purpose:
+      # today, this machine only. For LAN: change to "8189:8189/udp" AND add the
+      # IP to mediamtx.yml's webrtcAdditionalHosts. For the internet: also open
+      # the port on the router.
       - "127.0.0.1:${WEBRTC_UDP_PORT:-8189}:8189/udp"
     networks:
       - radio
 
-  # La cámara. No habla con nadie: escribe segmentos HLS en ./data/cam y
-  # empuja RTSP a mediamtx. Caddy sirve los archivos; el WebRTC va aparte.
+  # The camera. It talks to nobody: it writes HLS segments in ./data/cam and
+  # pushes RTSP to mediamtx. Caddy serves the files; WebRTC goes separately.
   cam:
     build: ./cam
     container_name: radio-cam
@@ -71,52 +71,55 @@ services:
     depends_on:
       - mediamtx
     devices:
-      # by-id y NO /dev/videoN a propósito: el número depende del orden en
-      # que el kernel enumera las cámaras. Si reconectás la FaceCam o
-      # enchufás otra, /dev/video2 puede pasar a ser /dev/video4.
-      # Este path apunta siempre a la FaceCam (index0 = nodo de captura;
-      # index1 es metadata y no sirve para capturar).
+      # by-id and NOT /dev/videoN on purpose: the number depends on the order
+      # the kernel enumerates cameras. If you reconnect the FaceCam or plug in
+      # another one, /dev/video2 can become /dev/video4. This path always points
+      # at the FaceCam (index0 = capture node; index1 is metadata and is useless
+      # for capturing).
       - "${CAM_DEVICE:-/dev/v4l/by-id/usb-KYE_Systems_Corp._FaceCam_1000X-video-index0}:/dev/video0"
     environment:
-      # CAM_CLOCK=1 quema la hora en el cuadro, para medir retraso. Apagado.
+      # CAM_CLOCK=1 burns the time into the frame, to measure delay. Off.
       CAM_CLOCK: ${CAM_CLOCK:-0}
     volumes:
       - ./data/cam:/out
-      # Montado y no sólo horneado: así editar capture.sh es un `restart`,
-      # no un rebuild. Igual que radio.liq en liquidsoap y el Caddyfile.
+      # Mounted and not just baked in: that way editing capture.sh is a
+      # `restart`, not a rebuild. Same as radio.liq in liquidsoap and the
+      # Caddyfile.
       - ./cam/capture.sh:/usr/local/bin/capture.sh:ro
     networks:
       - radio
-    # Si la cámara está desenchufada al levantar, este contenedor NO arranca.
-    # Es correcto: mejor un `up` que falla que un video vacío sin explicación.
+    # If the camera is unplugged at start-up, this container does NOT start.
+    # That is correct: better an `up` that fails than empty video with no
+    # explanation.
 
-  # Genera la música y reemplaza la biblioteca en cada ciclo. Liquidsoap ve
-  # los archivos nuevos por watch, pero NO olvida los borrados: por eso el
-  # ciclo reinicia liquidsoap después de rotar (INDIEGEN_RESTART).
+  # Generates the music and replaces the library every cycle. Liquidsoap sees
+  # the new files through watch, but it does NOT forget deletions: that is why
+  # the cycle restarts liquidsoap after rotating (INDIEGEN_RESTART).
   #
-  # Requiere el repo de indiegenerator disponible como contexto de build
-  # (por defecto ../indiegenerator en el mainframe).
+  # Requires the indiegenerator repo available as the build context (by default
+  # ../indiegenerator on the mainframe).
   #
-  # Restart en modo signal: el generador escribe /var/lib/indiegen/restart-request
-  # (volumen ./data/indiegen) y un watcher del HOST (cron + scripts/restart-on-signal.sh)
-  # hace el `docker compose restart liquidsoap`. NO se monta /var/run/docker.sock:
-  # el socket en un contenedor es root-equivalente sobre todo el host, y este
-  # box también corre jellyfin/searxng/archive. La radio decide su propio reinicio.
+  # Restart in signal mode: the generator writes
+  # /var/lib/indiegen/restart-request (volume ./data/indiegen) and a HOST watcher
+  # (cron + scripts/restart-on-signal.sh) runs `docker compose restart
+  # liquidsoap`. /var/run/docker.sock is NOT mounted: the socket inside a
+  # container is root-equivalent over the whole host, and this box also runs
+  # jellyfin/searxng/archive. The radio decides its own restart.
   indiegen:
     build:
       context: ${INDIEGEN_CONTEXT:-../indiegenerator}
       dockerfile: Dockerfile
     container_name: radio-indiegen
     restart: unless-stopped
-    # Corre como el usuario del host que es dueño de ./music y ./data/indiegen,
-    # no como root. Por defecto el contenedor es root, así que todo lo que
-    # escribe (tracks, json, state.json, runs/, restart-request) queda root:root
-    # y cualquier herramienta del host que quiera reescribirlo choca con EACCES.
-    # Medido: uid 1000 contra un state.json root:root da "Permission denied", y
-    # mkdir dentro de runs/ root:root también. Sin :? un despliegue nuevo
-    # arrancaría en silencio con el uid equivocado y fallaría recién en el
-    # primer ciclo, así que el valor es obligatorio en .env.
-    user: "${INDIEGEN_UID:?falta INDIEGEN_UID en .env}:${INDIEGEN_GID:?falta INDIEGEN_GID en .env}"
+    # Runs as the host user who owns ./music and ./data/indiegen, not as root.
+    # By default the container is root, so everything it writes (tracks, json,
+    # state.json, runs/, restart-request) ends up root:root and any host tool
+    # that wants to rewrite it hits EACCES. Measured: uid 1000 against a
+    # root:root state.json gives "Permission denied", and mkdir inside a root:root
+    # runs/ does too. Without :? a new deployment would start silently with the
+    # wrong uid and only fail on the first cycle, so the value is mandatory in
+    # .env.
+    user: "${INDIEGEN_UID:?INDIEGEN_UID missing from .env}:${INDIEGEN_GID:?INDIEGEN_GID missing from .env}"
     depends_on:
       - liquidsoap
     environment:
@@ -156,31 +159,32 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost}
       COOKIE_FLAGS: ${COOKIE_FLAGS:-HttpOnly; SameSite=Lax; Secure}
-      # El origen del frontend (Cloudflare Pages en producción). El canje
-      # redirige acá al terminar y el CORS permite este origen. En local,
-      # el frontend es este mismo Caddy (http://localhost:8090).
-      # OJO: sin trailing slash — se usa como origin en CORS y en el Location.
+      # The frontend's origin (Cloudflare Pages in production). The exchange
+      # redirects here when it finishes and CORS allows this origin. Locally the
+      # frontend is this same Caddy (http://localhost:8090).
+      # CAREFUL: no trailing slash — it is used as the origin in CORS and the
+      # Location.
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8090}
     ports:
       - "${HTTP_PORT:-8090}:80"
       - "${HTTPS_PORT:-8443}:443"
     volumes:
-      # El directorio, no los archivos: git cambia el working tree con un
-      # rename+swap (nuevo inodo), y Docker bind-montea el ARCHIVO por inodo
-      # — el contenedor se queda con la versión vieja para siempre y el
-      # `caddy reload` recarga basura sin efecto. Con el directorio, el
-      # swap se ve y el reload en caliente funciona sin reiniciar nada.
-      # (La cámara de esto ya la conocemos con tokens.caddy: ahí, "escribir
-      # in place" cierra porque no pasa por el git; el Caddyfile sí pasa).
+      # The directory, not the files: git changes the working tree with a
+      # rename+swap (new inode), and Docker bind-mounts the FILE by inode — the
+      # container keeps the old version forever and `caddy reload` reloads
+      # garbage with no effect. With the directory, the swap is visible and the
+      # hot reload works without restarting anything.
+      # (We already know this trick with tokens.caddy: there, "write in place"
+      # closes the gap because it does not go through git; the Caddyfile does).
       - ./caddy:/etc/caddy:ro
       - ./web:/srv:ro
-      # Los segmentos de la cámara. Caddy los sirve como archivos: no hay
-      # proxy, no hay otro puerto, no hay otro lugar donde autenticar.
+      # The camera's segments. Caddy serves them as files: there is no proxy, no
+      # other port, no other place to authenticate.
       #
-      # OJO con la ruta: NO puede ser /srv/cam. Docker monta ./web:/srv:ro
-      # primero (ordena por ruta) y después no puede crear /srv/cam dentro
-      # de un mount de sólo lectura: "Read-only file system (os error 30)".
-      # Por eso el directorio va a /srv-cam y el Caddyfile usa handle_path.
+      # CAREFUL with the path: it can NOT be /srv/cam. Docker mounts ./web:/srv:ro
+      # first (it sorts by path) and then cannot create /srv/cam inside a
+      # read-only mount: "Read-only file system (os error 30)". That is why the
+      # directory goes to /srv-cam and the Caddyfile uses handle_path.
       - ./data/cam:/srv-cam:ro
       - ./data/caddy:/data
     networks:

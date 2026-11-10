@@ -1,33 +1,32 @@
 #!/usr/bin/env bash
-# token.sh - gestiona quien puede escuchar la radio.
+# token.sh - manages who can listen to the radio.
 #
-#   ./scripts/token.sh add <nombre> [vencimiento]   da acceso
-#   ./scripts/token.sh rm  <nombre>                 le corta el acceso
-#   ./scripts/token.sh ls                           lista quien tiene acceso
-#   ./scripts/token.sh regen                        regenera el matcher de Caddy
+#   ./scripts/token.sh add <name> [expiry]   grants access
+#   ./scripts/token.sh rm  <name>            cuts their access
+#   ./scripts/token.sh ls                    lists who has access
+#   ./scripts/token.sh regen                 regenerates Caddy's matcher
 #
-# El vencimiento es opcional y acepta dos formas:
+# The expiry is optional and takes two forms:
 #
-#   ./scripts/token.sh add juan 30d          vence en 30 dias
-#   ./scripts/token.sh add juan 2026-12-31   vence esa fecha (ese dia inclusive)
+#   ./scripts/token.sh add juan 30d          expires in 30 days
+#   ./scripts/token.sh add juan 2026-12-31   expires on that date (inclusive)
 #
-# Sin vencimiento, la credencial dura para siempre.
+# With no expiry, the credential lasts forever.
 #
-# Cada persona recibe DOS credenciales:
+# Each person receives TWO credentials:
 #
-#   token    - viaja una sola vez, en el link de invitacion (?t=...).
-#              El navegador lo canjea por la cookie y lo suelta.
-#              Queda disponible para reproductores (VLC, mpv, ffmpeg),
-#              que no manejan cookies.
+#   token    - travels once, in the invitation link (?t=...). The browser
+#              exchanges it for the cookie and drops it. It stays available
+#              for players (VLC, mpv, ffmpeg), which do not handle cookies.
 #
-#   cookieid - lo que el navegador manda en cada request despues del
-#              canje. Gracias a esto el token no aparece en la URL ni en
-#              los logs de Caddy en cada reproduccion.
+#   cookieid - what the browser sends on every request after the exchange.
+#              Thanks to it the token does not appear in the URL nor in
+#              Caddy's logs on every playback.
 #
-# Las dos se revocan juntas con `rm`.
+# Both are revoked together with `rm`.
 #
-# El vencimiento se aplica en Caddy, comparando contra la fecha actual:
-# no hace falta correr nada cuando una credencial caduca.
+# The expiry is applied in Caddy, comparing against the current date: nothing
+# has to be run when a credential expires.
 
 set -euo pipefail
 
@@ -49,8 +48,8 @@ aleatorio() {
   fi
 }
 
-# Normaliza el vencimiento: "" | "30d" | "2026-12-31" -> "" | "YYYY-MM-DD".
-# Sale con error si la fecha es inválida o ya pasó.
+# Normalises the expiry: "" | "30d" | "2026-12-31" -> "" | "YYYY-MM-DD".
+# Exits with an error if the date is invalid or already past.
 normalizar_vencimiento() {
   python3 - "$1" <<'PY'
 import re, sys
@@ -77,9 +76,9 @@ print(d.isoformat())
 PY
 }
 
-# Valida la configuracion con el propio Caddy antes de recargar.
-# Un matcher roto no tiene que poder voltear la radio: si esto falla,
-# regenerar_matcher restaura el archivo anterior.
+# Validates the config with Caddy itself before reloading.
+# A broken matcher must not be able to take the radio down: if this fails,
+# regenerar_matcher restores the previous file.
 validar_caddy() {
   if "${COMPOSE[@]}" ps --status running --services 2>/dev/null | grep -qx caddy; then
     "${COMPOSE[@]}" exec -T caddy \
@@ -90,40 +89,40 @@ validar_caddy() {
   fi
 }
 
-# Regenera caddy/tokens.caddy desde secrets/tokens.txt.
-# El generador tambien migra el formato viejo y omite los vencidos.
+# Regenerates caddy/tokens.caddy from secrets/tokens.txt.
+# The generator also migrates the old format and skips expired ones.
 #
-# DOS COSAS DELICADAS, las dos ya nos mordieron:
+# TWO DELICATE THINGS, both have already bitten us:
 #
-# 1) NO usar `mv` para reemplazar el archivo. Docker bind-montea tokens.caddy
-#    por INODO: si el reemplazo cambia el inodo, el contenedor sigue viendo
-#    la version vieja y `caddy reload` recarga basura sin efecto. Hay que
-#    escribir IN PLACE (`cat ... > archivo`), que trunca y reusa el inodo.
+# 1) Do NOT use `mv` to replace the file. Docker bind-mounts tokens.caddy by
+#    INODE: if the replacement changes the inode, the container keeps seeing the
+#    old version and `caddy reload` reloads garbage with no effect. You have to
+#    write IN PLACE (`cat ... > file`), which truncates and reuses the inode.
 #
-# 2) Validar antes de dar por buena la config. Un matcher que no compila en
-#    CEL deja a Caddy en loop de reinicio: la radio entera se cae.
+# 2) Validate before accepting the config. A matcher that does not compile in
+#    CEL leaves Caddy in a restart loop: the whole radio goes down.
 regenerar_matcher() {
   local nuevo="$ARCHIVO_CADDY.nuevo"
   local respaldo
   respaldo="$(mktemp)"
 
   if ! python3 "$GENERADOR" "$ARCHIVO_TOKENS" "$nuevo"; then
-    echo "ERROR: no se pudo generar el matcher; no se toco la config actual." >&2
+    echo "ERROR: could not generate the matcher; the current config was not touched." >&2
     rm -f "$nuevo"
     return 1
   fi
 
   [[ -f "$ARCHIVO_CADDY" ]] && cat "$ARCHIVO_CADDY" > "$respaldo"
 
-  # Escritura in place: conserva el inodo que el contenedor tiene montado.
+  # In-place write: keeps the inode the container has mounted.
   cat "$nuevo" > "$ARCHIVO_CADDY"
   rm -f "$nuevo"
 
   if ! validar_caddy; then
-    echo "ERROR: Caddy no acepta la config generada. Restauro la anterior." >&2
+    echo "ERROR: Caddy does not accept the generated config. Restoring the previous one." >&2
     cat "$respaldo" > "$ARCHIVO_CADDY"
     rm -f "$respaldo"
-    echo "Mira el detalle con:" >&2
+    echo "See the detail with:" >&2
     echo "  docker run --rm -v \"$RAIZ/caddy:/etc/caddy:ro\" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile" >&2
     return 1
   fi
@@ -134,22 +133,22 @@ regenerar_matcher() {
 
 recargar_caddy() {
   if docker compose -f "$RAIZ/docker-compose.yml" ps --status running --services 2>/dev/null | grep -qx caddy; then
-    echo "-> recargando Caddy (sin cortar a los oyentes)..."
+    echo "-> reloading Caddy (without cutting the listeners)..."
     if "${COMPOSE[@]}" exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-      echo "-> listo."
+      echo "-> done."
     else
-      echo "-> no se pudo recargar en caliente; reinicio el contenedor." >&2
+      echo "-> could not reload hot; restarting the container." >&2
       "${COMPOSE[@]}" restart caddy >/dev/null
-      echo "-> listo."
+      echo "-> done."
     fi
   else
-    echo "-> Caddy no está corriendo; el cambio se aplica al levantarlo."
+    echo "-> Caddy is not running; the change applies when it starts."
   fi
 }
 
-# PUBLIC_URL desde .env, con default. Es lo único que comparten las dos
-# funciones de abajo: el formato de cada URL es distinto (token en el query
-# vs. token en el camino), así que sólo se extrae la lectura, no la forma.
+# PUBLIC_URL from .env, with a default. It is the only thing the two functions
+# below share: each URL's format is different (token in the query vs. token in
+# the path), so only the reading is extracted, not the shape.
 public_url() {
   local public
   public="$(grep -E '^PUBLIC_URL=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
@@ -161,56 +160,57 @@ url_de() {
   printf '%s/?t=%s\n' "$(public_url)" "$1"
 }
 
-# URL de la camara para reproductores (VLC, mpv, ffmpeg).
+# The camera URL for players (VLC, mpv, ffmpeg).
 #
-# El token va en el CAMINO, no en el query, y no es capricho: el playlist de
-# HLS apunta a los segmentos con rutas relativas, y el reproductor las pide
-# sin el query. Con ?t=... el playlist baja y los segmentos dan 404. Con el
-# token en un segmento del camino, cada pedido relativo lo hereda solo.
+# The token goes in the PATH, not in the query, and it is not a whim: the HLS
+# playlist points at the segments with relative paths, and the player requests
+# them without the query. With ?t=... the playlist downloads and the segments
+# give 404. With the token in a path segment, every relative request inherits it
+# on its own.
 url_cam_de() {
   printf '%s/cam/%s/index.m3u8\n' "$(public_url)" "$1"
 }
 
-# El nombre se usa dentro de expresiones ERE (^nombre ) y como archivo de
-# trabajo. Restringirlo a un charset sin metacaracteres cierra la superficie
-# de inyección de regex: si no hay ., *, +, (, ), [, ] en el nombre, el patrón
-# `^${nombre} ` matchea sólo esa persona.
+# The name is used inside ERE expressions (^name ) and as a work file.
+# Restricting it to a charset with no metacharacters closes the regex injection
+# surface: with no ., *, +, (, ), [, ] in the name, the pattern `^${nombre} `
+# matches only that person.
 validar_nombre() {
   if ! [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]]; then
-    echo "Nombre inválido: '$1'. Usá sólo letras, números, guion o guion bajo." >&2
+    echo "Invalid name: '$1'. Use only letters, numbers, hyphen or underscore." >&2
     exit 1
   fi
 }
 
-# Coherencia entre el sitio y la cookie. No puedo reiniciar Caddy acá, así que
-# es un aviso alto en las operaciones que sí tocan el .env: https sin Secure
-# deja la cookie viajando por HTTP claro.
+# Consistency between the site and the cookie. Caddy cannot be restarted here,
+# so this is a loud warning on the operations that do touch .env: https without
+# Secure leaves the cookie travelling over plain HTTP.
 validar_entorno() {
   local sitio flags
   sitio="$(grep -E '^SITE_ADDRESS=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
   flags="$(grep -E '^COOKIE_FLAGS=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
   if [[ "$sitio" == https://* && "$flags" != *Secure* ]]; then
-    echo "AVISO: SITE_ADDRESS usa https pero COOKIE_FLAGS no tiene 'Secure'." >&2
-    echo "       La cookie de sesión se mandará por HTTP. Agregá '; Secure' a COOKIE_FLAGS." >&2
+    echo "WARNING: SITE_ADDRESS uses https but COOKIE_FLAGS has no 'Secure'." >&2
+    echo "       The session cookie will be sent over HTTP. Add '; Secure' to COOKIE_FLAGS." >&2
   fi
 }
 
 cmd_add() {
-  local nombre="${1:?uso: token.sh add <nombre> [vencimiento]}"
+  local nombre="${1:?usage: token.sh add <name> [expiry]}"
   local pedido="${2:-}"
   local vence
 
   validar_nombre "$nombre"
   validar_entorno
 
-  # OJO: despues de `if ! cmd`, $? es el de la negacion (siempre 0).
-  # Hay que guardar el codigo antes de negarlo.
+  # CAREFUL: after `if ! cmd`, $? is the negation's (always 0).
+  # The code has to be saved before negating it.
   local rc=0
   vence="$(normalizar_vencimiento "$pedido")" || rc=$?
   if [ "$rc" -ne 0 ]; then
     case "$rc" in
-      3) echo "Esa fecha ya pasó: '$pedido'" >&2 ;;
-      *) echo "Vencimiento inválido: '$pedido'. Usá 30d o 2026-12-31" >&2 ;;
+      3) echo "That date has already passed: '$pedido'" >&2 ;;
+      *) echo "Invalid expiry: '$pedido'. Use 30d or 2026-12-31" >&2 ;;
     esac
     exit 1
   fi
@@ -219,10 +219,10 @@ cmd_add() {
     local t v
     t="$(awk -v n="$nombre" '$1==n {print $2}' "$ARCHIVO_TOKENS")"
     v="$(awk -v n="$nombre" '$1==n {print $4}' "$ARCHIVO_TOKENS")"
-    echo "\"$nombre\" ya tenía acceso. Su link sigue siendo:" >&2
+    echo "\"$nombre\" already had access. Its link is still:" >&2
     url_de "$t"
-    [[ -n "$v" ]] && echo "(vence el $v)" >&2
-    echo "Cámara (VLC/mpv): $(url_cam_de "$t")" >&2
+    [[ -n "$v" ]] && echo "(expires $v)" >&2
+    echo "Camera (VLC/mpv): $(url_cam_de "$t")" >&2
     return 0
   fi
 
@@ -230,54 +230,53 @@ cmd_add() {
   t="$(aleatorio)"
   printf '%s %s %s%s\n' "$nombre" "$t" "$(aleatorio)" "${vence:+ $vence}" >> "$ARCHIVO_TOKENS"
   regenerar_matcher
-  echo "OK acceso dado a \"$nombre\""
-  [[ -n "$vence" ]] && echo "   vence el $vence (ese día inclusive)"
+  echo "OK access granted to \"$nombre\""
+  [[ -n "$vence" ]] && echo "   expires $vence (that day included)"
   echo
-  echo "  Pasale este link:"
+  echo "  Give them this link:"
   echo "  $(url_de "$t")"
   echo
-  echo "  Al abrirlo en el navegador, el token se canjea por una cookie y"
-  echo "  la pagina lo saca de la URL. Si el navegador no guarda la cookie,"
-  echo "  el token sigue viajando en los pedidos de la pagina, pero nunca"
-  echo "  mas en la direccion."
+  echo "  When they open it in the browser, the token is exchanged for a cookie"
+  echo "  and the page takes it out of the URL. If the browser does not keep the"
+  echo "  cookie, the token keeps travelling on the page's requests, but never"
+  echo "  again in the address."
   echo
-  echo "  Para VLC/mpv, el audio va con ese mismo link. La cámara no: los"
-  echo "  segmentos de HLS no heredan el query, así que el token va en el"
-  echo "  camino."
+  echo "  For VLC/mpv, the audio goes with that same link. The camera does not:"
+  echo "  HLS segments do not inherit the query, so the token goes in the path."
   echo "  $(url_cam_de "$t")"
   echo
   recargar_caddy
 }
 
 cmd_rm() {
-  local nombre="${1:?uso: token.sh rm <nombre>}"
+  local nombre="${1:?usage: token.sh rm <name>}"
   validar_nombre "$nombre"
   if ! grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
-    echo "\"$nombre\" no estaba en la lista." >&2
+    echo "\"$nombre\" was not on the list." >&2
     exit 1
   fi
-  # El `|| true` no es decorativo: si es el ULTIMO token, grep -v no devuelve
-  # lineas, sale con 1, y con `set -e` el script moria acá sin avisar.
+  # The `|| true` is not decorative: if it is the LAST token, grep -v returns no
+  # lines, exits with 1, and with `set -e` the script died here without warning.
   grep -vE "^${nombre} " "$ARCHIVO_TOKENS" > "$ARCHIVO_TOKENS.tmp" || true
   mv "$ARCHIVO_TOKENS.tmp" "$ARCHIVO_TOKENS"
   regenerar_matcher
-  echo "OK acceso revocado a \"$nombre\" (token y cookie)"
+  echo "OK access revoked for \"$nombre\" (token and cookie)"
   recargar_caddy
 }
 
 cmd_ls() {
   if ! [[ -s "$ARCHIVO_TOKENS" ]]; then
-    echo "(nadie tiene acceso todavía)"
+    echo "(nobody has access yet)"
     return 0
   fi
   local hoy; hoy="$(date +%F)"
-  printf '%-20s %-16s %s\n' "QUIEN" "TOKEN" "VENCE"
+  printf '%-20s %-16s %s\n' "WHO" "TOKEN" "EXPIRES"
   while read -r n t c v; do
     [[ -z "${n:-}" ]] && continue
     if [[ -z "${v:-}" ]]; then
-      printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "nunca"
+      printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "never"
     elif [[ "$v" < "$hoy" ]]; then
-      printf '%-20s %-16s %s  <-- VENCIDO\n' "$n" "${t:0:12}..." "$v"
+      printf '%-20s %-16s %s  <-- EXPIRED\n' "$n" "${t:0:12}..." "$v"
     else
       printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "$v"
     fi
@@ -286,7 +285,7 @@ cmd_ls() {
 
 cmd_regen() {
   regenerar_matcher
-  echo "OK caddy/tokens.caddy regenerado desde secrets/tokens.txt"
+  echo "OK caddy/tokens.caddy regenerated from secrets/tokens.txt"
   recargar_caddy
 }
 

@@ -1,23 +1,24 @@
 # web/vendor
 
-Dependencias de terceros, servidas desde acá. **Ninguna sale a internet.**
+Third-party dependencies, served from here. **None of them go out to the
+internet.**
 
-El motivo es el mismo por el que la radio no se anuncia en directorios: si
-la página pide un script a un CDN, ese CDN —y quien lo opere— ve quién
-entra, cuándo y desde qué IP. Comprar privacidad con un `<script src>`
-externo no tiene sentido.
+The reason is the same one the radio is not announced in directories: if the
+page asks a CDN for a script, that CDN —and whoever runs it— sees who comes in,
+when and from which IP. Buying privacy with an external `<script src>` makes no
+sense.
 
 ## hls.js 1.7.3 — `hls.light.min.js`
 
-Apache-2.0 (ver `hls.js.LICENSE`). https://github.com/video-dev/hls.js
+Apache-2.0 (see `hls.js.LICENSE`). https://github.com/video-dev/hls.js
 
-Para qué: Safari reproduce HLS solo; Chrome y Firefox no. hls.js es el
-puente que le da HLS a Chrome, Firefox y Android. Sin él, la cámara se ve
-únicamente en Safari e iOS.
+What it is for: Safari plays HLS only; Chrome and Firefox do not. hls.js is the
+bridge that gives HLS to Chrome, Firefox and Android. Without it, the camera is
+seen only in Safari and iOS.
 
-Se usa la variante **light**: no trae audio alternativo, subtítulos ni
-DRM/EME. La cámara es video mudo por diseño, así que nada de eso hace
-falta y son ~230 KB menos (380 KB contra 608 KB).
+The **light** variant is used: it carries no alternate audio, no subtitles and
+no DRM/EME. The camera is muted video by design, so none of that is needed and
+it is ~230 KB less (380 KB versus 608 KB).
 
 Actualizar:
 
@@ -28,8 +29,8 @@ cp package/dist/hls.light.min.js web/vendor/
 cp package/LICENSE web/vendor/hls.js.LICENSE
 ```
 
-Cargado **siempre**: sin importar si el navegador soporta HLS nativo o no.
-Chrome 154 responde `"maybe"` a `canPlayType` y deja el stream atrasado ~10s
-sin perilla (medido). Así que todos usan hls.js + MSE: un solo camino,
-predecible. La implementación nativa de Safari tampoco se usa — mismo MSE,
-mismo reproductor, sin fork por plataforma.
+Loaded **always**: regardless of whether the browser supports native HLS or
+not. Chrome 154 answers `"maybe"` to `canPlayType` and leaves the stream ~10s
+behind with no knob (measured). So everybody uses hls.js + MSE: one single,
+predictable path. Safari's native implementation is not used either — same MSE,
+same player, no per-platform fork.

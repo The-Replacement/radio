@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Genera caddy/tokens.caddy a partir de secrets/tokens.txt.
+"""Generates caddy/tokens.caddy from secrets/tokens.txt.
 
-Formato de tokens.txt, una linea por persona:
+tokens.txt format, one line per person:
 
-    nombre token cookieid [YYYY-MM-DD]
+    name token cookieid [YYYY-MM-DD]
 
-El cuarto campo es opcional: sin el, la credencial no vence nunca.
+The fourth field is optional: without it, the credential never expires.
 
-Por que las fechas se comparan como int(unix) y no como texto: en CEL los
-placeholders de Caddy llegan como *strings*, asi que `{time.now.unix} < 123`
-falla con "no such overload" (string contra int). `int(...)` lo convierte.
-Verificado en un contenedor antes de escribir esto.
+Why dates are compared as int(unix) and not as text: in CEL, Caddy's
+placeholders arrive as *strings*, so `{time.now.unix} < 123` fails with
+"no such overload" (string against int). `int(...)` converts it.
+Verified in a container before writing this.
 
-Los tokens ya vencidos NO se emiten: se los omite del matcher para que el
-archivo no crezca con credenciales muertas. No se borran de tokens.txt.
+Already-expired tokens are NOT emitted: they are omitted from the matcher so the
+file does not grow with dead credentials. They are not deleted from tokens.txt.
 """
 
 import json
@@ -24,11 +24,11 @@ from datetime import date, datetime, timedelta
 
 
 def fin_de_dia(iso: str) -> int:
-    """Unix del inicio del dia siguiente.
+    """Unix time of the start of the next day.
 
-    O sea: el token vale TODO el dia indicado. Se calcula en la hora local
-    de quien corre el generador (el timestamp es absoluto, asi que despues
-    no importa la zona del contenedor).
+    That is: the token is valid for the WHOLE given day. It is calculated in the
+    local time of whoever runs the generator (the timestamp is absolute, so the
+    container's timezone does not matter afterwards).
     """
     d = date.fromisoformat(iso)
     siguiente = datetime.combine(d + timedelta(days=1), datetime.min.time())
@@ -36,11 +36,12 @@ def fin_de_dia(iso: str) -> int:
 
 
 def clausula(campo: str, valor: str, vence: str) -> str:
-    """Una condicion CEL: la credencial coincide Y (si corresponde) no vencio.
+    """One CEL condition: the credential matches AND (when applicable) has not
+    expired.
 
-    Ojo con las llaves: en una f-string `{{` produce una sola `{`. Hay que
-    escribir `{{` para que salga `{time.now.unix}` y no `{{time.now.unix}}`,
-    que no compila en CEL.
+    Careful with braces: in an f-string `{{` produces a single `{`. You have to
+    write `{{` so that `{time.now.unix}` comes out and not `{{time.now.unix}}`,
+    which does not compile in CEL.
     """
     if not vence:
         return f"({campo} == {json.dumps(valor)})"
@@ -56,7 +57,7 @@ def o(xs: list[str]) -> str:
 
 def main() -> int:
     if len(sys.argv) != 3:
-        print("uso: token-matcher.py <tokens.txt> <tokens.caddy>", file=sys.stderr)
+        print("usage: token-matcher.py <tokens.txt> <tokens.caddy>", file=sys.stderr)
         return 2
     entrada, salida = sys.argv[1], sys.argv[2]
 
@@ -70,7 +71,7 @@ def main() -> int:
             partes = linea.split()
             if len(partes) < 2:
                 print(
-                    f"tokens.txt linea {nro}: se esperaba 'nombre token ...'",
+                    f"tokens.txt line {nro}: expected 'name token ...'",
                     file=sys.stderr,
                 )
                 return 1
@@ -81,23 +82,23 @@ def main() -> int:
                 cookie = secrets.token_hex(32)  # formato viejo de 2 campos
                 migrado = True
             vence = partes[3] if len(partes) >= 4 else ""
-            # Se valida ANTES de cualquier escritura: un vencimiento mal
-            # formado aborta limpio y no deja tokens.txt a medias.
+            # Validated BEFORE any write: a badly formed expiry aborts cleanly
+            # and does not leave tokens.txt half-written.
             if vence:
                 try:
                     date.fromisoformat(vence)
                 except ValueError:
                     print(
-                        f"tokens.txt linea {nro}: vencimiento inválido: {vence!r}"
-                        " (usá YYYY-MM-DD)",
+                        f"tokens.txt line {nro}: invalid expiry: {vence!r}"
+                        " (use YYYY-MM-DD)",
                         file=sys.stderr,
                     )
                     return 1
             filas.append([nombre, token, cookie, vence])
 
     if migrado:
-        # Escritura atómica: tmp + os.replace. Si el proceso muere a mitad
-        # de camino, tokens.txt no queda truncado.
+        # Atomic write: tmp + os.replace. If the process dies halfway,
+        # tokens.txt is not left truncated.
         tmp = entrada + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.writelines(
@@ -120,72 +121,76 @@ def main() -> int:
     ck = [clausula("{http.request.cookie.radio}", f[2], f[3]) for f in vigentes]
 
     lineas = [
-        "# GENERADO POR scripts/token.sh - NO EDITAR A MANO.",
-        "# Define el matcher @gate, el puente y el matcher @canje.",
+        "# GENERATED BY scripts/token.sh - DO NOT EDIT BY HAND.",
+        "# Defines the @gate matcher, the bridge and the @canje matcher.",
         "#",
-        f"# {len(vigentes)} credencial(es) vigente(s).",
+        f"# {len(vigentes)} credential(s) in force.",
     ]
     if vencidos:
         lineas.append(
-            f"# {len(vencidos)} vencida(s), omitida(s) del matcher:"
+            f"# {len(vencidos)} expired, omitted from the matcher:"
             f" {', '.join(vencidos)}"
         )
 
-    # El puente: token de la URL -> cookieid de esa persona.
+    # The bridge: URL token -> that person's cookieid.
     #
-    # Sólo las vigentes. Si un token venció, no está en el map ni en @canje:
-    # el link no canjea y el token tampoco abre el gate.
+    # Only the ones in force. If a token expired, it is neither in the map nor in
+    # @canje: the link does not exchange and the token does not open the gate
+    # either.
     puente = [f"\t{json.dumps(f[1])} {json.dumps(f[2])}" for f in vigentes]
 
-    # @cam_ok: el token viajando en el CAMINO, para reproductores.
+    # @cam_ok: the token travelling in the PATH, for players.
     #
-    # /cam/<token>/index.m3u8 . El playlist apunta a archivos relativos, así
-    # que el reproductor hereda el token en cada segmento y no hay que
-    # reescribir nada. Con el token en el query eso NO funciona: el
-    # reproductor pide /cam/seg123.m4s sin query y come 404 (verificado).
+    # /cam/<token>/index.m3u8 . The playlist points at relative files, so the
+    # player inherits the token on every segment and nothing has to be rewritten.
+    # With the token in the query that does NOT work: the player requests
+    # /cam/seg123.m4s without a query and eats a 404 (verified).
     #
-    # {re.cam.1} lo captura el matcher @cam_path del Caddyfile, que se evalúa
-    # ANTES. Si esta condición se evaluara primero, compararía contra "".
+    # {re.cam.1} is captured by the Caddyfile's @cam_path matcher, which is
+    # evaluated BEFORE. If this condition were evaluated first, it would compare
+    # against "".
     cam = [clausula("{re.cam.1}", f[1], f[3]) for f in vigentes]
 
     lineas += [
         "",
-        "# @gate: token (reproductores) o cookie (navegador), y ademas vigente.",
+        "# @gate: token (players) or cookie (browser), and also in force.",
         "@gate {",
         f"\texpression `{o(tk + ck)}`",
         "}",
         "",
-        "# El puente token -> cookieid, que usa @canje para dejar la cookie.",
+        "# The token -> cookieid bridge, which @canje uses to set the cookie.",
         "#",
-        "# POR QUE EXISTE: las dos columnas de tokens.txt son credenciales",
-        "# DISTINTAS. Si el canje escribiera el token dentro de la cookie, el",
-        "# @gate de arriba compararia esa cookie contra la columna cookieid y",
-        "# no coincidiria nunca: TODA peticion posterior daria 404. El canje",
-        "# no puede copiar, tiene que traducir.",
+        "# WHY IT EXISTS: tokens.txt's two columns are DIFFERENT credentials.",
+        "# If the exchange wrote the token inside the cookie, the @gate above",
+        "# would compare that cookie against the cookieid column and it would",
+        "# never match: EVERY later request would give 404. The exchange cannot",
+        "# copy, it has to translate.",
         "map {http.request.uri.query.t} {radio_cookie} {",
         *puente,
         "}",
         "",
-        "# @canje: el link con ?t=... deja la cookie y la URL queda limpia.",
+        "# @canje: the link with ?t=... sets the cookie and the URL stays clean.",
         "#",
-        '# El guardia `{radio_cookie} != ""` no es decorativo. Si el map no',
-        "# llegara a resolver, sin el guardia la cookie se setearia VACIA y el",
-        "# oyente perderia la sesion en silencio. Con el guardia, el canje no",
-        "# matchea, la peticion cae a @gate (que YA acepta el token en la URL)",
-        "# y la radio sigue andando. Falla visible antes que sesion rota.",
+        '# The `{radio_cookie} != ""` guard is not decorative. If the map failed',
+        "# to resolve, without the guard the cookie would be set EMPTY and the",
+        "# listener would lose the session silently. With the guard, the exchange",
+        "# does not match, the request falls to @gate (which ALREADY accepts the",
+        "# token in the URL) and the radio keeps going. Visible failure before a",
+        "# broken session.",
         "@canje {",
         "\tpath /",
         "\texpression `(" + '{radio_cookie} != ""' + f" && ({o(tk)}))`",
         "}",
         "",
-        "# @cam_ok: token en el CAMINO (/cam/<token>/index.m3u8), para VLC/mpv.",
+        "# @cam_ok: token in the PATH (/cam/<token>/index.m3u8), for VLC/mpv.",
         "#",
-        "# El playlist apunta a archivos RELATIVOS: con el token en el camino,",
-        "# el reproductor lo hereda solo en cada segmento. Con el token en el",
-        "# query no funciona, porque los pedidos de segmento van sin query.",
+        "# The playlist points at RELATIVE files: with the token in the path, the",
+        "# player inherits it on every segment on its own. With the token in the",
+        "# query it does not work, because segment requests go without a query.",
         "#",
-        "# {re.cam.1} lo captura @cam_path en el Caddyfile, que se evalua ANTES",
-        "# que este matcher. El anidado de handles no es adorno: obliga al orden.",
+        "# {re.cam.1} is captured by @cam_path in the Caddyfile, which is",
+        "# evaluated BEFORE this matcher. The handle nesting is not decoration:",
+        "# it forces the order.",
         "@cam_ok {",
         f"\texpression `{o(cam)}`",
         "}",

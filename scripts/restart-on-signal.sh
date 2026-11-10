@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Consume el signal de restart que escribe el generador al rotar la biblioteca.
+# Consumes the restart signal the generator writes when it rotates the library.
 #
-# El generador corre con INDIEGEN_RESTART=signal:/var/lib/indiegen/restart-request
-# (volumen ./data/indiegen). Al terminar un ciclo escribe ahí un timestamp; este
-# script lo lee, y si cambió desde la última vez, hace `docker compose restart
-# liquidsoap` — necesario porque el watch de liquidsoap suma tracks pero no
-# olvida los borrados (los borrados "fantasma" seguirían sonando).
+# The generator runs with INDIEGEN_RESTART=signal:/var/lib/indiegen/restart-request
+# (volume ./data/indiegen). When a cycle ends it writes a timestamp there; this
+# script reads it and, if it changed since last time, runs `docker compose restart
+# liquidsoap` — necessary because liquidsoap's watch adds tracks but does not
+# forget deleted ones (the "phantom" deletions would keep playing).
 #
-# Corre desde cron cada minuto, como el usuario del box (kbdejavu, en el grupo
-# docker). No hay /var/run/docker.sock en ningún contenedor: el generador no
-# puede tocar nada más que escribir un archivo; el reinicio es decisión de la
-# radio, ejecutada por el host.
+# It runs from cron every minute, as the box's user (kbdejavu, in the docker
+# group). There is no /var/run/docker.sock in any container: the generator cannot
+# touch anything but write a file; the restart is the radio's decision, executed
+# by the host.
 #
 #   * * * * * /home/kbdejavu/servers/radio/scripts/restart-on-signal.sh
 #
-# Idempotente: si no hay signal nuevo, no toca nada. El marker se guarda al
-# lado del signal (data/indiegen/.last-restart, gitignored).
+# Idempotent: if there is no new signal, it touches nothing. The marker is kept
+# next to the signal (data/indiegen/.last-restart, gitignored).
 
 set -uo pipefail
 

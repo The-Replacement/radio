@@ -1,33 +1,33 @@
-# radio.liq — la fuente de la radio privada.
+# radio.liq — the private radio's source.
 #
-# Toma todos los archivos de audio de /music, los reproduce en orden
-# aleatorio y los empuja a Icecast en MP3 128 kbps.
+# Takes every audio file in /music, plays them in random order and pushes them
+# to Icecast in MP3 128 kbps.
 #
-# Es intencionalmente corto: cada línea de acá es el corazón del proyecto
-# y querés poder leerlo entero.
+# It is intentionally short: every line here is the heart of the project
+# and you want to be able to read it whole.
 
-# El contenedor corre como root; liquidsoap lo pide explícitamente.
+# The container runs as root; liquidsoap asks for it explicitly.
 settings.init.allow_root := true
 
-# 3 = info. Subí a 4 si algo no arranca.
+# 3 = info. Raise it to 4 if something does not start.
 settings.log.level := 3
 
 # ---------------------------------------------------------------- secretos
 
-# OJO con la firma: getenv(default, nombre_variable).
-# El nombre de la variable va SEGUNDO. Esto no es un typo.
+# CAREFUL with the signature: getenv(default, variable_name).
+# The variable name goes SECOND. This is not a typo.
 password = getenv("", "ICECAST_SOURCE_PASSWORD")
 
 if password == "" then
-  log.critical("ICECAST_SOURCE_PASSWORD está vacío: Icecast va a rechazar la conexión.")
+  log.critical("ICECAST_SOURCE_PASSWORD is empty: Icecast will reject the connection.")
 end
 
-# ---------------------------------------------------------------- música
+# ---------------------------------------------------------------- music
 
-# Playlist sobre un directorio. reload_mode="watch" hace que los temas
-# nuevos que agregues a ./music entren solos, sin reiniciar nada.
-# OJO: los BORRADOS no se quitan solos (Liquidsoap los conserva en su
-# playlist aleatoria en memoria). Para quitar temas, reiniciar liquidsoap:
+# Playlist over a directory. reload_mode="watch" makes the new tracks you add
+# to ./music come in on their own, with nothing to restart.
+# CAREFUL: DELETIONS are not removed on their own (Liquidsoap keeps them in its
+# in-memory random playlist). To remove tracks, restart liquidsoap:
 #   docker compose restart liquidsoap
 musica = playlist(
   mode    = "randomize",
@@ -35,15 +35,15 @@ musica = playlist(
   "/music"
 )
 
-# mksafe evita que el stream se caiga si la carpeta está vacía:
-# en vez de morir, emite silencio. Una radio privada que se cae sola
-# es peor que una radio en silencio.
+# mksafe keeps the stream from falling if the folder is empty:
+# instead of dying, it emits silence. A private radio that falls on its own
+# is worse than a silent radio.
 radio = mksafe(musica)
 
 # ---------------------------------------------------------------- salida
 
-# Encoder: MP3 128 kbps. Es lo que reproduce CUALQUIER cosa
-# (navegador, iOS, VLC, Android) sin discusiones de códecs.
+# Encoder: MP3 128 kbps. It is what ANYTHING plays
+# (browser, iOS, VLC, Android) without codec arguments.
 enc = %mp3(bitrate=128, samplerate=44100, stereo=true)
 
 output.icecast(
@@ -54,7 +54,7 @@ output.icecast(
   password    = password,
   mount       = "/stream",
   name        = "Radio Privada",
-  description = "Acceso con token",
-  genre       = "varios",
+  description = "Token access",
+  genre       = "various",
   radio
 )

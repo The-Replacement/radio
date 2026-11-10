@@ -1,45 +1,47 @@
 #!/usr/bin/env node
 /*
- * ui-gate.js — mide la estructura del estado del reproductor.
+ * ui-gate.js — measures the player's state structure.
  *
  *   ./scripts/ui-gate.js
  *
- *   ./scripts/ui-gate.js              corre los escenarios
- *   ./scripts/ui-gate.js --self-test  demuestra que el gate puede fallar
+ *   ./scripts/ui-gate.js              runs the scenarios
+ *   ./scripts/ui-gate.js --self-test  proves that the gate can fail
  *
- * web/index.html no tiene build ni test runner: esto extrae su <script>, lo
- * corre contra un DOM y un fetch inventados, y cuenta lo que a ojo no se ve:
- * cuántos fetch de estado hay por tick, cuántas veces se escribe #now y qué
- * hace el cartel mientras hay una cadena de reconexión en vuelo.
+ * web/index.html has no build and no test runner: this extracts its <script>,
+ * runs it against a made-up DOM and fetch, and counts what the eye cannot see:
+ * how many status fetches happen per tick, how many times #now is written, and
+ * what the banner does while a reconnection chain is in flight.
  *
- * No toca la red, no toca la cámara y no necesita stack levantado.
+ * It does not touch the network, does not touch the camera, and needs no stack
+ * running.
  *
- * Codigos de salida:
- *   0  todas las escenarios pasan
- *   1  hay al menos una falla (o el self-test detecto un gate sin dientes)
+ * Exit codes:
+ *   0  every scenario passes
+ *   1  at least one failure (or the self-test found a gate without teeth)
  *
- * Escenarios:
- *   S1  un solo tick: un fetch, un escritor de #now, la cadena manda.
- *   S1  las dos formas del endpoint (objeto/array) pintan igual.  [F-15]
- *   S2  la matriz 200 / 404 / rechazo de red al cargar.           [F-03]
- *   S2  una falla transitoria no apaga la radio.                  [F-04]
- *   S2  la copia de la puerta es UNA sola, y la escriben los dos
- *       caminos que pueden descubrir el 404.
- *   S3  el token sale de la barra: replaceState al decidir, el t en
- *       los pedidos sólo con la cookie muerta, y nada decidido si la
- *       red no respondió.                                         [F-01]
- *   S10 la encuesta de credencial tiene cota: un pedido que no vuelve
- *       nunca no congela la cadena — el aborto se lee como red y la
- *       cadena alcanza el intento 1 (el número) (F-09).
- *   F-17 el reintento manual después de agotar los 5 intentos arranca con
- *       presupuesto nuevo, no con el contador agotado.
- *   F-18 la mano del oyente manda: el click cancela lo agendado (un solo
- *       intento en vuelo) y la cadena no resucita una radio pausada.
+ * Scenarios:
+ *   S1  one tick: one fetch, one writer of #now, the chain outranks it.
+ *   S1  the endpoint's two shapes (object/array) paint the same.  [F-15]
+ *   S2  the 200 / 404 / network rejection matrix at load.         [F-03]
+ *   S2  a transient failure does not turn the radio off.          [F-04]
+ *   S2  the door's copy is a SINGLE one, and both paths that can
+ *       discover the 404 write it.
+ *   S3  the token leaves the address bar: replaceState on the decision,
+ *       the t on requests only with the dead cookie, and nothing decided
+ *       when the network did not answer.                          [F-01]
+ *   S10 the credential poll is bounded: a request that never comes back
+ *       does not freeze the chain — the abort reads as network and the
+ *       chain reaches attempt 1 (the number) (F-09).
+ *   F-17 a manual retry after the five attempts are spent starts with a
+ *       fresh budget, not with the exhausted counter.
+ *   F-18 the listener's hand outranks: the click cancels what is scheduled
+ *       (one attempt in flight) and the chain does not revive a paused
+ *       radio.
  *
- * Self-test (ver issue #23): un gate verde no prueba nada si no se lo vio
- * fallar. Rompe el codigo en memoria —una garantía por mutación— y exige
- * rojos en cada una, y verdes en la página real. Si una mutación deja el
- * gate en verde, el gate dejó de medir eso: también sale rojo.
+ * Self-test (see issue #23): a green gate proves nothing unless it was seen
+ * failing. It breaks the code in memory —one guard per mutation— and demands
+ * reds on each one, and greens on the real page. If a mutation leaves the
+ * gate green, the gate stopped measuring that: it comes out red too.
  */
 'use strict';
 
@@ -50,9 +52,8 @@ const vm = require('vm');
 const RAIZ = path.join(__dirname, '..');
 const PAGINA = path.join(RAIZ, 'web', 'index.html');
 
-// Ids que la pagina declara de verdad. El DOM inventado del gate sólo
-// responde esos: probar contra un id que no existe es probar contra
-// nadie.
+// Ids the page really declares. The gate's made-up DOM only answers those:
+// testing against an id that does not exist is testing against nobody.
 const IDS = new Set();
 
 /* --------------------------------------------------------------- utilidades */
@@ -63,29 +64,29 @@ const FIN = '\x1b[0m';
 
 let ok = 0;
 let mal = 0;
-// Etiquetas de las que salieron rojas: el self-test las muestra como
-// prueba de que la mutación dolió donde tenía que doler.
+// Labels that came out red: the self-test shows them as proof that the
+// mutation hurt where it had to hurt.
 let rojas = [];
-// El self-test corre el gate una vez más por mutación: sin esto la
-// salida sería 6 x 51 líneas de ruido.
+// The self-test runs the gate once more per mutation: without this the output
+// would be 6 x 51 lines of noise.
 let verbose = true;
 const pasa = (n) => { if (verbose) console.log(`  ${VERDE}OK${FIN}    ${n}`); ok++; };
 const falla = (n) => {
-  if (verbose) console.log(`  ${ROJO}FALLA${FIN}  ${n}`);
+  if (verbose) console.log(`  ${ROJO}FAIL${FIN}  ${n}`);
   mal++;
   rojas.push(n);
 };
 const check = (cond, nombre) => (cond ? pasa(nombre) : falla(nombre));
-// Titulos de escenario: mismos switch que los chequeos, para que el
-// self-test pueda correr el gate entero en silencio.
+// Scenario titles: the same switch as the checks, so the self-test can run
+// the whole gate in silence.
 const titular = (t) => { if (verbose) console.log(t); };
 
-// Dos setImmediate: la cadena leerEstado() -> render() son microtareas
-// encadenadas; una vuelta del loop las drena todas, la segunda deja el
-// campo limpio para el siguiente acto.
+// Two setImmediate calls: the leerEstado() -> render() chain is chained
+// microtasks; one loop turn drains them all, the second leaves the field clean
+// for the next act.
 const flush = () => new Promise((r) => setImmediate(() => setImmediate(r)));
 
-/* ------------------------------------------------------------------ el DOM */
+/* ------------------------------------------------------------------ the DOM */
 
 function elemento(id, escrituras) {
   const oyendo = {};
@@ -110,14 +111,14 @@ function elemento(id, escrituras) {
     removeEventListener(t, f) {
       if (oyendo[t]) oyendo[t] = oyendo[t].filter((f2) => f2 !== f);
     },
-    // El gate dispara los eventos que un navegador dispararía solo.
+    // The gate fires the events a browser would fire by itself.
     dispara(t, ev) { (oyendo[t] || []).slice().forEach((f) => f(ev || {})); },
     play() {
-      // Cada llamada cuenta: "un solo intento en vuelo" es un número, no
-      // una opinion (F-18).
+      // Every call counts: "one attempt in flight" is a number, not an
+      // opinion (F-18).
       this._plays = (this._plays || 0) + 1;
       if (this._playError) {
-        const e = new Error(this._playError.message || 'play() rechazado');
+        const e = new Error(this._playError.message || 'play() rejected');
         e.name = this._playError.name || 'Error';
         return Promise.reject(e);
       }
@@ -136,7 +137,7 @@ function elemento(id, escrituras) {
       contains(c) { return clases.has(c); },
     },
   };
-  // Escrituras contadas: sin esto "escribe una vez" es una opinion.
+  // Counted writes: without this "writes once" is an opinion.
   Object.defineProperty(e, 'textContent', {
     get() { return texto; },
     set(v) { escrituras[id] = (escrituras[id] || 0) + 1; texto = String(v); },
@@ -147,34 +148,35 @@ function elemento(id, escrituras) {
 }
 
 /*
- * fetch inventado. Devuelve lo que el reproductor lee: {ok, status, json}.
- * `pedidos` registra cada /status-json.xsl — de ahi salen los conteos por
- * tick. Cualquier otro endpoint (WHEP, playlist) queda fuera del gate y
- * rechaza: si el codigo llega a pedirlo, la escenario lo delata.
+ * Made-up fetch. Returns what the player reads: {ok, status, json}.
+ * `pedidos` records every /status-json.xsl — the per-tick counts come from
+ * there. Any other endpoint (WHEP, playlist) stays outside the gate and
+ * rejects: if the code ever asks for it, the scenario gives it away.
  *
- * Tres perillas, como en la realidad:
- *   alcanzable  la red/tunel esta caido (rechaza, no responde)
- *   codigo      lo que la puerta responde a un pedido con credencial
- *               (404 = link muerto, 502 = tunel roto)
- *   cookie      'muerta' = sin el token, la cookie NO abre: 404. Con el
- *               token el pedido pasa igual (es el respaldo). Con la
- *               cookie viva (default), el pedido sin token pasa tambien.
- *   cuelga      agujero negro: el pedido no vuelve NUNCA. Solo un aborto
- *               del que espera lo despierta (F-09: sin cota, la cadena
- *               de reconexion se congela para siempre).
+ * Four knobs, as in reality:
+ *   alcanzable  the network/tunnel is down (rejects, does not answer)
+ *   codigo      what the gate answers to a request with a credential
+ *               (404 = dead link, 502 = broken tunnel)
+ *   cookie      'muerta' = without the token, the cookie does NOT open: 404.
+ *               With the token the request goes through anyway (it is the
+ *               fallback). With a live cookie (default), a request without
+ *               the token goes through too.
+ *   cuelga      black hole: the request NEVER comes back. Only an abort from
+ *               the waiter wakes it (F-09: unbounded, the reconnection chain
+ *               freezes forever).
  */
 function crearFetch(fuente) {
   const pedidos = [];
-  // Cada llamada con sus opciones: el gate puede leer si el pedido llevo
-  // signal (la cota) o si arrastra uno que no le corresponde.
+  // Every call with its options: the gate can read whether the request
+  // carried a signal (the bound) or drags one that does not belong to it.
   const llamadas = [];
   const f = function (url, opciones) {
     const u = String(url);
     llamadas.push({ url: u, opciones: opciones || {} });
-    // El playlist de la camara, primero: si no hay, la pagina no arranca.
+    // The camera playlist, first: if there is none, the page does not start.
     if (u.indexOf('/cam/index.m3u8') !== -1) {
       pedidos.push(u);
-      if (!fuente.alcanzable) return Promise.reject(new Error('red caida'));
+      if (!fuente.alcanzable) return Promise.reject(new Error('network down'));
       if (fuente.cam404) {
         return Promise.resolve({
           ok: false, status: 404,
@@ -192,20 +194,20 @@ function crearFetch(fuente) {
       });
     }
     if (u.indexOf('/status-json.xsl') === -1) {
-      return Promise.reject(new Error('fuera del gate: ' + u));
+      return Promise.reject(new Error('outside the gate: ' + u));
     }
     pedidos.push(u);
-    if (!fuente.alcanzable) return Promise.reject(new Error('red caida'));
+    if (!fuente.alcanzable) return Promise.reject(new Error('network down'));
 
-    // Agujero negro: nadie contesta. El unico despertador es el aborto de
-    // quien espera; si el codigo no lo corta, la promesa (y la cadena de
-    // reconexion detras) queda pendiente para siempre.
+    // Black hole: nobody answers. The only wake-up call is the waiter's own
+    // abort; if the code does not cut it, the promise (and the reconnection
+    // chain behind it) stays pending forever.
     if (fuente.cuelga) {
       return new Promise(function (_listo, fallo) {
         const s = opciones && opciones.signal;
         if (!s) return;
         s.addEventListener('abort', function () {
-          const e = new Error('cortado por la cota');
+          const e = new Error('cut by the bound');
           e.name = 'AbortError';
           fallo(e);
         });
@@ -218,11 +220,11 @@ function crearFetch(fuente) {
       json() { return Promise.resolve(codigo === 200 ? { icestats: { source: fuente.datos } } : {}); },
     });
 
-    // La puerta/tunel manda para cualquier pedido: es lo que responde
-    // quien tiene la ultima palabra (404 = sin credencial valida).
+    // The gate/tunnel rules every request: that is what answers when it has
+    // the last word (404 = no valid credential).
     if (fuente.codigo && fuente.codigo !== 200) return Promise.resolve(responde(fuente.codigo));
 
-    // Sin el token en el pedido, unicamente la cookie puede abrir.
+    // Without the token on the request, only the cookie can open.
     if (!/[?&]t=/.test(u) && fuente.cookie === 'muerta') {
       return Promise.resolve(responde(404));
     }
@@ -234,9 +236,8 @@ function crearFetch(fuente) {
 }
 
 /*
- * Carga el <script> de web/index.html en un contexto de aislamiento y
- * devuelve perillas para manejarlo: disparar intervalos, leer el DOM,
- * cambiar lo que el fetch responde.
+ * Loads web/index.html's <script> into an isolated context and returns knobs
+ * to drive it: fire intervals, read the DOM, change what fetch answers.
  */
 async function abrirPagina(config) {
   const escrituras = {};
@@ -248,9 +249,9 @@ async function abrirPagina(config) {
   const fetch = crearFetch(fetchFuente);
   const creados = [];
 
-  // La direccion CON historia: replaceState de la pagina se ve aca.
-  // Sin esto "la barra queda limpia" seria una opinion del gate, no una
-  // medicion (F-01: el token tiene que salir de la barra de verdad).
+  // The address WITH history: the page's replaceState is visible here.
+  // Without this "the bar is clean" would be the gate's opinion, not a
+  // measurement (F-01: the token really has to leave the bar).
   const loc = { search: config.search || '', host: 'localhost:8090', hostname: 'localhost', origin: 'http://localhost:8090', pathname: '/' };
   const reemplazos = [];
   const historia = {
@@ -267,10 +268,10 @@ async function abrirPagina(config) {
     head: { appendChild() {} },
     createElement(tag) { const e = elemento(tag + '#nuevo', escrituras); creados.push(e); return e; },
     getElementById(id) {
-      // Si el gate (o el codigo) piden un id que no existe en la pagina,
-      // se prueba contra un elemento fantasma y el chequeo pasa en vano:
-      // es exactamente como se cae un gate sin darse cuenta.
-      if (!IDS.has(id)) throw new Error('id que no existe en web/index.html: ' + id);
+      // If the gate (or the code) asks for an id the page does not have, the
+      // check runs against a phantom element and passes for nothing: that is
+      // exactly how a gate falls over without noticing.
+      if (!IDS.has(id)) throw new Error('id that does not exist in web/index.html: ' + id);
       if (!elementos[id]) elementos[id] = elemento(id, escrituras);
       return elementos[id];
     },
@@ -287,9 +288,9 @@ async function abrirPagina(config) {
     console,
     setInterval(fn, ms) { intervalos.push({ fn, ms }); return intervalos.length; },
     clearInterval() {},
-    // Los ids son estables (y unicos) porque `correrTimeouts()` vacia la
-    // lista: con ids posicionales, un clearTimeout tardio apagaria el reloj
-    // equivocado y el gate mentiria en verde.
+    // Ids are stable (and unique) because `correrTimeouts()` empties the list:
+    // with positional ids a late clearTimeout would kill the wrong clock and
+    // the gate would lie in green.
     setTimeout(fn, ms) {
       const t = { id: proximoId++, fn, ms, cancelado: false };
       timeouts.push(t);
@@ -299,16 +300,16 @@ async function abrirPagina(config) {
       const t = timeouts.filter((x) => x.id === id)[0];
       if (t) t.cancelado = true;
     },
-    // El navegador lo tiene; el codigo de la pagina lo usa para la cota.
+    // The browser has it; the page's code uses it for the bound.
     AbortController,
   };
   vm.createContext(ctx);
   new vm.Script(CODIGO, { filename: 'web/index.html#<script>' }).runInContext(ctx);
   await flush();
-  // Perilla viva, como alcance: la pagina ya esta corriendo y play() se
-  // rechaza a partir de aca con el error que le pidan.
+  // Live knob, in scope: the page is already running and from here on play()
+  // rejects with whatever error it is given.
   if (config.playRechaza) {
-    doc.getElementById('audio')._playError = { name: config.playRechaza, message: 'el navegador bloqueó el autoplay' };
+    doc.getElementById('audio')._playError = { name: config.playRechaza, message: 'the browser blocked autoplay' };
   }
 
   const el = (id) => doc.getElementById(id);
@@ -319,13 +320,13 @@ async function abrirPagina(config) {
     fetch,
     location: loc,
     reemplazos,
-    // El objeto que el fetch lee: se puede cambiar en vivo para que el
-    // proximo tick vea otra realidad (404, red caida, 502...).
+    // The object fetch reads: it can be changed live so the next tick sees
+    // another reality (404, network down, 502...).
     config: fetchFuente,
     doc,
     el,
     creados,
-    // Enciende el intervalo dado (o todos) y deja que las promesas caigan.
+    // Fires the given interval (or all of them) and lets the promises fall.
     async disparar(ms) {
       const elegidos = ms == null ? intervalos : intervalos.filter((i) => i.ms === ms);
       elegidos.forEach((i) => i.fn());
@@ -344,43 +345,42 @@ async function abrirPagina(config) {
 
 /* --------------------------------------------------------------- escenarios */
 
-// El reproductor se traga el <script> entero de una sola vez.
+// The player swallows the whole <script> in one go.
 let CODIGO = '';
 let HTML = '';
 try {
   HTML = fs.readFileSync(PAGINA, 'utf8');
   const m = HTML.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no hay bloque <script> sin atributos');
+  if (!m) throw new Error('no <script> block without attributes');
   CODIGO = m[1];
   for (const id of HTML.matchAll(/\sid="([^"]+)"/g)) IDS.add(id[1]);
 } catch (e) {
-  console.log(`\n  ${ROJO}FALLA${FIN}  no pude leer el script de web/index.html: ${e.message}\n`);
+  console.log(`\n  ${ROJO}FAIL${FIN}  could not read the script in web/index.html: ${e.message}\n`);
   process.exit(1);
 }
 
-// El aire: el source que Icecast reporta cuando la radio esta al aire.
+// The air: the source Icecast reports when the radio is on air.
 const AIRE = {
   server_name: 'Radio Privada',
   title: 'Steady Hand — Radio Privada',
   listeners: 3,
 };
 
-// El fetch del gate sirve dos endpoints ahora: el estado y el probe de
-// la camara. Estas helpers existen para que las assertions del tick
-// cuenten SOLO el estado (F-08: el probe no debe contar para el
-// "exactamente un fetch por tick").
+// The gate's fetch now serves two endpoints: the status and the camera's
+// probe. These helpers exist so the tick's assertions count ONLY the status
+// (F-08: the probe must not count towards "exactly one fetch per tick").
 const soloEstado = (p) => p.fetch.pedidos.filter(u => u.includes('/status-json.xsl'));
 
 async function escenarioUnTick() {
-  titular('\nun solo tick de estado:');
+  titular('\none status tick:');
   const p = await abrirPagina({ datos: AIRE });
 
-  // Arranque: una verificacion inmediata, no dos.
-  check(soloEstado(p).length === 1, 'al cargar la pagina: exactamente 1 fetch de estado');
-  check((p.escrituras.now || 0) === 1, 'al cargar la pagina: #now se escribe 1 vez');
-  check(p.el('estado').textContent === 'live', 'al cargar: el cartel dice live');
+  // Start-up: one immediate check, not two.
+  check(soloEstado(p).length === 1, 'on load: exactly 1 status fetch');
+  check((p.escrituras.now || 0) === 1, 'on load: #now is written 1 time');
+  check(p.el('estado').textContent === 'live', 'on load: the banner says live');
 
-  // Ningun otro intervalo del reproductor debe hablar con el endpoint.
+  // No other interval in the player may talk to the endpoint.
   const queFetchean = [];
   for (const i of p.intervalos) {
     const antes = soloEstado(p).length;
@@ -390,62 +390,62 @@ async function escenarioUnTick() {
   }
   check(
     queFetchean.length === 1 && queFetchean[0] === 15000,
-    `un solo intervalo consulta el estado (15000 ms); encontrados: [${queFetchean.join(', ')}]`
+    `only one interval polls the status (15000 ms); found: [${queFetchean.join(', ')}]`
   );
 
-  // Cada tick: +1 fetch, +1 escritura de #now, +1 escritura de estado.
+  // Each tick: +1 fetch, +1 #now write, +1 status write.
   const antes = { ped: soloEstado(p).length, now: p.escrituras.now || 0, est: p.escrituras.estado || 0 };
   await p.disparar(15000);
-  check(soloEstado(p).length - antes.ped === 1, '15 s: el tick hace exactamente 1 fetch');
-  check((p.escrituras.now || 0) - antes.now === 1, '15 s: #now se escribe 1 vez');
-  check((p.escrituras.estado || 0) - antes.est === 1, '15 s: el cartel se escribe 1 vez');
+  check(soloEstado(p).length - antes.ped === 1, '15 s: the tick makes exactly 1 fetch');
+  check((p.escrituras.now || 0) - antes.now === 1, '15 s: #now is written 1 time');
+  check((p.escrituras.estado || 0) - antes.est === 1, '15 s: the banner is written 1 time');
 
   const ahora = { ped: soloEstado(p).length, now: p.escrituras.now || 0 };
   await p.disparar(15000);
-  check(soloEstado(p).length - ahora.ped === 1, 'otro tick: sigue siendo 1 fetch, no se acumulan');
-  check((p.escrituras.now || 0) - ahora.now === 1, 'otro tick: #now, 1 vez de nuevo');
+  check(soloEstado(p).length - ahora.ped === 1, 'another tick: still 1 fetch, they do not pile up');
+  check((p.escrituras.now || 0) - ahora.now === 1, 'another tick: #now, 1 time again');
 
-  check(p.el('now').textContent.trim() === AIRE.title, '#now muestra el title, no el server_name');
-  check(p.doc.title === `${AIRE.title} — Radio`, 'el titulo del documento acompana al tema');
-  check(p.el('listeners').textContent === '3 listeners', 'los oyentes salen del mismo objeto');
+  check(p.el('now').textContent.trim() === AIRE.title, '#now shows the title, not server_name');
+  check(p.doc.title === `${AIRE.title} — Radio`, 'the document title follows the track');
+  check(p.el('listeners').textContent === '3 listeners', 'listeners come from the same object');
 }
 
 async function escenarioCadenaManda() {
-  titular('\nla cadena de reconexion manda sobre el tick:');
+  titular('\nthe reconnection chain outranks the tick:');
   const p = await abrirPagina({ datos: AIRE });
-  check(p.el('estado').textContent === 'live', 'arranca en live');
+  check(p.el('estado').textContent === 'live', 'starts live');
 
-  // Un corte: el mismo camino que usaria el navegador (error de audio).
+  // A cut: the same path the browser would use (audio error).
   p.el('audio').dispara('error');
   await flush();
-  check(p.el('estado').textContent === 'reconnecting', 'el corte pone reconnecting');
-  check(!p.el('dot').classList.contains('live'), 'el punto verde se apaga');
-  check(p.timeouts.length > 0, 'el reintento quedo agendado');
+  check(p.el('estado').textContent === 'reconnecting', 'the cut sets reconnecting');
+  check(!p.el('dot').classList.contains('live'), 'the green dot goes off');
+  check(p.timeouts.length > 0, 'the retry was scheduled');
 
-  // Aca estaba el bug: el tick vivo pisaba "reconectando" con "live".
+  // The bug was here: the live tick painted "live" over "reconnecting".
   const escritas = p.escrituras.estado || 0;
   const antes = soloEstado(p).length;
   await p.disparar(15000);
-  check(soloEstado(p).length - antes === 1, 'el tick sigue corriendo (no se congela la pagina)');
-  check(p.el('estado').textContent === 'reconnecting', 'tick en vivo: el cartel NO pasa a live');
-  check((p.escrituras.estado || 0) === escritas, 'tick en vivo: ni una escritura del cartel');
+  check(soloEstado(p).length - antes === 1, 'the tick keeps running (the page does not freeze)');
+  check(p.el('estado').textContent === 'reconnecting', 'tick live: the banner does NOT turn live');
+  check((p.escrituras.estado || 0) === escritas, 'tick live: not one banner write');
 
-  // Y con el backend caido tampoco: "Radio off air" tampoco manda.
+  // And with the backend down neither: "Radio off air" does not rule either.
   p.config.alcanzable = false;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'reconnecting', 'tick sin backend: el cartel sigue intacto');
+  check(p.el('estado').textContent === 'reconnecting', 'tick with no backend: the banner stays intact');
 
-  // La cadena termina sola y el tick vuelve a mandar.
+  // The chain ends on its own and the tick rules again.
   await p.correrTimeouts();           // reintento agendado -> conectar()
   p.el('audio').dispara('playing');   // el stream volvio
-  check(p.el('estado').textContent === 'live', 'vuelta del stream: live otra vez');
+  check(p.el('estado').textContent === 'live', 'stream back: live again');
   p.config.alcanzable = true;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'live', 'con la cadena cerrada, el tick vuelve a pintar');
+  check(p.el('estado').textContent === 'live', 'with the chain closed, the tick paints again');
 }
 
 async function escenarioDosFormas() {
-  titular('\nlas dos formas del endpoint pintan igual (F-15):');
+  titular('\nthe endpoint\'s two shapes paint the same (F-15):');
   const objeto = await abrirPagina({ datos: AIRE });
   const array = await abrirPagina({ datos: [AIRE] });
   const dos = await abrirPagina({ datos: [AIRE, { server_name: 'segundo mount' }] });
@@ -461,442 +461,442 @@ async function escenarioDosFormas() {
   const a = leer(objeto);
   const b = leer(array);
   const c = leer(dos);
-  check(a === b, `objeto e array dan el mismo render\n        objeto: ${a}\n        array:  ${b}`);
-  check(b === c, 'con dos mounts se lee el primero, igual que con uno');
-  check(/Radio Privada/.test(a) && /3 listeners/.test(a), 'el render trae title y listeners');
+  check(a === b, `object and array give the same render\n        object: ${a}\n        array:  ${b}`);
+  check(b === c, 'with two mounts the first is read, same as with one');
+  check(/Radio Privada/.test(a) && /3 listeners/.test(a), 'the render carries title and listeners');
 }
 
-/* ------------------------------------------------- la puerta y el aire */
+/* ---------------------------------------------- the door and the air */
 
-// La frase de la puerta, tal cual debe verse en pantalla (sin el <br>).
+// The door's sentence, exactly as it must appear on screen (without the <br>).
 const FRASE_PUERTA = 'Server replied 404.\n' +
   'Access expired or the browser did not save the cookie. Ask for a new link.';
 
 const verErr = (p) => String(p.el('err').innerHTML || '').replace(/<br\s*\/?>/gi, '\n');
 
-// "No pintó nada": qué superficies del tick fueron tocadas (vacío = ninguna).
+// "Painted nothing": which tick surfaces were touched (empty = none).
 function fallasDePintura(p) {
   const f = [];
-  if (p.escrituras.estado) f.push(`el estado se escribio ${p.escrituras.estado} vez/veces`);
-  if (p.escrituras.now) f.push(`#now se escribio ${p.escrituras.now} vez/veces`);
-  if ('display' in p.el('err').style) f.push('el cartel de error fue tocado');
-  if ('display' in p.el('aviso').style) f.push('el aviso fue tocado');
-  if (p.el('play').disabled) f.push('el boton quedo deshabilitado');
-  if (p.el('dot')._clases.size) f.push('el punto fue tocado: ' + [...p.el('dot')._clases].join(','));
+  if (p.escrituras.estado) f.push(`the status was written ${p.escrituras.estado} time(s)`);
+  if (p.escrituras.now) f.push(`#now was written ${p.escrituras.now} time(s)`);
+  if ('display' in p.el('err').style) f.push('the error banner was touched');
+  if ('display' in p.el('aviso').style) f.push('the notice was touched');
+  if (p.el('play').disabled) f.push('the button was left disabled');
+  if (p.el('dot')._clases.size) f.push('the dot was touched: ' + [...p.el('dot')._clases].join(','));
   return f;
 }
 const intacto = (p) => fallasDePintura(p).length === 0;
 const dondeFalla = (p) => fallasDePintura(p).join(' / ');
 
 async function escenarioMatriz() {
-  titular('\nla matriz del tick al cargar (F-03 / F-04):');
+  titular('\nthe tick matrix at load (F-03 / F-04):');
 
   const aire = await abrirPagina({ datos: AIRE });
   check(aire.el('estado').textContent === 'live' && aire.el('play').disabled === false,
-    '200 con source -> live, boton habilitado');
+    '200 with source -> live, button enabled');
   check(aire.el('aviso').style.display === 'none' && aire.el('err').style.display !== 'block',
-    '200 con source -> sin avisos');
-  check(/Radio Privada/.test(aire.el('now').textContent), '200 con source -> #now con el tema');
+    '200 with source -> no notices');
+  check(/Radio Privada/.test(aire.el('now').textContent), '200 with source -> #now with the track');
 
   const sinAire = await abrirPagina({ datos: null });
   check(sinAire.el('aviso').textContent === 'Broadcast is stopped'
         && sinAire.el('aviso').style.display === 'block',
-    '200 sin source -> "Broadcast is stopped"');
+    '200 without source -> "Broadcast is stopped"');
   check(sinAire.el('estado').textContent === 'stopped' && sinAire.el('play').disabled === true,
-    '200 sin source -> stopped y boton muerto');
+    '200 without source -> stopped and a dead button');
 
-  // ESTA es la fila que no existia: la puerta cerrada hablando en el
-  // momento en que mas importa — al cargar, sin haber apretado play.
+  // THIS is the row that did not exist: the closed door speaking when it
+  // matters most — at load, without ever pressing play.
   const puerta = await abrirPagina({ codigo: 404 });
   check(verErr(puerta) === FRASE_PUERTA,
-    `404 -> la frase exacta de la puerta\n        ${verErr(puerta).replace(/\n/g, ' / ')}`);
-  check(puerta.el('err').style.display === 'block', '404 -> el cartel de la puerta se ve');
-  check(puerta.el('aviso').style.display !== 'block', '404 -> NO dice "Broadcast is stopped"');
-  check(puerta.el('estado').textContent === 'error', '404 -> el estado dice error, no stopped');
-  check(puerta.el('play').disabled === true, '404 -> boton muerto (no hay nada que reproducir)');
+    `404 -> the door's exact sentence\n        ${verErr(puerta).replace(/\n/g, ' / ')}`);
+  check(puerta.el('err').style.display === 'block', '404 -> the door\'s banner is visible');
+  check(puerta.el('aviso').style.display !== 'block', '404 -> it does NOT say "Broadcast is stopped"');
+  check(puerta.el('estado').textContent === 'error', '404 -> the status says error, not stopped');
+  check(puerta.el('play').disabled === true, '404 -> dead button (there is nothing to play)');
   check(/Ask for a new link/.test(verErr(puerta)),
-    '404 -> "Ask for a new link" esta a la vista al cargar');
+    '404 -> "Ask for a new link" is in sight at load');
 
   const rechazo = await abrirPagina({ alcanzable: false });
-  check(soloEstado(rechazo).length === 1, 'red caida -> igual hace el fetch (mide, no afirma)');
+  check(soloEstado(rechazo).length === 1, 'network down -> it still fetches (it measures, it does not claim)');
   check(intacto(rechazo),
-    `red caida -> no pinta nada: ni off air, ni puerta, ni boton muerto${intacto(rechazo) ? '' : `\n        ${dondeFalla(rechazo)}`}`);
+    `network down -> paints nothing: not off air, not the door, not a dead button${intacto(rechazo) ? '' : `\n        ${dondeFalla(rechazo)}`}`);
 
   const error502 = await abrirPagina({ codigo: 502 });
   check(intacto(error502),
-    `502 del tunel -> tampoco miente${intacto(error502) ? '' : `\n        ${dondeFalla(error502)}`}`);
+    `502 from the tunnel -> it does not lie either${intacto(error502) ? '' : `\n        ${dondeFalla(error502)}`}`);
 }
 
 async function escenarioTransitoria() {
-  titular('\nuna falla transitoria no apaga la radio (F-04):');
+  titular('\na transient failure does not turn the radio off (F-04):');
   const p = await abrirPagina({ datos: AIRE });
-  p.el('audio').dispara('playing'); // el audio esta sonando de verdad
+  p.el('audio').dispara('playing'); // the audio is really playing
   check(p.el('estado').textContent === 'live' && p.el('play').disabled === false,
-    'arranca live, boton habilitado');
+    'starts live, button enabled');
 
   p.config.alcanzable = false;
   const antes = soloEstado(p).length;
   await p.disparar(15000);
-  check(soloEstado(p).length - antes === 1, 'el tick consulta igual: midio, no se quedo mudo');
-  check(p.el('estado').textContent === 'live', 'el estado sigue en live');
-  check(p.el('play').disabled === false, 'el boton sigue habilitado');
-  check(p.el('aviso').style.display !== 'block', 'no aparece ningun aviso');
+  check(soloEstado(p).length - antes === 1, 'the tick still polls: it measured, it did not go mute');
+  check(p.el('estado').textContent === 'live', 'the status stays live');
+  check(p.el('play').disabled === false, 'the button stays enabled');
+  check(p.el('aviso').style.display !== 'block', 'no notice appears');
   check(!/off air/i.test(p.el('aviso').textContent + p.el('err').innerHTML),
-    'ni el aviso ni el cartel dicen "off air"');
-  check(p.el('dot').classList.contains('live'), 'el punto verde sigue encendido');
+    'neither the notice nor the banner says "off air"');
+  check(p.el('dot').classList.contains('live'), 'the green dot stays lit');
 
   p.config.alcanzable = true;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'live', 'red de vuelta -> el tick retoma el pintado solo');
+  check(p.el('estado').textContent === 'live', 'network back -> the tick resumes painting on its own');
 }
 
 async function escenarioPuerta() {
-  titular('\nla puerta, por los dos caminos que la descubren:');
+  titular('\nthe door, through the two paths that discover it:');
 
-  // Camino 1: la cadena. El token vence a mitad de sesion, el stream
-  // cae, alFallar() le pregunta al gate y el gate dice 404.
+  // Path 1: the chain. The token expires mid-session, the stream falls,
+  // alFallar() asks the gate, and the gate says 404.
   const cadena = await abrirPagina({ datos: AIRE });
   cadena.config.codigo = 404;
   cadena.el('audio').dispara('error');
   await flush();
-  check(cadena.el('err').style.display === 'block', 'la cadena llego hasta falloDefinitivo');
-  check(verErr(cadena) === FRASE_PUERTA, 'la cadena escribe la MISMA frase');
+  check(cadena.el('err').style.display === 'block', 'the chain reached falloDefinitivo');
+  check(verErr(cadena) === FRASE_PUERTA, 'the chain writes the SAME sentence');
 
-  // Camino 2: el tick. Nunca hubo audio: solo la pagina y su 404.
+  // Path 2: the tick. There was never audio: just the page and its 404.
   const tick = await abrirPagina({ codigo: 404 });
-  check(verErr(tick) === verErr(cadena), 'los dos caminos no pueden divergir');
+  check(verErr(tick) === verErr(cadena), 'the two paths cannot diverge');
 
-  // Y no pueden divergir en el futuro: la frase esta escrita una vez.
+  // And they cannot diverge in the future: the sentence is written once.
   const veces = CODIGO.split('Access expired or the browser did not save').length - 1;
-  check(veces === 1, `la frase de la puerta esta escrita una sola vez en el codigo (${veces})`);
+  check(veces === 1, `the door's sentence is written only once in the code (${veces})`);
 }
 
-/* ------------------------------------------- el token en la barra (F-01) */
+/* ------------------------------------------- the token in the bar (F-01) */
 
-// Cualquier string: el gate no valida tokens, valida por donde viajan.
+// Any string: the gate does not validate tokens, it validates where they travel.
 const TOKEN_DE_PRUEBA = 'f00dfeed';
 
 async function escenarioTokenFueraDeLaBarra() {
-  titular('\nel token sale de la barra (F-01):');
+  titular('\nthe token leaves the address bar (F-01):');
 
-  // 1) Navegador normal: la cookie abre y el primer pedido — SIN el
-  //    token — ya lo demuestra. Ese pedido es el que tiene que existir:
-  //    preguntar con el token no es preguntar, es gastarlo.
+  // 1) Normal browser: the cookie opens and the first request — WITHOUT the
+  //    token — already proves it. That is the request that has to exist: asking
+  //    with the token is not asking, it is spending it.
   const viva = await abrirPagina({ datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA });
   check(viva.location.search === '',
-    `cookie viva: la barra queda limpia al cargar (quedo "${viva.location.search}")`);
+    `live cookie: the bar is clean on load (left "${viva.location.search}")`);
   check(viva.reemplazos.length === 1,
-    `cookie viva: un replaceState, no cero ni tres (${viva.reemplazos.length})`);
+    `live cookie: one replaceState, not zero or three (${viva.reemplazos.length})`);
   check(soloEstado(viva).length === 1,
-    `cookie viva: un solo pedido — el que prueba la cookie (${soloEstado(viva).length})`);
+    `live cookie: one single request — the one that tests the cookie (${soloEstado(viva).length})`);
   check(soloEstado(viva).every((u) => !/[?&]t=/.test(u)),
-    'cookie viva: NINGUN pedido lleva el token');
+    'live cookie: NO request carries the token');
   check(viva.el('estado').textContent === 'live',
-    'cookie viva: la radio arranca viva sin gastar el token');
+    'live cookie: the radio starts live without spending the token');
   await viva.disparar(15000);
   check(soloEstado(viva).length === 2 && !/[?&]t=/.test(soloEstado(viva)[1]),
-    'cookie viva: el tick sigue sin token');
+    'live cookie: the tick still goes without the token');
 
-  // 2) Navegador sin cookies (Safari ITP, etc.): el respaldo tiene que
-  //    seguir vivo — el t viaja en los pedidos — y la barra limpia igual.
-  //    Principio 6 primero: el token no vive en la dirección.
+  // 2) Browser with no cookies (Safari ITP, etc.): the fallback has to stay
+  //    alive — the t travels on the requests — and the bar is cleaned anyway.
+  //    Principle 6 first: the token does not live in the address.
   const muerta = await abrirPagina({ datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA, cookie: 'muerta' });
   check(muerta.location.search === '',
-    `cookie muerta: la barra TAMBIEN queda limpia (quedo "${muerta.location.search}")`);
+    `dead cookie: the bar is clean TOO (left "${muerta.location.search}")`);
   check(soloEstado(muerta).length === 2,
-    `cookie muerta: prueba sin t (404) + veredicto con t (${soloEstado(muerta).length})`);
+    `dead cookie: test without t (404) + verdict with t (${soloEstado(muerta).length})`);
   check(!/[?&]t=/.test(soloEstado(muerta)[0]),
-    'cookie muerta: el primer pedido prueba la cookie SIN el token');
+    'dead cookie: the first request tests the cookie WITHOUT the token');
   check(/[?&]t=/.test(soloEstado(muerta)[1]),
-    'cookie muerta: el veredicto viene con el token (el respaldo)');
+    'dead cookie: the verdict comes with the token (the fallback)');
   check(muerta.el('estado').textContent === 'live',
-    'cookie muerta: el respaldo sostiene la radio');
+    'dead cookie: the fallback holds the radio up');
   await muerta.disparar(15000);
   check(/[?&]t=/.test(soloEstado(muerta)[2]),
-    'cookie muerta: los ticks siguen llevando el token');
+    'dead cookie: the ticks keep carrying the token');
   check(muerta.el('estado').textContent === 'live',
-    'cookie muerta: en el tick siguiente sigue viva (no se cayo al 404)');
+    'dead cookie: on the next tick it is still live (it did not fall to the 404)');
 
-  // 3) Link muerto: la puerta habla, con la barra igual de limpia.
+  // 3) Dead link: the door speaks, with the bar just as clean.
   const expirado = await abrirPagina({
     datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA, cookie: 'muerta', codigo: 404,
   });
-  check(verErr(expirado) === FRASE_PUERTA, 'link muerto: la frase de la puerta, no "off air"');
+  check(verErr(expirado) === FRASE_PUERTA, 'dead link: the door\'s sentence, not "off air"');
   check(expirado.location.search === '',
-    'link muerto: la barra se limpia aunque el link haya muerto');
+    'dead link: the bar is cleaned even though the link died');
 
-  // 4) No se pudo preguntar: no se decide nada. Limpiar la barra acá
-  //    seria tirar el respaldo al vacío — y decidir "cookie muerta" con
-  //    la radio caída seria mentir.
+  // 4) Could not ask: nothing is decided. Cleaning the bar here would be
+  //    throwing the fallback into the void — and deciding "dead cookie" with
+  //    the radio down would be lying.
   const caida = await abrirPagina({ datos: AIRE, alcanzable: false, search: '?t=' + TOKEN_DE_PRUEBA });
   check(caida.location.search === '?t=' + TOKEN_DE_PRUEBA,
-    'radio caida: la barra NO se limpia — nada probado, nada tirado');
-  check(soloEstado(caida).length === 1, 'radio caida: un intento por tick');
-  check(intacto(caida), 'radio caida: y no pinta nada');
+    'radio down: the bar is NOT cleaned — nothing proven, nothing thrown away');
+  check(soloEstado(caida).length === 1, 'radio down: one attempt per tick');
+  check(intacto(caida), 'radio down: and it paints nothing');
   caida.config.alcanzable = true;
   await caida.disparar(15000);
   check(caida.location.search === '',
-    'radio de vuelta: el tick que puede responder limpia la barra');
+    'radio back: the tick that can answer cleans the bar');
   check(!/[?&]t=/.test(soloEstado(caida)[soloEstado(caida).length - 1]),
-    'radio de vuelta: y el token ya no viaja');
+    'radio back: and the token no longer travels');
   check(caida.el('estado').textContent === 'live',
-    'radio de vuelta: el veredicto sale del probe, no de un fantasma');
+    'radio back: the verdict comes from the probe, not from a phantom');
 
-  // 5) Tunel roto (502): un error de proxy tampoco prueba nada.
+  // 5) Broken tunnel (502): a proxy error proves nothing either.
   const tunel = await abrirPagina({ codigo: 502, search: '?t=' + TOKEN_DE_PRUEBA });
   check(tunel.location.search === '?t=' + TOKEN_DE_PRUEBA,
-    '502: la barra se queda como estaba — 502 no prueba nada');
+    '502: the bar stays as it was — 502 proves nothing');
   check(soloEstado(tunel).length === 1,
-    '502: un solo intento (la pregunta se repite, no se contesta)');
-  check(intacto(tunel), '502: y no pinta nada');
+    '502: one single attempt (the question repeats, it is not answered)');
+  check(intacto(tunel), '502: and it paints nothing');
 
-  // 6) ?debug=1 sobrevive al token: se borra el t, no la perilla.
+  // 6) ?debug=1 survives the token: the t is removed, not the knob.
   const dbg = await abrirPagina({ datos: AIRE, search: '?t=' + TOKEN_DE_PRUEBA + '&debug=1' });
   check(dbg.location.search === '?debug=1',
-    `debug: se borra el t y queda el debug (quedo "${dbg.location.search}")`);
-  check(dbg.intervalos.some((i) => i.ms === 1000), 'debug: el panel sigue encendido');
+    `debug: the t is removed and debug stays (left "${dbg.location.search}")`);
+  check(dbg.intervalos.some((i) => i.ms === 1000), 'debug: the panel stays on');
 }
 
-/* ---------------------------------------- el cartel de la estación (F-10) */
+/* ---------------------------------------- the station's banner (F-10) */
 
-// La frase del autoplay, tal cual debe verse en pantalla.
+// The autoplay sentence, exactly as it must appear on screen.
 const FRASE_AUTOPLAY = 'The browser blocked autoplay. Press play.';
 
 async function escenarioVozDeLaEstacion() {
-  titular('\nel cartel de la estación, en una sola voz (F-10 / F-11):');
+  titular('\nthe station\'s banner, in one voice (F-10 / F-11):');
 
-  check(CODIGO.includes('var STR = {'), 'la copia vive en UN objeto (STR)');
-  // Ningún contenido visible escrito a mano: toda escritura a
-  // textContent/innerHTML referencia STR, variables o funciones. Una
-  // asignación con una frase literal fuera de STR rompe acá.
+  check(CODIGO.includes('var STR = {'), 'the copy lives in ONE object (STR)');
+  // No visible content written by hand: every write to textContent/innerHTML
+  // references STR, variables or functions. An assignment with a literal
+  // sentence outside STR breaks here.
   const mano = CODIGO.match(/\.(textContent|innerHTML|title)\s*=\s*'[^'\n]*[A-Za-zÀ-ÿ][^'\n]*'/g) || [];
   check(mano.length === 0,
-    `ni una frase visible escrita a mano fuera de STR${mano.length ? `\n        p.e. "${mano[0]}"` : ''}`);
-  check(/<html lang="en">/.test(HTML), 'la copia está en inglés y <html> lo dice');
+    `not one visible sentence hand-written outside STR${mano.length ? `\n        e.g. "${mano[0]}"` : ''}`);
+  check(/<html lang="en">/.test(HTML), 'the copy is in English and <html> says so');
 
   for (const id of ['estado', 'err', 'aviso']) {
     const tag = HTML.match(new RegExp('<[^>]+id="' + id + '"[^>]*>'));
-    check(!!tag && /aria-live="polite"/.test(tag[0]), `aria-live="polite" en #${id}`);
+    check(!!tag && /aria-live="polite"/.test(tag[0]), `aria-live="polite" on #${id}`);
   }
 
-  // La etiqueta del botón viaja con el estado: Play parada, Pause sonando.
+  // The button's label travels with the state: Play when stopped, Pause when playing.
   const p = await abrirPagina({ datos: AIRE });
   check(p.el('play')._attrs['aria-label'] === undefined,
-    'al cargar: la etiqueta viene del HTML estático');
+    'on load: the label comes from the static HTML');
   p.el('audio').dispara('playing');
-  check(p.el('play')._attrs['aria-label'] === 'Pause', 'al sonar: el botón dice Pause');
+  check(p.el('play')._attrs['aria-label'] === 'Pause', 'when playing: the button says Pause');
   p.el('audio').dispara('pause');
-  check(p.el('play')._attrs['aria-label'] === 'Play', 'al parar: el botón dice Play');
+  check(p.el('play')._attrs['aria-label'] === 'Play', 'when stopped: the button says Play');
 }
 
-/* -------------------------------------------- la política del navegador */
+/* -------------------------------------------- the browser's policy */
 
 async function escenarioAutoplayBloqueado() {
-  titular('\nel autoplay bloqueado dice lo que es (F-16):');
+  titular('\nblocked autoplay says what it is (F-16):');
 
   const p = await abrirPagina({ datos: AIRE, playRechaza: 'NotAllowedError' });
-  p.el('audio').dispara('playing'); // el audio estaba sonando de verdad
-  check(p.el('estado').textContent === 'live', 'arranca en live, sonando');
+  p.el('audio').dispara('playing'); // the audio was really playing
+  check(p.el('estado').textContent === 'live', 'starts live, sounding');
 
-  p.el('audio').dispara('error');   // el stream se corta
-  await flush();                     // alFallar -> fetch -> reintentar (agendado)
-  check(p.el('estado').textContent === 'reconnecting', 'el corte pone reconnecting');
-  check(p.timeouts.length > 0, 'el reintento quedó agendado');
+  p.el('audio').dispara('error');   // the stream cuts
+  await flush();                     // alFallar -> fetch -> reintentar (scheduled)
+  check(p.el('estado').textContent === 'reconnecting', 'the cut sets reconnecting');
+  check(p.timeouts.length > 0, 'the retry was scheduled');
 
-  await p.correrTimeouts();          // el retry corre -> conectar(true) -> play() rechaza
+  await p.correrTimeouts();          // the retry runs -> conectar(true) -> play() rejects
   check(p.el('aviso').style.display === 'block' && p.el('aviso').textContent === FRASE_AUTOPLAY,
-    'play() rechazado con NotAllowedError -> la copia dedicada, NO el silencio');
+    'play() rejected with NotAllowedError -> the dedicated copy, NOT silence');
   check(p.el('estado').textContent === 'blocked',
-    'el estado dice blocked, NO reconnecting ni stopped');
-  check(p.el('play').disabled === false, 'el botón queda vivo: el click lo resuelve');
-  check(!p.el('dot').classList.contains('live'), 'el punto verde se apaga');
+    'the status says blocked, NOT reconnecting or stopped');
+  check(p.el('play').disabled === false, 'the button stays alive: the click resolves it');
+  check(!p.el('dot').classList.contains('live'), 'the green dot goes off');
 
-  // El tick no pisa el bloqueo: el aire no desbloquea un navegador.
+  // The tick does not paint over the block: the air does not unblock a browser.
   const pintaAntes = p.escrituras.estado || 0;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'blocked', 'el tick NO pisa el bloqueo: el cartel sigue');
-  check((p.escrituras.estado || 0) === pintaAntes, 'el tick mide pero no escribe el cartel');
-  check(p.el('aviso').style.display === 'block', 'y el aviso sigue en pie');
+  check(p.el('estado').textContent === 'blocked', 'the tick does NOT paint over the block: the banner stays');
+  check((p.escrituras.estado || 0) === pintaAntes, 'the tick measures but does not write the banner');
+  check(p.el('aviso').style.display === 'block', 'and the notice still stands');
 
-  // El click viene con gesto del usuario: el navegador deja reproducir.
+  // The click comes with a user gesture: the browser lets it play.
   p.el('audio')._playError = null;
   p.el('play').dispara('click');
   p.el('audio').dispara('playing');
-  check(p.el('estado').textContent === 'live', 'el click resuelve lo que el autoplay no pudo');
-  check(p.el('play')._attrs['aria-label'] === 'Pause', 'y el botón dice Pause');
+  check(p.el('estado').textContent === 'live', 'the click resolves what autoplay could not');
+  check(p.el('play')._attrs['aria-label'] === 'Pause', 'and the button says Pause');
 }
 
-/* ------------------------------- la mano del oyente (F-17 / F-18) */
+/* ------------------------------- the listener's hand (F-17 / F-18) */
 
 const MAX_R = Number((CODIGO.match(/var MAX_REINTENTOS = (\d+);/) || [])[1] || 0);
 
 async function escenarioManoDelOyente() {
-  titular('\nla mano del oyente manda sobre la cadena (F-17 / F-18):');
+  titular('\nthe listener\'s hand outranks the chain (F-17 / F-18):');
 
-  check(MAX_R > 0, `el presupuesto de la cadena se lee del código (${MAX_R})`);
+  check(MAX_R > 0, `the chain's budget is read from the code (${MAX_R})`);
 
-  // F-17: después de agotar los intentos, un reintento manual arranca con el
-  // presupuesto entero — el primer fallo del reintento vuelve a (1/5), no al
-  // cartel definitivo.
+  // F-17: after the attempts are spent, a manual retry starts with the whole
+  // budget — the retry's first failure goes back to (1/5), not to the
+  // definitive banner.
   const p = await abrirPagina({ datos: AIRE });
   p.el('audio').dispara('playing');
-  for (let i = 0; i <= MAX_R; i++) {   // MAX_R fallos + el que agota
+  for (let i = 0; i <= MAX_R; i++) {   // MAX_R failures + the one that spends it
     p.el('audio').dispara('error');
     await flush();
     await p.correrTimeouts();
   }
   check(/Could not connect/.test(String(p.el('err').innerHTML || '')),
-    'agotado el presupuesto: cartel definitivo');
-  check(pendientes(p).length === 0, 'y no queda nada agendado');
+    'budget spent: definitive banner');
+  check(pendientes(p).length === 0, 'and nothing is left scheduled');
 
-  p.el('play').dispara('click');       // el oyente reintenta a mano
-  p.el('audio').dispara('error');      // y vuelve a fallar
+  p.el('play').dispara('click');       // the listener retries by hand
+  p.el('audio').dispara('error');      // and fails again
   await flush();
   check(String(p.el('err').textContent).indexOf('(1/' + MAX_R + ')') !== -1,
-    `el reintento manual empieza en (1/${MAX_R}), no choca con el contador agotado`);
+    `the manual retry starts at (1/${MAX_R}), it does not hit the exhausted counter`);
 
-  // F-18: un click durante la espera cancela el agendado — un solo intento
-  // en vuelo, siempre.
+  // F-18: a click during the wait cancels what is scheduled — one attempt in
+  // flight, always.
   const q = await abrirPagina({ datos: AIRE });
   q.el('audio').dispara('playing');
   q.el('audio').dispara('error');
   await flush();
   check(pendientes(q).filter((t) => t.ms === 800).length === 1,
-    'el primer intento quedó agendado (800 ms)');
+    'the first attempt was scheduled (800 ms)');
   const antes = q.el('audio')._plays || 0;
   q.el('play').dispara('click');
-  check((q.el('audio')._plays || 0) - antes === 1, 'el click arranca UN intento, ya');
+  check((q.el('audio')._plays || 0) - antes === 1, 'the click starts ONE attempt, now');
   check(pendientes(q).filter((t) => t.ms === 800).length === 0,
-    'y el agendado quedó cancelado');
+    'and the scheduled one was cancelled');
   await q.correrTimeouts();
   check((q.el('audio')._plays || 0) - antes === 1,
-    'correr el reloj después no arranca un segundo intento en paralelo');
+    'running the clock afterwards does not start a second attempt in parallel');
 
-  // F-18: la radio apagada a mano no se resucita sola. El elemento pausado
-  // también puede emitir `error`; la cadena no lo escucha.
+  // F-18: the radio turned off by hand is not revived on its own. A paused
+  // element can also emit `error`; the chain does not listen to it.
   const r = await abrirPagina({ datos: AIRE });
   r.el('audio').dispara('playing');
-  r.el('audio').readyState = 4;        // sonando de verdad
+  r.el('audio').readyState = 4;        // really playing
   r.el('audio').paused = false;
-  r.el('play').dispara('click');       // el oyente pulsa Pause
+  r.el('play').dispara('click');       // the listener presses Pause
   check(r.el('estado').textContent === 'stopped',
-    'pausa a mano: el cartel dice stopped (no queda clavado en reconnecting)');
+    'manual pause: the banner says stopped (it does not get stuck on reconnecting)');
   const playsR = r.el('audio')._plays || 0;
-  r.el('audio').dispara('error');      // un error posterior del elemento pausado
+  r.el('audio').dispara('error');      // a later error from the paused element
   await flush();
-  check(r.el('estado').textContent === 'stopped', 'la cadena no lo resucita');
-  check((r.el('audio')._plays || 0) === playsR, 'ni un intento arrancó');
-  check(pendientes(r).length === 0, 'ni un reintento agendado');
+  check(r.el('estado').textContent === 'stopped', 'the chain does not revive it');
+  check((r.el('audio')._plays || 0) === playsR, 'not one attempt started');
+  check(pendientes(r).length === 0, 'not one retry scheduled');
   await r.correrTimeouts();
-  check((r.el('audio')._plays || 0) === playsR, 'y correr el reloj tampoco: el audio no vuelve solo');
+  check((r.el('audio')._plays || 0) === playsR, 'and running the clock does not either: the audio does not come back on its own');
 
-  // Y el click de Play lo vuelve a encender: apagado no es un candado.
+  // And the Play click turns it back on: off is not a padlock.
   r.el('play').dispara('click');
-  check((r.el('audio')._plays || 0) - playsR === 1, 'Play lo enciende otra vez');
+  check((r.el('audio')._plays || 0) - playsR === 1, 'Play turns it on again');
 }
 
-/* ----------------------------------- la encuesta acotada (F-09 / S10) */
+/* ----------------------------------- the bounded poll (F-09 / S10) */
 
-// La cota vive en el código, escrita una vez: el gate la lee de ahí en vez
-// de repetir el número por su cuenta (dos copias del mismo número es cómo
-// se llega a medir el lugar equivocado).
+// The bound lives in the code, written once: the gate reads it from there
+// instead of repeating the number on its own (two copies of the same number is
+// how one ends up measuring the wrong place).
 const BOUND_MS = Number((CODIGO.match(/var PROBE_MS = (\d+);/) || [])[1] || 0);
 
 const pendientes = (p) => p.timeouts.filter((t) => !t.cancelado);
 
 async function escenarioProbeAcotado() {
-  titular('\nla encuesta de credencial tiene cota (F-09):');
+  titular('\nthe credential poll is bounded (F-09):');
 
-  check(BOUND_MS > 0, `la cota existe y es un número (${BOUND_MS} ms)`);
+  check(BOUND_MS > 0, `the bound exists and is a number (${BOUND_MS} ms)`);
   const declaraciones = CODIGO.split('var PROBE_MS =').length - 1;
-  check(declaraciones === 1, `la cota se declara una sola vez (${declaraciones})`);
+  check(declaraciones === 1, `the bound is declared only once (${declaraciones})`);
 
   const p = await abrirPagina({ datos: AIRE });
   p.el('audio').dispara('playing');
-  check(p.el('estado').textContent === 'live', 'arranca live, sonando');
+  check(p.el('estado').textContent === 'live', 'starts live, sounding');
 
-  // El corte, y el gate se traga el pedido: agujero negro, sin RST.
+  // The cut, and the gate swallows the request: black hole, no RST.
   p.config.cuelga = true;
   const antes = soloEstado(p).length;
   p.el('audio').dispara('error');
   await flush();
-  check(soloEstado(p).length - antes === 1, 'el corte pregunta por la credencial (1 pedido)');
+  check(soloEstado(p).length - antes === 1, 'the cut asks for the credential (1 request)');
 
   const probe = p.fetch.llamadas.filter((c) => c.url.indexOf('/status-json.xsl') !== -1).pop();
-  check(!!(probe.opciones && probe.opciones.signal), 'el pedido lleva signal: se puede cortar');
+  check(!!(probe.opciones && probe.opciones.signal), 'the request carries a signal: it can be cut');
   check(probe.opciones.cache === 'no-store' && probe.opciones.credentials === 'include',
-    'y pide con las mismas reglas que el tick (cache/credentials)');
+    'and asks with the same rules as the tick (cache/credentials)');
   const cota = pendientes(p).filter((t) => t.ms === BOUND_MS);
-  check(cota.length === 1, `la cota de ${BOUND_MS} ms quedó armada (${cota.length})`);
+  check(cota.length === 1, `the ${BOUND_MS} ms bound was armed (${cota.length})`);
 
-  // Sin la cota, acá se queda: la guarda `reintentando` traga el tick, el
-  // `ended` y el `error`, no hay cartel y el reloj no corre. La página se ve
-  // viva: es exactamente la falla que F-09 describe.
+  // Without the bound, it stays here: the `reintentando` guard swallows the
+  // tick, the `ended` and the `error`, there is no banner and the clock does
+  // not run. The page looks alive: it is exactly the failure F-09 describes.
   const pintadas = p.escrituras.estado || 0;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'live', 'colgada: el cartel no cambia (el corte no se anunció)');
-  check((p.escrituras.estado || 0) === pintadas, 'colgada: el tick mide pero no pinta');
-  check(p.el('err').style.display !== 'block', 'colgada: ni un cartel de error');
+  check(p.el('estado').textContent === 'live', 'hung: the banner does not change (the cut was not announced)');
+  check((p.escrituras.estado || 0) === pintadas, 'hung: the tick measures but does not paint');
+  check(p.el('err').style.display !== 'block', 'hung: not one error banner');
 
-  // Y entonces la cota dispara: el aborto se lee como red, la cadena avanza.
-  await p.correrTimeouts();   // abort -> catch -> reintentar -> intento 1 agendado
-  check(p.el('estado').textContent === 'reconnecting', 'la cota dispara: la cadena avanza sola');
+  // And then the bound fires: the abort reads as network, the chain advances.
+  await p.correrTimeouts();   // abort -> catch -> reintentar -> attempt 1 scheduled
+  check(p.el('estado').textContent === 'reconnecting', 'the bound fires: the chain advances on its own');
   check(String(p.el('err').textContent).indexOf('(1/5)') !== -1,
-    'llegó al intento 1 (1/5)');
+    'it reached attempt 1 (1/5)');
   check(!/Ask for a new link/.test(String(p.el('err').innerHTML || '')),
-    'el aborto NO se lee como puerta: no prueba nada de la credencial');
+    'the abort is NOT read as the door: it proves nothing about the credential');
   check(pendientes(p).filter((t) => t.ms === 800).length === 1,
-    'el intento 1 quedó agendado (800 ms)');
+    'attempt 1 was scheduled (800 ms)');
 
-  // La cadena no queda trabada: con la red de vuelta, el intento corre y el
-  // stream vuelve.
+  // The chain does not get stuck: with the network back, the attempt runs and
+  // the stream returns.
   p.config.cuelga = false;
   await p.correrTimeouts();   // intento 1: conectar(true)
   p.el('audio').dispara('playing');
-  check(p.el('estado').textContent === 'live', 'vuelta del stream: la cadena cierra en live');
+  check(p.el('estado').textContent === 'live', 'stream back: the chain closes on live');
 
-  // Y la cota no se le pega al objeto compartido: el tick siguiente pide
-  // sin signal (un signal abortado ahí mataría cada tick para siempre).
+  // And the bound is not pasted onto the shared object: the next tick asks
+  // without a signal (an aborted signal there would kill every tick forever).
   const q = await abrirPagina({ datos: AIRE });
   q.el('audio').dispara('error');
   await flush();
   await q.disparar(15000);
   const tickQ = q.fetch.llamadas.filter((c) => c.url.indexOf('/status-json.xsl') !== -1).pop();
   check(!(tickQ.opciones && tickQ.opciones.signal),
-    'la cota no se le pega al objeto compartido: el tick pide sin signal');
+    'the bound is not pasted onto the shared object: the tick asks without a signal');
 }
 
 
-/* --------------------------------------------- la cámara, por ahora (F-08) */
+/* --------------------------------------------- the camera, for now (F-08) */
 
 async function escenarioCamara() {
-  titular('\nla cámara, la pregunta antes del arranque (F-08):');
+  titular('\nthe camera, the question before start-up (F-08):');
 
-  // 404: no hay cámara — la caja ni aparece y NADIE carga vendorJS.
+  // 404: no camera — the box does not even appear and NOBODY loads vendorJS.
   const c404 = await abrirPagina({ datos: AIRE, cam404: true });
-  check(c404.el('cam-caja').hidden === true, 'playlist 404 -> la caja NO aparece');
+  check(c404.el('cam-caja').hidden === true, 'playlist 404 -> the box does NOT appear');
   const vendor404 = c404.creados.filter(e => e.src && e.src.includes('hls.light.min.js'));
-  check(vendor404.length === 0, 'playlist 404 -> cero loads de hls.js');
-  check(!c404.fetch.pedidos.some(u => u.indexOf('whep') !== -1), 'playlist 404 -> cero SDP a WHEP');
+  check(vendor404.length === 0, 'playlist 404 -> zero hls.js loads');
+  check(!c404.fetch.pedidos.some(u => u.indexOf('whep') !== -1), 'playlist 404 -> zero SDP to WHEP');
 
-  // Fresca: PDT de hace 2s — la caja aparece.
+  // Fresh: PDT from 2s ago — the box appears.
   const fresca = await abrirPagina({ datos: AIRE, camPdtAge: 2000 });
   fresca.el('cam').canPlayType = function () { return 'probably'; };
-  await flush();                     // dejar correr hayCamara() -> porHls()
+  await flush();                     // let hayCamara() -> porHls() run
   const vendorFresh = fresca.creados.filter(e => e.src && e.src.includes('hls.light.min.js'));
   if (vendorFresh.length) {
-    vendorFresh[0].onload();        // simular el script cargado
+    vendorFresh[0].onload();        // simulate the loaded script
     await flush();
   }
-  // nativo(): cam.src asignado + loadedmetadata registrado -> disparar
+  // nativo(): cam.src assigned + loadedmetadata registered -> fire
   fresca.el('cam').dispara('loadedmetadata');
-  check(fresca.el('cam-caja').hidden === false, 'playlist fresca -> la caja aparece');
+  check(fresca.el('cam-caja').hidden === false, 'fresh playlist -> the box appears');
 
-  // Vencida: PDT de hace un minuto — la caja NO aparece.
+  // Stale: PDT from a minute ago — the box does NOT appear.
   const vieja = await abrirPagina({ datos: AIRE, camPdtAge: 60000 });
-  check(vieja.el('cam-caja').hidden === true, 'playlist vieja (>10 s) -> la caja NO aparece');
+  check(vieja.el('cam-caja').hidden === true, 'stale playlist (>10 s) -> the box does NOT appear');
   const vendorOld = vieja.creados.filter(e => e.src && e.src.includes('hls.light.min.js'));
-  check(vendorOld.length === 0, 'playlist vieja -> cero loads de hls.js');
+  check(vendorOld.length === 0, 'stale playlist -> zero hls.js loads');
 }
 
 /* ------------------------------------------------------------------ corrida */
@@ -921,110 +921,109 @@ async function correrEscenarios() {
 /* ------------------------------------------------------------- self-test */
 
 /*
-  Una mutación por garantía que el gate dice custodiar. Cada una rompe
-  exactamente una regla escrita en web/index.html y nada más. La rotura
-  es sobre el string en memoria: el archivo de la página no se toca, así
-  que no hay nada que restaurar y ninguna chance de dejar la radio
-  mutada en el repositorio.
+  One mutation per guarantee the gate claims to guard. Each one breaks exactly
+  one rule written in web/index.html and nothing else. The break happens on the
+  string in memory: the page's file is not touched, so there is nothing to
+  restore and no chance of leaving the radio mutated in the repository.
 
-  Ver issue #23: un gate que nunca se vio fallar no está verificado,
-  está creído.
+  See issue #23: a gate that was never seen failing is not verified, it is
+  believed.
 */
 const MUTACIONES = [
   {
-    que: 'un segundo tick de 15 s (la regla de un solo fetch por tick)',
+    que: 'a second 15 s tick (the one fetch per tick rule)',
     aplica: (h) => h.replace('setInterval(tick, TICK_MS);',
       'setInterval(tick, TICK_MS); setInterval(tick, TICK_MS);'),
   },
   {
-    que: 'la cadena deja de mandar sobre el tick',
-    aplica: (h) => h.replace(/if \(reintentando\) return;\n\n    \/\/ Regla 1b/,
-      '// (guarda mutada)\n\n    // Regla 1b'),
+    que: 'the chain stops outranking the tick',
+    aplica: (h) => h.replace(/if \(reintentando\) return;\n\n    \/\/ Rule 1b/,
+      '// (guard mutated)\n\n    // Rule 1b'),
   },
   {
-    que: 'el 404 se lee como cualquier otra respuesta',
+    que: 'the 404 is read like any other answer',
     aplica: (h) => h.replace("if (r.status === 404) return { veredicto: 'puerta' };",
       "if (r.status === 401) return { veredicto: 'puerta' };"),
   },
   {
-    que: 'sin datos -> vuelve a pintar (la mentira de la falla transitoria)',
+    que: 'no data -> it paints again (the transient failure lie)',
     aplica: (h) => h.replace("if (f.veredicto === 'sin-datos') return;",
       "if (f.veredicto === 'nunca') return;"),
   },
   {
-    que: 'las dos formas del endpoint se leen distinto',
+    que: 'the endpoint\'s two shapes are read differently',
     aplica: (h) => h.replace('if (Array.isArray(s)) s = s[0] || null;', ''),
   },
   {
-    que: 'la frase de la puerta se escribe dos veces',
+    que: 'the door\'s sentence is written twice',
     aplica: (h) => h.replace('  var STR = {',
       "  var PUERTA_COPIA = 'Access expired or the browser did not save the cookie.';\n  var STR = {"),
   },
   {
-    que: 'la barra nunca se limpia (el t se queda en la direccion)',
+    que: 'the bar is never cleaned (the t stays in the address)',
     aplica: (h) => h.replace("    q.delete('t');\n", ''),
   },
   {
-    que: 'el sufijo se borra aunque la cookie este muerta',
+    que: 'the suffix is dropped even when the cookie is dead',
     aplica: (h) => h.replace('          cookieProbada = true;\n          limpiarBarra();',
       "          cookieProbada = true;\n          sufijo = '';\n          limpiarBarra();"),
   },
   {
-    que: 'la prueba de cookie ya llega con el token (nunca se pregunta)',
+    que: 'the cookie test arrives with the token (it never asks)',
     aplica: (h) => h.replace("return fetch(BACKEND_URL + '/status-json.xsl', OPCIONES_ESTADO)",
       'return fetch(conT, OPCIONES_ESTADO)'),
   },
   {
-    que: 'un 502 se lee como 404: se decide aunque no se sabe nada',
+    que: 'a 502 is read as 404: it decides even though nothing is known',
     aplica: (h) => h.replace('        if (r.status === 404) {',
       '        if (r.status === 404 || r.status === 502) {'),
   },
   {
-    que: 'el autoplay bloqueado se traga en silencio (F-16)',
+    que: 'blocked autoplay is swallowed in silence (F-16)',
     aplica: (h) => h.replace("if (e && e.name === 'NotAllowedError') autoplayBloqueado();",
-      '// autoplay tragado'),
+      '// autoplay swallowed'),
   },
   {
-    que: 'una frase visible queda escrita a mano, fuera de STR (F-10)',
+    que: 'a visible sentence is left hand-written, outside STR (F-10)',
     aplica: (h) => h.replace("    estado.textContent = STR.live;",
       "    estado.textContent = 'live';"),
   },
   {
-    que: 'la cámara se muestra aunque el playlist esté viejo (F-08)',
+    que: 'the camera is shown even when the playlist is stale (F-08)',
     aplica: (h) => h.replace('        return (Date.now() - t) < 10000;',
-      '        return true; // mutado: siempre fresca'),
+      '        return true; // mutated: always fresh'),
   },
   {
-    que: 'la encuesta de credencial vuelve a no tener cota (F-09: se cuelga para siempre)',
+    que: 'the credential poll becomes unbounded again (F-09: it hangs forever)',
     aplica: (h) => h.replace('    var reloj = corte ? setTimeout(function () { corte.abort(); }, PROBE_MS) : null;',
-      '    var reloj = null; // mutado: sin cota'),
+      '    var reloj = null; // mutated: unbounded'),
   },
   {
-    que: 'el aborto se lee como puerta (un no-responder "prueba" la credencial)',
+    que: 'the abort is read as the door (a non-answer "proves" the credential)',
     aplica: (h) => h.replace('      .catch(function () { sinCredencial = false; })',
       '      .catch(function () { sinCredencial = true; })'),
   },
   {
-    que: 'la cota se declara dos veces (dos números que se creen el mismo)',
+    que: 'the bound is declared twice (two numbers that believe they are the same)',
     aplica: (h) => h.replace('  var PROBE_MS = 3000;', '  var PROBE_MS = 3000;\n  var PROBE_MS = 3000;'),
   },
   {
-    que: 'el signal de la cota se le pega al objeto de opciones compartido',
+    que: 'the bound\'s signal is pasted onto the shared options object',
     aplica: (h) => h.replace("    var opciones = corte\n      ? Object.assign({}, OPCIONES_ESTADO, { signal: corte.signal })\n      : OPCIONES_ESTADO;",
       '    var opciones = OPCIONES_ESTADO;\n    if (corte) opciones.signal = corte.signal;'),
   },
   {
-    que: 'el click no cancela el reintento agendado (la radio vuelve sola)',
+    que: 'the click does not cancel the scheduled retry (the radio comes back alone)',
     aplica: (h) => h.replace("    cancelarReintento();\n    reintentando = false;\n    reintentos = 0;\n    if (sonando()) {",
       '    reintentando = false;\n    reintentos = 0;\n    if (sonando()) {'),
   },
   {
-    que: 'el click no renueva el presupuesto (el comentario vuelve a mentir, F-17)',
+    que: 'the click does not renew the budget (the comment lies again, F-17)',
     aplica: (h) => h.replace("    cancelarReintento();\n    reintentando = false;\n    reintentos = 0;\n    if (sonando()) {",
       '    cancelarReintento();\n    reintentando = false;\n    if (sonando()) {'),
   },
   {
-    que: 'la cadena resucita la radio que el oyente apagó a mano (F-18)',
+    que: 'the chain revives the radio the listener turned off by hand (F-18)',
     aplica: (h) => h.replace('    if (pausadoAMano) return;\n    reintentando = true;',
       '    reintentando = true;'),
   },
@@ -1035,52 +1034,52 @@ const primeraLinea = (s) => sinAnsi(s).split('\n')[0].trim();
 
 async function selfTest() {
   const original = CODIGO;
-  // Corre el gate sin ruido y siempre devuelve el codigo a la página real.
+  // Runs the gate silently and always restores the code to the real page.
   const correrCallado = async () => {
     verbose = false;
     try { return await correrEscenarios(); }
     finally { verbose = true; CODIGO = original; }
   };
 
-  titular('\nSelf-test — ¿puede fallar este gate?');
+  titular('\nSelf-test — can this gate fail?');
   console.log('');
 
   let problemas = 0;
 
   const real = await correrCallado();
   if (real.mal === 0) {
-    console.log(`  ${VERDE}OK${FIN}    pagina real .......................... ${real.ok}/${real.ok} en verde`);
+    console.log(`  ${VERDE}OK${FIN}    real page .......................... ${real.ok}/${real.ok} green`);
   } else {
-    console.log(`  ${ROJO}FALLA${FIN}  la pagina real tiene ${real.mal} rojos: arreglalos antes de creerle al self-test`);
+    console.log(`  ${ROJO}FAIL${FIN}  the real page has ${real.mal} reds: fix them before believing the self-test`);
     problemas++;
   }
 
   for (const m of MUTACIONES) {
     const mutado = m.aplica(original);
     if (mutado === original) {
-      // El codigo cambio de forma y la mutacion ya no sabe donde
-      // cortar: eso NO es un pase, es un gate ciego.
-      console.log(`  ${ROJO}FALLA${FIN}  la mutacion no aplico: ${m.que}`);
+      // The code changed shape and the mutation no longer knows where to
+      // cut: that is NOT a pass, it is a blind gate.
+      console.log(`  ${ROJO}FAIL${FIN}  the mutation did not apply: ${m.que}`);
       problemas++;
       continue;
     }
     CODIGO = mutado;
     const r = await correrCallado();
     if (r.mal === 0) {
-      console.log(`  ${ROJO}FALLA${FIN}  quedo en verde con: ${m.que}`);
+      console.log(`  ${ROJO}FAIL${FIN}  it stayed green with: ${m.que}`);
       problemas++;
     } else {
       console.log(`  ${VERDE}OK${FIN}    ${m.que}`);
-      console.log(`          ${r.mal} rojos, p.e. "${primeraLinea(r.rojas[0])}"`);
+      console.log(`          ${r.mal} reds, e.g. "${primeraLinea(r.rojas[0])}"`);
     }
   }
 
   console.log('');
   if (problemas === 0) {
-    console.log(`${VERDE}Todo bien${FIN} - ${MUTACIONES.length} mutaciones atrapadas.\n`);
+    console.log(`${VERDE}All good${FIN} - ${MUTACIONES.length} mutations caught.\n`);
     process.exit(0);
   }
-  console.log(`${ROJO}${problemas} problema(s) en el self-test${FIN}\n`);
+  console.log(`${ROJO}${problemas} problem(s) in the self-test${FIN}\n`);
   process.exit(1);
 }
 
@@ -1092,12 +1091,12 @@ async function selfTest() {
 
   console.log('');
   if (r.mal === 0) {
-    console.log(`${VERDE}Todo bien${FIN} - ${r.ok} chequeos.\n`);
+    console.log(`${VERDE}All good${FIN} - ${r.ok} checks.\n`);
     process.exit(0);
   }
-  console.log(`${ROJO}${r.mal} de ${r.ok + r.mal} chequeos fallan${FIN}\n`);
+  console.log(`${ROJO}${r.mal} of ${r.ok + r.mal} checks fail${FIN}\n`);
   process.exit(1);
 })().catch((e) => {
-  console.log(`\n  ${ROJO}FALLA${FIN}  el gate se rompio solo: ${e && e.stack ? e.stack : e}\n`);
+  console.log(`\n  ${ROJO}FAIL${FIN}  the gate broke on its own: ${e && e.stack ? e.stack : e}\n`);
   process.exit(1);
 });
