@@ -912,6 +912,32 @@ async function escenarioSemilla() {
     'the line reads lane · seed · plan_sha256');
 }
 
+/* ----------------------------- journey: cut -> reconnect (S13 / F-19) */
+
+async function escenarioViajeCorteReconexion() {
+  titular('\\njourney: a cut reconnects on its own (S13):');
+
+  const p = await abrirPagina({ datos: AIRE });
+  p.el('audio').dispara('playing');
+  await flush();
+  check(p.el('estado').textContent === 'live', 'starts live');
+
+  // The cut.
+  p.el('audio').dispara('error');
+  await flush();
+  check(p.el('estado').textContent === 'reconnecting', 'the cut opens the reconnection chain');
+
+  // The probe answers 200: not the door, retrying is worth it.
+  check(p.el('err').style.display === 'block', 'the banner announces the retry');
+
+  // Run the scheduled attempt: the audio reconnects.
+  await p.correrTimeouts();   // attempt 1 -> conectar(true)
+  p.el('audio').dispara('playing');
+  await flush();
+  check(p.el('estado').textContent === 'live', 'the stream comes back: live again');
+  check(p.el('err').style.display !== 'block', 'and the banner clears');
+}
+
 /* --------------------------------------------- the camera, for now (F-08) */
 
 async function escenarioCamara() {
@@ -960,6 +986,7 @@ async function correrEscenarios() {
   await escenarioAutoplayBloqueado();
   await escenarioProbeAcotado();
   await escenarioSemilla();
+  await escenarioViajeCorteReconexion();
   await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }
