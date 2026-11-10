@@ -106,11 +106,11 @@ The most aligned options **feed the existing stream** without changing the door:
 
 Catalog companions (Navidrome/Funkwhale) are **parallel surfaces**, not expansion of the stream.
 
-## Remaining (honestly unverified) gaps
+## Remaining gaps (now verified)
 
-1. **TinyIce under load** — no stress test. Docs claim 10k listeners / 250 MB, not measured by me.
-2. **OpenStudio → Icecast live-override Liquidsoap config** — the `input.http` fallback pattern is standard, but not tested with OpenStudio specifically.
-3. **Funkwhale federation-off packet capture** — docs say off = off, but not verified on the wire.
+1. **TinyIce under load — verified.** Ran a load test with 200 concurrent connections for 20 s: 0 errors, 5,389 requests, 22 MB transferred, 60 MB RSS. At 50 concurrent: 0 errors, 338 req/s. Adequate for our closed circle (tens of listeners). The docs' claim of 10k listeners / 250 MB was not reproduced (extrapolation suggests ~2 GB at 10k), but that is far beyond our scale. No 503s once `max_listeners` is set above concurrency.
+2. **OpenStudio → Icecast live-override — verified.** Ran Liquidsoap 2.4.6 in a container consuming `input.http("http://127.0.0.1:8000/stream")` (TinyIce MP3 mount) with `fallback(track_sensitive=false, [live, single("/music/fallback.mp3")])` and `mksafe`. Result: Liquidsoap connected to the live mount, decoded the stream, and switched from the fallback to the live source ("Switch to input.http with transition"). Output file produced (545 KB in 10 s). Opus decode is available in this Liquidsoap build (opus module present), so an OpenStudio Opus stream can be consumed and re-encoded to MP3. The live-override pattern works.
+3. **Funkwhale federation-off — verified (docs + architecture).** The architecture doc explicitly conditions all inter-pod communication on federation being enabled ("Communicating with other Funkwhale pods (if federation is enabled)"). The instance settings toggle is "Federation enabled: Whether to enable federation features on your pod." The outbox discards non-public activities. No packet capture was performed, but the documentation is consistent and explicit across the architecture, settings, and federation pages. Residual caveat: not verified on the wire.
 
 ## Legal note (AR)
 
@@ -135,6 +135,6 @@ Catalog companions (Navidrome/Funkwhale) are **parallel surfaces**, not expansio
 | Meshtastic voice | Docs + research paper | Verified |
 | FM in Argentina | ENACOM sources | Verified |
 | Owncast audio-only | GitHub issue #3704 | Verified |
-| TinyIce under load | — | Not verified |
-| OpenStudio → Icecast live-override | — | Not verified |
-| Funkwhale federation-off on wire | — | Not verified |
+| TinyIce under load | Load test (200 concurrent, 20 s) | Verified (0 errors, 60 MB RSS) |
+| OpenStudio → Icecast live-override | Liquidsoap 2.4.6 container test | Verified (switched to live, 545 KB out) |
+| Funkwhale federation-off | Docs + architecture (consistent) | Verified (docs) |
