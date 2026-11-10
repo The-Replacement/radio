@@ -976,6 +976,22 @@ async function escenarioViajeFueraDeAire() {
   check(p.el('play').disabled === true, 'the button is disabled while off-air');
 }
 
+/* ----------------------------- journey: silence (no source) (S13 / F-19) */
+
+async function escenarioViajeSilencio() {
+  titular('\\njourney: silence is a valid broadcast (S13):');
+
+  // Load with no source: the radio does not pretend to be live.
+  const p = await abrirPagina({ datos: null });
+  await flush();
+  await p.disparar(15000);
+  await flush();
+  check(p.el('estado').textContent === 'stopped', 'silence: the banner says stopped');
+  check(p.el('aviso').style.display === 'block', 'and the notice appears');
+  check(p.el('play').disabled === true, 'the button is disabled');
+  check(String(p.el('aviso').textContent).length > 0, 'the notice carries copy (not empty)');
+}
+
 /* --------------------------------------------- the camera, for now (F-08) */
 
 async function escenarioCamara() {
@@ -1027,6 +1043,7 @@ async function correrEscenarios() {
   await escenarioViajeCorteReconexion();
   await escenarioViajeExpiracion();
   await escenarioViajeFueraDeAire();
+  await escenarioViajeSilencio();
   await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }
