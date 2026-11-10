@@ -1017,6 +1017,24 @@ async function escenarioViajeCadenaManda() {
   check((p.escrituras.estado || 0) === antes, 'and does not even repaint');
 }
 
+/* ----------------------------- S12 (D-4/D-5/D-6): circle, caption, toast */
+
+async function escenarioS12Cadenas() {
+  titular('\\nS12: circle, camera caption, door toast present (D-4/D-5/D-6):');
+
+  // The strings live in STR (one voice): no hand-written copy outside it.
+  check(/cameraCaption:\s*'[^']+'/.test(CODIGO),
+    'STR.cameraCaption is defined (camera caption, D-5)');
+  check(/doorToast:\s*'[^']+'/.test(CODIGO),
+    'STR.doorToast is defined (door toast, D-6)');
+
+  // The elements exist in the page (circle = the live dot, already a circle).
+  const p = await abrirPagina({ datos: AIRE });
+  check(!!p.el('cam-caption'), 'the camera caption element exists (D-5)');
+  check(!!p.el('toast'), 'the door toast element exists (D-6)');
+  check(!!p.el('dot'), 'the live dot (circle) exists (D-4)');
+}
+
 /* --------------------------------------------- the camera, for now (F-08) */
 
 async function escenarioCamara() {
@@ -1070,6 +1088,7 @@ async function correrEscenarios() {
   await escenarioViajeFueraDeAire();
   await escenarioViajeSilencio();
   await escenarioViajeCadenaManda();
+  await escenarioS12Cadenas();
   await escenarioCamara();
   return { ok, mal, rojas: rojas.slice() };
 }

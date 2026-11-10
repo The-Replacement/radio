@@ -151,6 +151,8 @@
   <div class="cam" id="cam-caja" hidden>
     <video id="cam" muted playsinline autoplay></video>
   </div>
+  <p class="cam-caption" id="cam-caption" hidden></p>
+  <div class="toast" id="toast" hidden></div>
   <!-- Only filled in with ?debug=1. It tells whether the delay is the
        player's or the pipeline's, without opening DevTools. -->
   <p class="debug" id="debug"></p>
@@ -165,6 +167,8 @@
   var listeners = document.getElementById('listeners');
   var now = document.getElementById('now');
   var seed = document.getElementById('seed');
+  var camCaption = document.getElementById('cam-caption');
+  var toast = document.getElementById('toast');
   var err = document.getElementById('err');
   var aviso = document.getElementById('aviso');
   var tel = document.getElementById('tel');
@@ -188,6 +192,8 @@
     broadcastStopped: 'Broadcast is stopped',
     autoplayBlocked: 'The browser blocked autoplay. Press play.',
     door: 'Server replied 404.<br>Access expired or the browser did not save the cookie. Ask for a new link.',
+    cameraCaption: 'camera',
+    doorToast: 'Access expired. Ask for a new link.',
     connectFailed: function (code) {
       return 'Could not connect to the stream' + (code ? ' (error ' + code + ')' : '') +
         '.<br>Connection dropped and did not come back. Check the network.';
@@ -774,6 +780,11 @@
       err.style.display = 'block';
       err.innerHTML = STR.door;
       aviso.style.display = 'none';
+      if (toast) {
+        toast.textContent = STR.doorToast;
+        toast.hidden = false;
+        setTimeout(function () { if (toast) toast.hidden = true; }, 4000);
+      }
       dot.classList.remove('live');
       estado.textContent = STR.error;
       btn.disabled = true;
@@ -854,7 +865,7 @@
   var hlsCam = null;
   var pcWebrtc = null;
 
-  function mostrar() { caja.hidden = false; }
+  function mostrar() { caja.hidden = false; if (camCaption) { camCaption.textContent = STR.cameraCaption; camCaption.hidden = false; } }
 
   function porWebrtc() {
     /*
@@ -971,14 +982,14 @@
     hls.on(window.Hls.Events.ERROR, function (nada, datos) {
       // Fatal = no way to go on. The box is hidden instead of leaving a
       // frozen black rectangle.
-      if (datos && datos.fatal) { caja.hidden = true; hls.destroy(); }
+      if (datos && datos.fatal) { caja.hidden = true; if (camCaption) camCaption.hidden = true; hls.destroy(); }
     });
     cam.play().catch(function () {});
   }
 
   function arrancar() {
     hayCamara().then(function (ok) {
-      if (!ok) { caja.hidden = true; return; }
+      if (!ok) { caja.hidden = true; if (camCaption) camCaption.hidden = true; return; }
       if (!window.RTCPeerConnection) { porHls(); return; }
       porWebrtc().catch(function () { porHls(); });
     });
