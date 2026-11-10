@@ -149,6 +149,21 @@ audio—; recrear icecast cuesta ~40 s de stream.
    Con renders de ~7 min y pushes en ráfaga, la colisión es realista: si vas a
    pushear varios commits, juntalos.
 
+### Un ciclo puede instalar MENOS de `INDIEGEN_COUNT` tracks
+
+Un track que no pasa las gates se saltea (se loguea `WARNING skipping track`) y
+el ciclo sigue: 19 archivos instalados en vez de 21 en el ciclo 4 porque el seed
+1036 falló la gate 13. Nueve temas en el aire son mejores que cero, pero
+cualquier cosa que asuma "un ciclo = `COUNT` tracks" está mal: el conteo real es
+`<= COUNT`.
+
+Ojo con el corolario: el veredicto de una gate depende de `(seed, preset,
+form, contexto del batch)`, no del seed solo. `batch()` reparte las formas por
+slot (`batch_forms(..., count)[index]`), así que el mismo seed renderizado solo
+puede pasar la gate 13 y fallarla en la posición 6 de un batch de 10 — distinta
+forma, distinta duración/estructura, distinto conteo de compases. No es un bug
+del serve; es la consecuencia de que la gate mire el plan.
+
 ## Coordinación
 
 Cambios que afectan el contrato música↔radio (formato/nombre, montaje de
