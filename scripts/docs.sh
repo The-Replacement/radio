@@ -105,6 +105,47 @@ else
   printf '  %sOK%s    every $CK appearance is preceded by CK= in the same block\n' "$VERDE" "$FIN"
 fi
 
+# D-3: the "How a track is born" block is shared between the page (About) and
+# the README. If one side changes and the other does not, they drift apart
+# silently. Extract both, normalize formatting (backticks, HTML tags, whitespace)
+# and require them to match byte-for-byte in prose.
+d3_result="$(python3 - "$RAIZ" <<'PY'
+import re, sys
+raiz = sys.argv[1]
+def readme_items():
+    txt = open(raiz + '/README.md').read()
+    m = txt.split('## How a track is born', 1)[1].split('\n## ', 1)[0].split('\n---', 1)[0]
+    lines = m.splitlines(); items = []; cur = None
+    for ln in lines:
+        mm = re.match(r'^(\d+)\.\s+(.*)', ln)
+        if mm:
+            if cur is not None: items.append(cur)
+            cur = mm.group(2)
+        elif cur is not None:
+            if ln.strip() == '':
+                items.append(cur); cur = None
+            else:
+                cur += ' ' + ln.strip()
+    if cur is not None: items.append(cur)
+    return [' '.join(re.sub(r'`', '', x).split()) for x in items]
+def html_items():
+    html = open(raiz + '/web/index.html').read()
+    i = html.find('How a track is born</summary>')
+    block = html[i:i+1500]
+    om = re.search(r'<ol>(.*?)</ol>', block, re.S)
+    lis = re.findall(r'<li>(.*?)</li>', om.group(1), re.S)
+    return [' '.join(re.sub(r'<[^>]+>', '', x).split()) for x in lis]
+a, b = readme_items(), html_items()
+print('EQUAL' if a == b and len(a) == len(b) and len(a) > 0 else 'DIFF')
+PY
+)"
+if [ "$d3_result" != "EQUAL" ]; then
+  printf '  %sFAIL%s  About/README shared block drifted (D-3)\n' "$ROJO" "$FIN"
+  trucos=$((trucos + 1))
+else
+  printf '  %sOK%s    About and README shared block match (D-3)\n' "$VERDE" "$FIN"
+fi
+
 fallas=$((fallas + trucos))
 
 echo
