@@ -12,6 +12,11 @@ from .gen import generate as run_generate
 app = typer.Typer(help="Mario — the host voice for the radio.")
 
 
+@app.callback()
+def _root() -> None:
+    """Mario — the host voice for the radio."""
+
+
 @app.command("generate")
 def generate_cmd(
     music_dir: Path | None = typer.Option(None, "--music-dir", help="Radio music directory."),
