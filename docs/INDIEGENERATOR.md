@@ -56,6 +56,22 @@ docker compose logs -f indiegen
 docker compose stop indiegen
 ```
 
+### `.tmp` y el tmpfs de liquidsoap
+
+El generador publica con rename atómico: escribe cada archivo en
+`./music/.tmp` y lo renombra al nombre final. Ese staging vive dentro del
+árbol que liquidsoap escanea, y `playlist("/music")` recorre subdirectorios —
+así que liquidsoap intentaba decodificar archivos a medio escribir (y los
+`.mix` viejos que quedaran ahí), en loop, un error por intento.
+
+El servicio `liquidsoap` monta un `tmpfs` vacío sobre `/music/.tmp`: el
+generador sigue viendo su carpeta real (el publish no cambia), liquidsoap ve
+un directorio vacío. **No lo saques** creyendo que es un sobrante. Probado con
+un canary en el host: 0 entradas adentro del contenedor. (Antes de elegir esto
+se descartaron: `playlist` no tiene `recursive`; `request.directory` no existe
+en 2.4.6; y `check_next` no sirve porque `request.filename` devuelve `""`
+hasta que el request está resuelto.)
+
 **NO correr `docker compose up -d --build indiegen` a secas.** `--build`
 reconstruye también la imagen de icecast (su servicio tiene `build: ./icecast`)
 y recrea el contenedor → corta el stream ~40 s (medido: EPIPE + reconexión de
