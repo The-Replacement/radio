@@ -53,7 +53,21 @@ def render_wav(
     if not tmp.is_file() or tmp.stat().st_size == 0:
         tmp.unlink(missing_ok=True)
         raise RuntimeError("piper produced an empty file")
+    # fsync the rendered bytes before publishing so a crash cannot leave a
+    # half-written (or stale) segment behind.
+    with tmp.open("rb") as fh:
+        os.fsync(fh.fileno())
     os.replace(tmp, output_path)
+    # Durability of the directory entry.
+    try:
+        dir_fd = os.open(str(output_path.parent), os.O_DIRECTORY)
+    except (OSError, AttributeError):
+        dir_fd = -1
+    if dir_fd >= 0:
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
 
 def generate_segment(

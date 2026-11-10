@@ -130,3 +130,38 @@ def test_no_network_imports() -> None:
     src = "\n".join(__import__("inspect").getsource(m) for m in (g, r, t))
     for forbidden in ("requests", "urllib", "httpx", "socket"):
         assert forbidden not in src, f"forbidden network client referenced: {forbidden}"
+
+
+def test_host_determinism(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import hashlib
+
+    music = tmp_path / "music"
+    music.mkdir()
+    _sidecar(music, 1, "motorik", "A")
+    _sidecar(music, 2, "kosmische", "B")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        out = Path(cmd[cmd.index("-f") + 1])
+        out.write_bytes(b"DETERMINISTIC-WAV-BYTES")
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    model = tmp_path / "m.onnx"
+    model.write_bytes(b"x")
+
+    from mario.config import MarioConfig
+    from mario.gen import generate
+
+    cfg1 = MarioConfig(music_dir=music, host_dir=tmp_path / "host1", model=model, time_bucket_hours=1)
+    cfg2 = MarioConfig(music_dir=music, host_dir=tmp_path / "host2", model=model, time_bucket_hours=1)
+    paths1 = generate(cfg1, time_bucket="2026-11-10T14", force=True)
+    paths2 = generate(cfg2, time_bucket="2026-11-10T14", force=True)
+
+    assert sorted(p.name for p in paths1) == sorted(p.name for p in paths2)
+    hashes1 = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in paths1)
+    hashes2 = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in paths2)
+    assert hashes1 == hashes2

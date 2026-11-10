@@ -86,12 +86,24 @@ def _read_catalog(music_dir: Path) -> list[TrackMeta] | None:
     return out
 
 
+def _dedup_by_seed(tracks: list[TrackMeta]) -> list[TrackMeta]:
+    """Deduplicate tracks by seed, keeping the first occurrence."""
+    seen: set[int] = set()
+    out: list[TrackMeta] = []
+    for track in tracks:
+        if track.seed in seen:
+            continue
+        seen.add(track.seed)
+        out.append(track)
+    return out
+
+
 def load_tracks(music_dir: Path) -> list[TrackMeta]:
     """Load tracks from a music library directory."""
     music_dir = Path(music_dir)
     from_catalog = _read_catalog(music_dir)
     if from_catalog is not None:
-        return from_catalog
+        return _dedup_by_seed(from_catalog)
     # Fallback: scan sidecars.
     out: list[TrackMeta] = []
     for sidecar in sorted(music_dir.glob("*.json")):
@@ -106,4 +118,4 @@ def load_tracks(music_dir: Path) -> list[TrackMeta]:
         tm = _from_sidecar(payload, sidecar.with_suffix(".flac"))
         if tm is not None:
             out.append(tm)
-    return out
+    return _dedup_by_seed(out)

@@ -50,5 +50,16 @@ def generate(
         marker = config.host_dir / "current-bucket"
         tmp = config.host_dir / "current-bucket.tmp"
         tmp.write_text(bucket, encoding="utf-8")
+        with tmp.open("rb") as fh:
+            os.fsync(fh.fileno())
         os.replace(tmp, marker)
+        try:
+            dir_fd = os.open(str(config.host_dir), os.O_DIRECTORY)
+        except (OSError, AttributeError):
+            dir_fd = -1
+        if dir_fd >= 0:
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     return out
