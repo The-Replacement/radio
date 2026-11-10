@@ -146,6 +146,16 @@ else
   printf '  %sOK%s    About and README shared block match (D-3)\n' "$VERDE" "$FIN"
 fi
 
+# #23 point 1: no check() in ui-gate may measure a constant — a condition that
+# is always true/false measures nothing (phantom measurement). The id guard
+# (cdae5e3) closes phantom *ids*; this closes phantom *measurements*.
+if grep -nE 'check\(\s*(true|false|1|0)\b' "$RAIZ/scripts/ui-gate.js" >/dev/null 2>&1; then
+  printf '  %sFAIL%s  ui-gate.js has a check() measuring a constant (#23)\n' "$ROJO" "$FIN"
+  trucos=$((trucos + 1))
+else
+  printf '  %sOK%s    no check() in ui-gate.js measures a constant (#23)\n' "$VERDE" "$FIN"
+fi
+
 fallas=$((fallas + trucos))
 
 echo
