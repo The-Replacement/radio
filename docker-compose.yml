@@ -1,8 +1,9 @@
-# Radio privada con token — Icecast + Liquidsoap + Caddy
+# Radio privada con token — Icecast + Liquidsoap + Caddy (+ indiegenerator)
 #
 # Principio de diseño: Icecast y Liquidsoap NO publican puertos.
 # Lo único expuesto al host es Caddy, que hace de única puerta.
 # Sin el token correcto, no se ve ni el stream ni el player.
+# indiegenerator genera/rota ./music y reinicia liquidsoap en cada ciclo.
 
 services:
   icecast:
@@ -78,6 +79,54 @@ services:
       - radio
     # Si la cámara está desenchufada al levantar, este contenedor NO arranca.
     # Es correcto: mejor un `up` que falla que un video vacío sin explicación.
+
+  # Genera la música y reemplaza la biblioteca en cada ciclo. Liquidsoap ve
+  # los archivos nuevos por watch, pero NO olvida los borrados: por eso el
+  # ciclo reinicia liquidsoap después de rotar (INDIEGEN_RESTART).
+  #
+  # Requiere el repo de indiegenerator disponible como contexto de build
+  # (por defecto ../indiegenerator en el mainframe).
+  #
+  # Restart en modo signal: el generador escribe /var/lib/indiegen/restart-request
+  # (volumen ./data/indiegen) y un watcher del HOST (cron + scripts/restart-on-signal.sh)
+  # hace el `docker compose restart liquidsoap`. NO se monta /var/run/docker.sock:
+  # el socket en un contenedor es root-equivalente sobre todo el host, y este
+  # box también corre jellyfin/searxng/archive. La radio decide su propio reinicio.
+  indiegen:
+    build:
+      context: ${INDIEGEN_CONTEXT:-../indiegenerator}
+      dockerfile: Dockerfile
+    container_name: radio-indiegen
+    restart: unless-stopped
+    depends_on:
+      - liquidsoap
+    environment:
+      INDIEGEN_PRESET: ${INDIEGEN_PRESET:-station}
+      INDIEGEN_COUNT: ${INDIEGEN_COUNT:-10}
+      INDIEGEN_SEED_BASE: ${INDIEGEN_SEED_BASE:-1000}
+      INDIEGEN_SEED_STRATEGY: ${INDIEGEN_SEED_STRATEGY:-advance}
+      INDIEGEN_INTERVAL_SECONDS: ${INDIEGEN_INTERVAL_SECONDS:-21600}
+      INDIEGEN_RESTART: ${INDIEGEN_RESTART:-signal:/var/lib/indiegen/restart-request}
+    command:
+      [
+        "serve",
+        "--music-dir", "/music",
+        "--work-dir", "/var/lib/indiegen",
+        "--presets-dir", "/app/presets",
+        "--preset", "${INDIEGEN_PRESET:-station}",
+        "--count", "${INDIEGEN_COUNT:-10}",
+        "--seed-base", "${INDIEGEN_SEED_BASE:-1000}",
+        "--seed-strategy", "${INDIEGEN_SEED_STRATEGY:-advance}",
+        "--interval-seconds", "${INDIEGEN_INTERVAL_SECONDS:-21600}",
+        "--restart", "${INDIEGEN_RESTART:-signal:/var/lib/indiegen/restart-request}",
+        "--trigger-file", "/var/lib/indiegen/trigger",
+        "--no-run-on-start",
+      ]
+    volumes:
+      - ./music:/music
+      - ./data/indiegen:/var/lib/indiegen
+    networks:
+      - radio
 
   caddy:
     image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
