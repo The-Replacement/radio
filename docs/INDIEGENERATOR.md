@@ -23,7 +23,20 @@ a la radio y, en cada ciclo:
   `./music` entero en el `up -d` (y hay un batch sin trackear en el box).
 - **Push a indiegenerator**: el hook `scripts/post-receive` del repo
   `indiegenerator` (instalado en el remoto del mainframe) reconstruye el
-  servicio y escribe `data/indiegen/trigger`, que dispara un ciclo inmediato.
+  servicio y, si la política está encendida, toca `data/indiegen/trigger` y
+  dispara un ciclo inmediato. La política se lee del `.env` de la radio en
+  cada push — **no** está hardcodeada en el hook:
+
+  - `INDIEGEN_AUTO_TRIGGER=1` → cada push rota la biblioteca (render completo
+    ~7 min + reinicio de liquidsoap + ~10 s de corte).
+  - `INDIEGEN_AUTO_TRIGGER=0` (o ausente) → el push sólo despliega código; el
+    contenido rota por intervalo o con `scripts/indiegen-cycle.sh`.
+
+  En este despliegue está en `1` por decisión del operador. El costo es real:
+  un push es un cambio de código, rotar por un comentario es caro. Si el hook
+  no puede escribir el trigger (permisos en `data/indiegen`), lo registra como
+  `FALLO` en `data/indiegen/deploy.log` y termina con error — no falla en
+  silencio.
 
 ## Requisitos en el mainframe
 
