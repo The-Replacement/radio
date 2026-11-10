@@ -108,6 +108,15 @@ services:
       dockerfile: Dockerfile
     container_name: radio-indiegen
     restart: unless-stopped
+    # Corre como el usuario del host que es dueño de ./music y ./data/indiegen,
+    # no como root. Por defecto el contenedor es root, así que todo lo que
+    # escribe (tracks, json, state.json, runs/, restart-request) queda root:root
+    # y cualquier herramienta del host que quiera reescribirlo choca con EACCES.
+    # Medido: uid 1000 contra un state.json root:root da "Permission denied", y
+    # mkdir dentro de runs/ root:root también. Sin :? un despliegue nuevo
+    # arrancaría en silencio con el uid equivocado y fallaría recién en el
+    # primer ciclo, así que el valor es obligatorio en .env.
+    user: "${INDIEGEN_UID:?falta INDIEGEN_UID en .env}:${INDIEGEN_GID:?falta INDIEGEN_GID en .env}"
     depends_on:
       - liquidsoap
     environment:

@@ -85,6 +85,35 @@ se descartaron: `playlist` no tiene `recursive`; `request.directory` no existe
 en 2.4.6; y `check_next` no sirve porque `request.filename` devuelve `""`
 hasta que el request está resuelto.)
 
+### uid/gid: el generador corre como tu usuario, no como root
+
+El servicio `indiegen` usa `user: "${INDIEGEN_UID}:${INDIEGEN_GID}"`, tomado
+del `.env`. Es obligatorio (el compose no arranca sin esos valores): sacalos
+con `id -u` / `id -g` en el box (acá `1000:1000`).
+
+Por qué: por defecto un contenedor corre como root y todo lo que escribe en
+los volúmenes queda `root:root`. Leer y borrar sigue funcionando, pero
+cualquier herramienta del host que quiera **reescribir** esos archivos choca
+con `EACCES`. Medido: `echo >> state.json` como uid 1000 contra un `state.json`
+`root:root` → `Permission denied`; `mkdir` dentro de `runs/` `root:root` →
+`Permission denied`. Como esos dos se tocan en cada ciclo, el uid equivocado no
+rompe el deploy: rompe el ciclo siguiente.
+
+**Si cambiás el uid en un despliegue que ya corrió**, hay que migrar los
+artefactos que dejó root. El dueño del directorio alcanza para borrarlos, pero
+no para reescribirlos:
+
+```bash
+cd ~/servers/radio
+cp data/indiegen/state.json data/backup/state-cycleN.json   # preservá el contador
+rm -rf data/indiegen/runs data/indiegen/restart-request data/indiegen/state.json
+cp data/backup/state-cycleN.json data/indiegen/state.json   # queda tuyo
+```
+
+Los `music/*.flac` viejos `root:root` **no** necesitan chown: el publish
+renombra sobre el nombre final, y `rename(2)` sólo pide permiso de escritura
+sobre el directorio, no sobre el archivo destino.
+
 **NO correr `docker compose up -d --build indiegen` a secas.** `--build`
 reconstruye también la imagen de icecast (su servicio tiene `build: ./icecast`)
 y recrea el contenedor → corta el stream ~40 s (medido: EPIPE + reconexión de
