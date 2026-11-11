@@ -23,8 +23,7 @@ The model must be present on the box at the path mounted in docker-compose.yml
 - `docker-compose.yml`: `./data/host` is mounted into Liquidsoap at `/host:ro`
   and into Caddy at `/srv-host:ro`.
 - `caddy/Caddyfile`: `/host/*` is served under the existing `@gate` (cookie/token).
-- `liquidsoap/radio.liq`: a `cross` transition plays the cached segment when it
-  exists, else goes straight to the next track. Outer `mksafe` covers misses.
+- `liquidsoap/radio.liq`: a `cross` transition plays the cached DJ segment and/or a station liner (`liner_{seed}_{bucket}.wav`, inserted every 3rd track in playback order) when present, else goes straight to the next track. Outer `mksafe` covers misses.
 - `scripts/restart-on-signal.sh`: runs `mario generate` before restarting
   Liquidsoap on a library rotation.
 - `scripts/smoke.sh`: Host group (SKIP when no cached segment).

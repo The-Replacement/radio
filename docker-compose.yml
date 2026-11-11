@@ -35,6 +35,9 @@ services:
       # /host so radio.liq can play them between tracks. Never under /music:
       # Liquidsoap must not scan them into the playlist.
       - ./data/host:/host:ro
+      # Jingles pool (DJ): short audio clips played occasionally between tracks.
+      # Never under /music: Liquidsoap must not scan them into the playlist.
+      - ./jingles:/jingles:ro
     # The generator publishes with an atomic rename, so it writes each file
     # first into ./music/.tmp and renames it to the final name. That staging
     # lives INSIDE the tree this container scans: `playlist("/music")` walks
