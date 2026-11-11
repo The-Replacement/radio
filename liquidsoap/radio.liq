@@ -1,4 +1,4 @@
-# radio.liq — test single() with literal path
+# radio.liq — test file.exists in cross (no single)
 settings.init.allow_root := true
 settings.log.level := 3
 
@@ -16,7 +16,7 @@ musica = playlist(
 
 def host_transition(ending, starting) =
   if file.exists("/host/1094_1095_2026-11-11T00.wav") then
-    sequence([ending.source, single("/host/1094_1095_2026-11-11T00.wav"), starting.source])
+    sequence([ending.source, starting.source])
   else
     sequence([ending.source, starting.source])
   end
