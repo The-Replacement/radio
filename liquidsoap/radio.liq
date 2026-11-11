@@ -1,4 +1,4 @@
-# radio.liq — minimal test
+# radio.liq — test single() in cross with type annotations
 settings.init.allow_root := true
 settings.log.level := 3
 
@@ -14,9 +14,13 @@ musica = playlist(
   "/music"
 )
 
-# Test 1: exact doc example pattern.
 def host_transition(ending, starting) =
-  sequence([ending.source, starting.source])
+  path = "/host/1094_1095_2026-11-11T00.wav"
+  if file.exists(path) then
+    (sequence([single(path), starting.source]) : source)
+  else
+    (starting.source : source)
+  end
 end
 
 radio = mksafe(cross(host_transition, musica))
