@@ -108,22 +108,16 @@ def host_transition(ending, starting) =
   bucket = host_bucket()
 
   if es == "" or ss == "" or bucket == "" then
-    log.critical("Mario: skip (es=#{es} ss=#{ss} bucket=#{bucket})")
     (starting.source : source)
   else
     path = "/host/#{es}_#{ss}_#{bucket}.wav"
     if file.exists(path) then
-      log.critical("Mario: play #{path}")
       sequence([(single(path) : source(audio=pcm(stereo))), (starting.source : source)])
     else
-      log.critical("Mario: miss #{path}")
       (starting.source : source)
     end
   end
 end
-
-# Log track changes to confirm Liquidsoap sees track boundaries.
-musica.on_track(fun (m) -> log.critical("ONTRACK: " ^ list.assoc(default="?", "comment", m)))
 
 radio = mksafe(cross(host_transition, musica))
 
