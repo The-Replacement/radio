@@ -214,13 +214,27 @@ def test_no_network_imports() -> None:
     import mario.gen as g
     import mario.liners as l
     import mario.render as r
+    import mario.rss as s
     import mario.tracks as t
     import mario.vibe as v
     import mario.weather as w
 
-    src = "\n".join(__import__("inspect").getsource(m) for m in (g, l, r, t, v, w))
+    src = "\n".join(__import__("inspect").getsource(m) for m in (g, l, r, s, t, v, w))
     for forbidden in ("requests", "urllib", "httpx", "socket"):
         assert forbidden not in src, f"forbidden network client referenced: {forbidden}"
+
+
+def test_only_feedfetch_touches_network() -> None:
+    import mario
+
+    package_dir = Path(mario.__file__).resolve().parent
+    offenders: list[str] = []
+    for path in sorted(package_dir.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for forbidden in ("requests", "urllib", "httpx", "socket"):
+            if forbidden in text and path.name != "feedfetch.py":
+                offenders.append(f"{path.name}: {forbidden}")
+    assert not offenders, f"only feedfetch.py may reference a network client: {offenders}"
 
 
 def test_host_determinism(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

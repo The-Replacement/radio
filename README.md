@@ -40,7 +40,9 @@ mario generate --backend kokoro --music-dir /music --host-dir /data/host \
 - All ordered pairs of the current library are pre-rendered (N*(N-1) segments).
 - Segments live under `./data/host/`, never under `./music/` (so Liquidsoap
   does not scan them into the playlist).
-- No network calls at generation time. Models/voices are local files.
+- Network I/O happens only in the RSS fetch module (`mario/feedfetch.py`), at
+  generation time on a cache miss. Transitions, liners, and weather are local.
+  On-air playback uses cached WAVs, never the network.
 
 ## Voice / backends
 

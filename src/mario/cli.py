@@ -30,6 +30,11 @@ def generate_cmd(
     time_bucket_hours: int | None = typer.Option(None, "--time-bucket-hours", help="Bucket width in hours."),
     liners_preset: Path | None = typer.Option(None, "--liners-preset", help="Path to liners preset YAML (station idents)."),
     weather_file: Path | None = typer.Option(None, "--weather-file", help="Path to local weather snapshot JSON."),
+    rss_feeds_file: Path | None = typer.Option(None, "--rss-feeds-file", help="Path to RSS feeds config (YAML/JSON)."),
+    rss_cache_dir: Path | None = typer.Option(None, "--rss-cache-dir", help="Directory for cached feed payloads."),
+    rss_max_items_per_cycle: int | None = typer.Option(None, "--rss-max-items-per-cycle", help="Max feeds read per cycle."),
+    rss_max_text_chars: int | None = typer.Option(None, "--rss-max-text-chars", help="Max spoken characters per feed item."),
+    rss_timeout_seconds: float | None = typer.Option(None, "--rss-timeout-seconds", help="Feed fetch timeout in seconds."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print planned outputs without rendering."),
     force: bool = typer.Option(False, "--force", help="Re-render even if cached."),
     piper_bin: str = typer.Option("piper", "--piper-bin", help="Piper executable (piper backend)."),
@@ -55,6 +60,16 @@ def generate_cmd(
         config.liners_preset = liners_preset
     if weather_file is not None:
         config.weather_file = weather_file
+    if rss_feeds_file is not None:
+        config.rss_feeds_file = rss_feeds_file
+    if rss_cache_dir is not None:
+        config.rss_cache_dir = rss_cache_dir
+    if rss_max_items_per_cycle is not None:
+        config.rss_max_items_per_cycle = rss_max_items_per_cycle
+    if rss_max_text_chars is not None:
+        config.rss_max_text_chars = rss_max_text_chars
+    if rss_timeout_seconds is not None:
+        config.rss_timeout_seconds = rss_timeout_seconds
     paths = run_generate(
         config,
         time_bucket=time_bucket,

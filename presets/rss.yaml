@@ -1,0 +1,16 @@
+# Mario — RSS reader (The Reader).
+# Spoken segment for one feed item per cycle. Deterministic and cached by
+# (feed_url, item_key, time_bucket, text_hash).
+#
+# `template_version` is metadata only: the spoken text hash already covers all
+# phrasing, so editing any line below invalidates the cached audio by itself.
+template_version: mario/rss/1
+
+# Spoken lead-in. The only allowed field is {title}.
+intro: "From the feeds. {title}."
+
+# Spoken lead-out. May be empty.
+outro: "Back to the music."
+
+# Deterministic fallback when a feed cannot be read or has nothing to say.
+fallback: "The feed is quiet tonight. Stay with the music."
