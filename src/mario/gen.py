@@ -99,9 +99,14 @@ def generate(
     # Liners: deterministic ident per track seed, cached by (ident_id, seed, time_bucket).
     liners_preset = config.liners_preset
     if liners_preset is None:
-        default_preset = Path(__file__).resolve().parents[2] / "presets" / "liners.yaml"
-        if default_preset.is_file():
-            liners_preset = default_preset
+        for candidate in (
+            Path("/app/presets/liners.yaml"),
+            Path(__file__).resolve().parents[2] / "presets" / "liners.yaml",
+            Path(__file__).resolve().parents[1] / "presets" / "liners.yaml",
+        ):
+            if candidate.is_file():
+                liners_preset = candidate
+                break
     if liners_preset is not None and liners_preset.is_file():
         pool = load_liners(liners_preset)
         for track in tracks:
@@ -130,7 +135,17 @@ def generate(
 
     # Weather: one deterministic segment per bucket (schedule-driven), if configured.
     if config.weather_file is not None:
-        weather_preset_path = Path(__file__).resolve().parents[2] / "presets" / "weather.yaml"
+        weather_preset_path = None
+        for candidate in (
+            Path("/app/presets/weather.yaml"),
+            Path(__file__).resolve().parents[2] / "presets" / "weather.yaml",
+            Path(__file__).resolve().parents[1] / "presets" / "weather.yaml",
+        ):
+            if candidate.is_file():
+                weather_preset_path = candidate
+                break
+        if weather_preset_path is None:
+            raise FileNotFoundError("weather preset not found")
         weather_preset = load_weather_preset(weather_preset_path)
         snapshot = load_weather_snapshot(config.weather_file)
         weather_text, weather_hash = build_weather_text(snapshot, weather_preset)
@@ -156,7 +171,17 @@ def generate(
     # RSS reader: one deterministic item per configured feed, cached per bucket.
     # The feature is off unless an operator configures a feeds file.
     if config.rss_feeds_file is not None:
-        rss_preset_path = Path(__file__).resolve().parents[2] / "presets" / "rss.yaml"
+        rss_preset_path = None
+        for candidate in (
+            Path("/app/presets/rss.yaml"),
+            Path(__file__).resolve().parents[2] / "presets" / "rss.yaml",
+            Path(__file__).resolve().parents[1] / "presets" / "rss.yaml",
+        ):
+            if candidate.is_file():
+                rss_preset_path = candidate
+                break
+        if rss_preset_path is None:
+            raise FileNotFoundError("rss preset not found")
         rss_preset = load_rss_preset(rss_preset_path)
         # Slice before any fetch: the cap bounds network work, not just output.
         feeds = load_rss_feeds(config.rss_feeds_file)[: config.rss_max_items_per_cycle]
