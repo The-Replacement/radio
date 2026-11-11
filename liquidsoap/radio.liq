@@ -122,6 +122,9 @@ def host_transition(ending, starting) =
   end
 end
 
+# Log track changes to confirm Liquidsoap sees track boundaries.
+musica.on_track(fun (m) -> log.critical("ONTRACK: " ^ list.assoc(default="?", "comment", m)))
+
 radio = mksafe(cross(host_transition, musica))
 
 # ---------------------------------------------------------------- salida
