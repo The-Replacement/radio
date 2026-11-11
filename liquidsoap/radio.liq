@@ -129,6 +129,19 @@ def host_transition(ending, starting) =
       ()
     end
 
+    # Weather (meteorologist): one segment per bucket when available.
+    if bucket != "" and list.length(spacers()) < 2 then
+      try
+        weather_path = "/host/weather_#{bucket}.wav"
+        if file.exists(weather_path) then
+          spacers := list.append(spacers(), [single(weather_path)])
+        end
+      catch _ do
+        ()
+      end
+    end
+
+
     # Station ident: scan /host (Mario stays single source of truth).
     # Included when no host segment is available, or when a host segment
     # is present AND the incoming seed is even (seed-parity policy).

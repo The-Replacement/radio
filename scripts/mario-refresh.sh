@@ -7,5 +7,5 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Mario runs as a container (mirroring indiegenerator).
 docker compose -f "$ROOT/docker-compose.yml" run --rm mario \
-  generate --music-dir /music --host-dir /data/host \
+  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json \
   >/dev/null 2>&1 || true
