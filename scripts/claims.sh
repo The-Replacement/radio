@@ -3,9 +3,9 @@
 # to the site nobody hand-writes the production domain. Everything goes through
 # the FRONTEND_URL seam (Caddyfile, the player's JS, smoke, token.sh).
 #
-# It exits 0 if every occurrence of radio.daza.ar is on the allowlist below; it
-# exits 1 if a new one appears. The allowlist is complete and explicit; nothing
-# else slips in.
+# It exits 0 if every occurrence of comechingona.daza.ar is on the allowlist
+# below; it exits 1 if a new one appears. The allowlist is complete and
+# explicit; nothing else slips in.
 #
 # It searches with git grep over the tree that is deployed (the configs + the
 # site's living docs, not the PLAN-LEGAL nor the audit prompt).
@@ -23,8 +23,8 @@ VERDE=$'\033[32m'; ROJO=$'\033[31m'; FIN=$'\033[0m'
 # claims.sh does not scan itself: the script literally contains the allowed
 # lines BY definition.
 PERMITIDAS=(
-  '.env.example|FRONTEND_URL=https://radio.daza.ar'
-  'web/index.html|radio.daza.ar · sierras de los comechingones'
+  '.env.example|FRONTEND_URL=https://comechingona.daza.ar'
+  'web/index.html|comechingona.daza.ar · sierras de los comechingones'
 )
 
 permitida() {
@@ -43,7 +43,7 @@ echo
 echo "Claims — nobody hand-writes the domain in the config"
 echo
 
-mapfile -t HITS < <(git grep -niF 'radio.daza.ar' -- \
+mapfile -t HITS < <(git grep -niF 'comechingona.daza.ar' -- \
   caddy web docker-compose.yml .env.example \
   icecast liquidsoap cam mediamtx ':!scripts/claims.sh' 2>/dev/null || true)
 
