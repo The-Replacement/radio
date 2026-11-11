@@ -108,15 +108,15 @@ def host_transition(ending, starting) =
   bucket = host_bucket()
 
   if es == "" or ss == "" or bucket == "" then
-    log("Mario: skip (es=#{es} ss=#{ss} bucket=#{bucket})")
+    log.important("Mario: skip (es=#{es} ss=#{ss} bucket=#{bucket})")
     (starting.source : source)
   else
     path = "/host/#{es}_#{ss}_#{bucket}.wav"
     if file.exists(path) then
-      log("Mario: play #{path}")
+      log.important("Mario: play #{path}")
       sequence([(single(path) : source), (starting.source : source)])
     else
-      log("Mario: miss #{path}")
+      log.important("Mario: miss #{path}")
       (starting.source : source)
     end
   end
