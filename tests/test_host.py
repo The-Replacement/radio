@@ -270,3 +270,61 @@ def test_host_determinism(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     hashes1 = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in paths1)
     hashes2 = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in paths2)
     assert hashes1 == hashes2
+
+
+def test_preset_resolution_finds_repo_presets() -> None:
+    from mario.presets import preset_search_paths, resolve_preset_path
+
+    for name in ("liners.yaml", "weather.yaml", "rss.yaml"):
+        resolved = resolve_preset_path(name)
+        assert resolved is not None, f"{name} not resolved from source checkout"
+        assert resolved.is_file()
+        assert resolved.read_text(encoding="utf-8").strip()
+
+    paths = preset_search_paths("rss.yaml")
+    assert len(paths) == len({str(p) for p in paths})
+    assert all(p.name == "rss.yaml" for p in paths)
+
+
+def test_preset_resolution_env_override_wins(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from mario.presets import PRESETS_DIR_ENV, resolve_preset_path
+
+    override = tmp_path / "custom-presets"
+    override.mkdir()
+    marker = override / "rss.yaml"
+    marker.write_text("template_version: mario/rss/9\nintro: 'Hi {title}.'\nfallback: 'x'\n")
+
+    monkeypatch.setenv(PRESETS_DIR_ENV, str(override))
+    assert resolve_preset_path("rss.yaml") == marker
+
+
+def test_preset_resolution_container_layout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The container copies presets to /app/presets; the installed package is not the source tree."""
+    from mario import presets
+
+    container = tmp_path / "app" / "presets"
+    container.mkdir(parents=True)
+    (container / "weather.yaml").write_text("template: 'x {sky}'\nfallback: 'y'\n")
+    monkeypatch.delenv(presets.PRESETS_DIR_ENV, raising=False)
+    monkeypatch.setattr(presets, "_CONTAINER_PRESETS_DIR", container)
+
+    resolved = presets.resolve_preset_path("weather.yaml")
+    assert resolved == container / "weather.yaml"
+
+
+def test_preset_resolution_missing_raises_with_searched_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from mario import presets
+
+    monkeypatch.delenv(presets.PRESETS_DIR_ENV, raising=False)
+    monkeypatch.setattr(presets, "_CONTAINER_PRESETS_DIR", tmp_path / "nope")
+    with pytest.raises(FileNotFoundError) as excinfo:
+        presets.require_preset_path("does-not-exist.yaml")
+    message = str(excinfo.value)
+    assert "does-not-exist.yaml" in message
+    assert "searched" in message
