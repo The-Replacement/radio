@@ -1,4 +1,4 @@
-# radio.liq — test doc pattern with log
+# radio.liq — Mario host transition (fallible single)
 settings.init.allow_root := true
 settings.log.level := 3
 
@@ -16,7 +16,7 @@ musica = playlist(
 
 def host_transition(ending, starting) =
   log.critical("Mario transition fired")
-  sequence([(ending.source : source), (starting.source : source)])
+  sequence([(single(fallible=true, "/host/1094_1095_2026-11-11T00.wav") : source), (starting.source : source)])
 end
 
 radio = mksafe(cross(host_transition, musica))
