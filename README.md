@@ -20,6 +20,12 @@ stream and never restarts anything.
 pip install /path/to/mario
 ```
 
+Dependencies are pinned in `uv.lock`. The container image installs from it with
+`uv sync --frozen` (transitive pins included — the TTS numerics, and therefore
+the rendered bytes, depend on them). For a host install, pip uses the exact
+direct pins in `pyproject.toml`; use `uv sync --frozen` if you want the full
+transitive set.
+
 ## Run
 
 ```bash
