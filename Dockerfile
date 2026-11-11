@@ -19,7 +19,8 @@ COPY pyproject.toml README.md LICENSE /app/
 COPY src/ /app/src/
 COPY presets/ /app/presets/
 
-RUN pip install --no-cache-dir /app
+# Install with kokoro backend support (piper still default).
+RUN pip install --no-cache-dir "/app[kokoro]"
 
 VOLUME ["/music", "/data/host"]
 
