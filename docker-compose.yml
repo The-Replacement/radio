@@ -169,14 +169,17 @@ services:
     environment:
       MARIO_MUSIC_DIR: /music
       MARIO_HOST_DIR: /data/host
-      MARIO_MODEL: /models/piper/es_ES-sharvard-medium.onnx
+      MARIO_TTS_BACKEND: ${MARIO_TTS_BACKEND:-kokoro}
+      MARIO_MODEL: ${MARIO_MODEL:-/models/kokoro/kokoro-v1.0.onnx}
+      MARIO_VOICES_PATH: ${MARIO_VOICES_PATH:-/models/kokoro/voices-v1.0.bin}
+      MARIO_VOICE: ${MARIO_VOICE:-am_adam}
       MARIO_TIME_BUCKET_HOURS: ${MARIO_TIME_BUCKET_HOURS:-1}
-      MARIO_MODEL_LANG: ${MARIO_MODEL_LANG:-es}
+      MARIO_MODEL_LANG: ${MARIO_MODEL_LANG:-en-us}
       MARIO_TEMPLATE_VERSION: ${MARIO_TEMPLATE_VERSION:-mario/1}
     volumes:
       - ./music:/music:ro
       - ./data/host:/data/host
-      - /home/kbdejavu/Models/piper:/models/piper:ro
+      - /home/kbdejavu/Models/kokoro:/models/kokoro:ro
     networks:
       - radio
 
