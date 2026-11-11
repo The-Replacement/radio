@@ -100,78 +100,96 @@ end
 def host_transition(ending, starting) =
   # Parse current seed.
   ec = try ending.metadata["comment"] catch _ do "" end
-  es = seed_from_comment(ec)
-  if es == "" then
-    ef = try ending.metadata["filename"] catch _ do "" end
-    es = seed_from_filename(ef)
-  end
+  es0 = seed_from_comment(ec)
+  ef = try ending.metadata["filename"] catch _ do "" end
+  es = if es0 == "" then seed_from_filename(ef) else es0 end
 
   # Parse next seed.
   sc = try starting.metadata["comment"] catch _ do "" end
-  ss = seed_from_comment(sc)
-  if ss == "" then
-    sf = try starting.metadata["filename"] catch _ do "" end
-    ss = seed_from_filename(sf)
-  end
+  ss0 = seed_from_comment(sc)
+  sf = try starting.metadata["filename"] catch _ do "" end
+  ss = if ss0 == "" then seed_from_filename(sf) else ss0 end
 
   bucket = host_bucket()
 
-  # Build the spacer list (capped at 2).
-  spacers = ref([])
+  # Degrade to the next track (no crossfade) when context is unknown.
+  if es == "" or ss == "" or bucket == "" then
+    (starting.source : source)
+  else
+    # Build the spacer list (capped at 2).
+    spacers = ref([])
 
-  # Host segment (always, when cached).
-  if es != "" and ss != "" and bucket != "" then
+    # Host segment (always, when cached).
     host_path = "/host/#{es}_#{ss}_#{bucket}.wav"
     try
       if file.exists(host_path) then
-        spacers := list.append(!spacers, [single(host_path)])
+        spacers := list.append(spacers(), [single(host_path)])
       end
     catch _ do
       ()
     end
-  end
 
-  # Station ident (only when no host segment and next seed is even).
-  if list.length(!spacers) == 0 and ss != "" and bucket != "" then
-    try
-      files = file.ls(sorted=true, pattern="liner_*_#{ss}_#{bucket}.wav", "/host")
-      if list.length(files) > 0 then
-        ident_path = "/host/" ^ list.hd(files)
-        if file.exists(ident_path) then
-          spacers := list.append(!spacers, [single(ident_path)])
-        end
-      end
-    catch _ do
-      ()
-    end
-  end
-
-  # Jingle (only when next_seed mod 5 == 0 and < 2 spacers).
-  if ss != "" and list.length(!spacers) < 2 then
-    try
-      n = int_of_string(ss)
-      rem5 = n - (n / 5) * 5
-      if rem5 == 0 then
-        jfiles = file.ls(sorted=true, "/jingles")
-        if list.length(jfiles) > 0 then
-          idx = n - (n / list.length(jfiles)) * list.length(jfiles)
-          jingle_path = "/jingles/" ^ list.nth(default="", jfiles, idx)
-          if file.exists(jingle_path) then
-            spacers := list.append(!spacers, [single(jingle_path)])
+    # Station ident: scan /host (Mario stays single source of truth).
+    # Included when no host segment is available, or when a host segment
+    # is present AND the incoming seed is even (seed-parity policy).
+    if ss != "" and bucket != "" then
+      try
+        files = file.ls(pattern="liner_*_#{ss}_#{bucket}.wav", "/host")
+        sorted_files = list.sort(fun(x,y) -> string.compare(x,y), files)
+        if list.length(sorted_files) > 0 then
+          ident_path = "/host/" ^ list.hd(sorted_files)
+          host_present = list.length(spacers()) > 0
+          include_ident = if host_present then
+            try (int_of_string(ss) mod 2) == 0 catch _ do false end
+          else
+            true
+          end
+          if include_ident and list.length(spacers()) < 2 then
+            try
+              if file.exists(ident_path) then
+                spacers := list.append(spacers(), [single(ident_path)])
+              end
+            catch _ do
+              ()
+            end
           end
         end
+      catch _ do
+        ()
       end
-    catch _ do
-      ()
     end
-  end
 
-  # Play spacers then the next track, or crossfade if none.
-  if list.length(!spacers) > 0 then
-    sequence(list.append(!spacers, [(starting.source : source)]))
-  else
-    # Crossfade: 2s fade-in on the new track, 2s fade-out on the old.
-    add([fade.in(duration=2.0, (starting.source : source)), fade.out(duration=2.0, (ending.source : source))])
+    # Jingle (only when next_seed mod 5 == 0 and < 2 spacers).
+    if ss != "" and list.length(spacers()) < 2 then
+      try
+        n = int_of_string(ss)
+        if (n mod 5) == 0 then
+          jfiles_raw = file.ls("/jingles")
+          jfiles = list.sort(fun(x,y) -> string.compare(x,y), jfiles_raw)
+          if list.length(jfiles) > 0 then
+            idx = n mod list.length(jfiles)
+            jingle_path = "/jingles/" ^ list.nth(default="", jfiles, idx)
+            try
+              if file.exists(jingle_path) then
+                spacers := list.append(spacers(), [single(jingle_path)])
+              end
+            catch _ do
+              ()
+            end
+          end
+        end
+      catch _ do
+        ()
+      end
+    end
+
+    # Play spacers then the next track, or crossfade if none.
+    if list.length(spacers()) > 0 then
+      sequence(list.append(spacers(), [(starting.source : source)]))
+    else
+      # Crossfade: 2s fade-in on the new track, 2s fade-out on the old.
+      add([fade.in(duration=2.0, (starting.source : source)), fade.out(duration=2.0, (ending.source : source))])
+    end
   end
 end
 
