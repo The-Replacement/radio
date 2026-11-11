@@ -212,11 +212,12 @@ def test_missing_model_raises(tmp_path: Path) -> None:
 
 def test_no_network_imports() -> None:
     import mario.gen as g
+    import mario.liners as l
     import mario.render as r
     import mario.tracks as t
     import mario.vibe as v
 
-    src = "\n".join(__import__("inspect").getsource(m) for m in (g, r, t, v))
+    src = "\n".join(__import__("inspect").getsource(m) for m in (g, l, r, t, v))
     for forbidden in ("requests", "urllib", "httpx", "socket"):
         assert forbidden not in src, f"forbidden network client referenced: {forbidden}"
 

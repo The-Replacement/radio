@@ -11,6 +11,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from .liners import liner_cache_filename
 from .timebucket import sanitize_bucket
 
 
@@ -147,7 +148,7 @@ def generate_segment(
     speed: float = 1.0,
     lang: str = "en-us",
 ) -> Path:
-    """Render (if missing) the cached segment. Returns its path."""
+    """Render (if missing) the cached transition segment. Returns its path."""
     host_dir = Path(host_dir)
     host_dir.mkdir(parents=True, exist_ok=True)
     name = cache_filename(current_seed, next_seed, bucket)
@@ -165,4 +166,54 @@ def generate_segment(
         speed=speed,
         lang=lang,
     )
+    return target
+
+
+def generate_liner_segment(
+    ident_id: str,
+    seed: int,
+    bucket: str,
+    text: str,
+    model: Path,
+    host_dir: Path,
+    *,
+    piper_bin: str = "piper",
+    force: bool = False,
+    backend: str = "piper",
+    voices_path: Path | None = None,
+    voice: str = "af_sarah",
+    speed: float = 1.0,
+    lang: str = "en-us",
+) -> Path:
+    """Render (if missing) a cached liner segment keyed by (ident_id, seed, time_bucket)."""
+    host_dir = Path(host_dir)
+    host_dir.mkdir(parents=True, exist_ok=True)
+    name = liner_cache_filename(ident_id, seed, bucket)
+    target = host_dir / name
+    if not (target.is_file() and target.stat().st_size > 0 and not force):
+        render_wav(
+            text,
+            model,
+            target,
+            piper_bin=piper_bin,
+            backend=backend,
+            voices_path=voices_path,
+            voice=voice,
+            speed=speed,
+            lang=lang,
+        )
+    # Stable alias for playout systems: deterministic selection by seed means
+    # this file is the liner for (seed, bucket).
+    from .timebucket import sanitize_bucket
+
+    alias = host_dir / f"liner_{seed}_{sanitize_bucket(bucket)}.wav"
+    if force or not alias.exists():
+        try:
+            if alias.is_symlink() or alias.exists():
+                alias.unlink()
+            os.symlink(target.name, alias)
+        except OSError:
+            # Fallback: hard copy if symlinks unsupported.
+            if force or not (alias.is_file() and alias.stat().st_size > 0):
+                alias.write_bytes(target.read_bytes())
     return target

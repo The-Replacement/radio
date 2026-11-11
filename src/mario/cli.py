@@ -28,6 +28,7 @@ def generate_cmd(
     model_lang: str | None = typer.Option(None, "--model-lang", help="Language hint (e.g. es, en-us)."),
     time_bucket: str | None = typer.Option(None, "--time-bucket", help="Override the time bucket (e.g. 2026-11-10T14)."),
     time_bucket_hours: int | None = typer.Option(None, "--time-bucket-hours", help="Bucket width in hours."),
+    liners_preset: Path | None = typer.Option(None, "--liners-preset", help="Path to liners preset YAML (station idents)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print planned outputs without rendering."),
     force: bool = typer.Option(False, "--force", help="Re-render even if cached."),
     piper_bin: str = typer.Option("piper", "--piper-bin", help="Piper executable (piper backend)."),
@@ -49,6 +50,8 @@ def generate_cmd(
         config.model_lang = model_lang
     if time_bucket_hours is not None:
         config.time_bucket_hours = time_bucket_hours
+    if liners_preset is not None:
+        config.liners_preset = liners_preset
     paths = run_generate(
         config,
         time_bucket=time_bucket,

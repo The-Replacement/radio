@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 
 from .config import MarioConfig
-from .render import generate_segment
+from .liners import load_liners, select_liner
+from .render import generate_liner_segment, generate_segment
 from .text import build_text
 from .timebucket import bucket_for_now
 from .tracks import load_tracks
@@ -62,6 +63,38 @@ def generate(
                 lang=kokoro_lang,
             )
             out.append(path)
+
+    # Liners: deterministic ident per track seed, cached by (ident_id, seed, time_bucket).
+    liners_preset = config.liners_preset
+    if liners_preset is None:
+        default_preset = Path(__file__).resolve().parents[2] / "presets" / "liners.yaml"
+        if default_preset.is_file():
+            liners_preset = default_preset
+    if liners_preset is not None and liners_preset.is_file():
+        pool = load_liners(liners_preset)
+        for track in tracks:
+            liner = select_liner(pool, track.seed)
+            if dry_run:
+                from .liners import liner_cache_filename
+                out.append(config.host_dir / liner_cache_filename(liner.ident_id, track.seed, bucket))
+                continue
+            path = generate_liner_segment(
+                liner.ident_id,
+                track.seed,
+                bucket,
+                liner.text,
+                config.model,
+                config.host_dir,
+                piper_bin=piper_bin,
+                force=force,
+                backend=config.tts_backend,
+                voices_path=config.voices_path,
+                voice=config.voice,
+                speed=config.tts_speed,
+                lang=kokoro_lang,
+            )
+            out.append(path)
+
     # Write a marker of the current bucket last (atomic-ish).
     if not dry_run and out:
         marker = config.host_dir / "current-bucket"

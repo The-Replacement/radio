@@ -1,0 +1,22 @@
+# Mario — station idents / liners (The Liner).
+# Short station idents rendered as voice segments. Deterministic pool selected by seed.
+# template_version bumps to invalidate cached liner segments.
+template_version: mario/liners/1
+
+idents:
+  - id: ident-01
+    text: "You are listening to comechingona."
+  - id: ident-02
+    text: "Comechingona. Stay close."
+  - id: ident-03
+    text: "This is comechingona."
+  - id: ident-04
+    text: "You're tuned to comechingona."
+  - id: ident-05
+    text: "Comechingona, on air."
+  - id: ident-06
+    text: "Comechingona. The signal continues."
+  - id: ident-07
+    text: "You are listening to comechingona. No accidents."
+  - id: ident-08
+    text: "Comechingona. Keep listening."
