@@ -1,4 +1,4 @@
-# radio.liq — the private radio's source.
+# radio.liq — minimal test
 settings.init.allow_root := true
 settings.log.level := 3
 
@@ -14,14 +14,9 @@ musica = playlist(
   "/music"
 )
 
-# Test: minimal cross transition inserting a fixed host segment.
+# Test 1: exact doc example pattern.
 def host_transition(ending, starting) =
-  path = "/host/1094_1095_2026-11-11T00.wav"
-  if file.exists(path) then
-    sequence([single(path), starting.source])
-  else
-    starting.source
-  end
+  sequence([ending.source, starting.source])
 end
 
 radio = mksafe(cross(host_transition, musica))
@@ -35,8 +30,5 @@ output.icecast(
   user        = "source",
   password    = password,
   mount       = "/stream",
-  name        = "Radio Privada",
-  description = "Token access",
-  genre       = "various",
   radio
 )
