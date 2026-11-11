@@ -1,9 +1,9 @@
 # radio.liq — the private radio's source.
 #
 # Takes every audio file in /music, plays them in random order and pushes them
-# to Icecast in MP3 128 kbps. Between two tracks, if Mario (the host voice)
-# has pre-rendered a segment for that (current_seed, next_seed, time_bucket)
-# pair, it plays it first.
+# to Icecast in MP3 128 kbps. Between two tracks the DJ decides what happens:
+# a Mario host segment, a station ident, an occasional jingle, or a plain
+# crossfade. Everything is guarded so a missing file never drops the stream.
 #
 # It is intentionally short: every line here is the heart of the project
 # and you want to be able to read it whole.
@@ -37,15 +37,23 @@ musica = playlist(
   "/music"
 )
 
-# ---------------------------------------------------------------- Mario (the host voice)
+# ---------------------------------------------------------------- Mario (the host voice) + DJ (transitions/idents/jingles)
 #
 # Mario pre-renders short spoken segments into /host (mounted from
 # ./data/host) and publishes the current time bucket in
-# /host/current-bucket. Between two tracks we play the cached segment for
-# (current_seed, next_seed, bucket) if it exists; otherwise we go straight
-# to the next track. Everything is guarded so a missing segment, a missing
-# bucket or an unparseable seed degrades to "play the next track" and never
-# drops the stream.
+# /host/current-bucket. Station idents (liners) are also served from /host,
+# named liner_{ident_id}_{seed}_{bucket}.wav. Jingles live in /jingles
+# (mounted from ./jingles), never under /music.
+#
+# Between two tracks the DJ builds a short spacer list and sequences it before
+# the next track; if no spacer applies it crossfades. Idents are chosen by
+# scanning /host (Mario stays the single source of truth for the pool). Policy:
+#   - host segment always (when cached)
+#   - station ident only when no host segment AND next_seed is even
+#   - jingle only when next_seed mod 5 == 0 and < 2 spacers already
+#   - at most 2 spacers total (bounded gap)
+# Missing files / empty pools / bad seeds degrade to "no spacer" and the
+# crossfade; outer mksafe prevents stream drops.
 
 # Parse a seed from a COMMENT tag ("seed=1000; preset=station; v1").
 def seed_from_comment(c) =
@@ -88,7 +96,14 @@ def host_bucket() =
   end
 end
 
+# Trim trailing whitespace/newline from a bucket string.
+# Counter for liner insertion (every 3rd track in playback order).
+liner_counter = ref(0)
+
 def host_transition(ending, starting) =
+  # Increment liner counter on every transition.
+  liner_counter := !liner_counter + 1
+
   # Parse current seed.
   ec = try ending.metadata["comment"] catch _ do "" end
   es = seed_from_comment(ec)
@@ -107,19 +122,52 @@ def host_transition(ending, starting) =
 
   bucket = host_bucket()
 
-  if es == "" or ss == "" or bucket == "" then
-    (starting.source : source)
-  else
-    path = "/host/#{es}_#{ss}_#{bucket}.wav"
-    if file.exists(path) then
-      sequence([(single(path) : source(audio=pcm(stereo))), (starting.source : source)])
-    else
-      (starting.source : source)
+  # Build the spacer list (capped at 2).
+  spacers = ref([])
+
+  # Host segment (always, when cached).
+  if es != "" and ss != "" and bucket != "" then
+    host_path = "/host/#{es}_#{ss}_#{bucket}.wav"
+    if file.exists(host_path) then
+      spacers := list.append(!spacers, [single(host_path)])
     end
+  end
+
+  # Station ident / liner (every 3rd track, when cached by Mario).
+  # Mario publishes liner_{seed}_{bucket}.wav (alias) per track.
+  if !liner_counter mod 3 == 0 and ss != "" and bucket != "" then
+    liner_path = "/host/liner_#{ss}_#{bucket}.wav"
+    if file.exists(liner_path) then
+      spacers := list.append(!spacers, [single(liner_path)])
+    end
+  end
+
+  # Jingle (only when next_seed mod 5 == 0 and < 2 spacers).
+  if ss != "" and (int_of_string(ss) mod 5 == 0) and list.length(!spacers) < 2 then
+    try
+      jfiles = file.ls("/jingles")
+      if list.length(jfiles) > 0 then
+        idx = int_of_string(ss) mod list.length(jfiles)
+        jingle_path = "/jingles/" ^ list.nth(jfiles, idx)
+        if file.exists(jingle_path) then
+          spacers := list.append(!spacers, [single(jingle_path)])
+        end
+      end
+    catch _ do
+      ()
+    end
+  end
+
+  # Play spacers then the next track, or crossfade if none.
+  if list.length(!spacers) > 0 then
+    sequence(list.append(!spacers, [(starting.source : source)]))
+  else
+    # Crossfade: 2s fade-in on the new track, 2s fade-out on the old.
+    add([fade.in(duration=2.0, (starting.source : source)), fade.out(duration=2.0, (ending.source : source))])
   end
 end
 
-radio = mksafe(cross(host_transition, musica))
+radio = mksafe(cross(duration=3.0, host_transition, musica))
 
 # ---------------------------------------------------------------- salida
 
