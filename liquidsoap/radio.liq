@@ -89,37 +89,8 @@ def host_bucket() =
 end
 
 def host_transition(ending, starting) =
-  # Parse current seed.
-  ec = try ending.metadata["comment"] catch _ do "" end
-  es = seed_from_comment(ec)
-  if es == "" then
-    ef = try ending.metadata["filename"] catch _ do "" end
-    es = seed_from_filename(ef)
-  end
-
-  # Parse next seed.
-  sc = try starting.metadata["comment"] catch _ do "" end
-  ss = seed_from_comment(sc)
-  if ss == "" then
-    sf = try starting.metadata["filename"] catch _ do "" end
-    ss = seed_from_filename(sf)
-  end
-
-  bucket = host_bucket()
-
-  if es == "" or ss == "" or bucket == "" then
-    log.important("Mario: skip (es=#{es} ss=#{ss} bucket=#{bucket})")
-    (starting.source : source)
-  else
-    path = "/host/#{es}_#{ss}_#{bucket}.wav"
-    if file.exists(path) then
-      log.important("Mario: play #{path}")
-      sequence([(single(path) : source), (starting.source : source)])
-    else
-      log.important("Mario: miss #{path}")
-      (starting.source : source)
-    end
-  end
+  log.critical("Mario transition fired")
+  (starting.source : source)
 end
 
 radio = mksafe(cross(host_transition, musica))
