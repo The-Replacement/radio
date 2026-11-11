@@ -114,7 +114,7 @@ def host_transition(ending, starting) =
   end
 end
 
-radio = mksafe(cross(host_transition, musica))
+radio = cross(host_transition, musica)
 
 # ---------------------------------------------------------------- salida
 
