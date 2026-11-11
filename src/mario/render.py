@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .liners import liner_cache_filename
 from .timebucket import sanitize_bucket
+from .weather import weather_alias_filename, weather_cache_filename
 
 
 def cache_filename(current_seed: int, next_seed: int, bucket: str) -> str:
@@ -214,6 +215,50 @@ def generate_liner_segment(
             os.symlink(target.name, alias)
         except OSError:
             # Fallback: hard copy if symlinks unsupported.
+            if force or not (alias.is_file() and alias.stat().st_size > 0):
+                alias.write_bytes(target.read_bytes())
+    return target
+
+
+def generate_weather_segment(
+    hash_hex: str,
+    bucket: str,
+    text: str,
+    model: Path,
+    host_dir: Path,
+    *,
+    piper_bin: str = "piper",
+    force: bool = False,
+    backend: str = "piper",
+    voices_path: Path | None = None,
+    voice: str = "af_sarah",
+    speed: float = 1.0,
+    lang: str = "en-us",
+) -> Path:
+    """Render (if missing) a cached weather segment keyed by (weather_hash, time_bucket)."""
+    host_dir = Path(host_dir)
+    host_dir.mkdir(parents=True, exist_ok=True)
+    name = weather_cache_filename(hash_hex, bucket)
+    target = host_dir / name
+    if not (target.is_file() and target.stat().st_size > 0 and not force):
+        render_wav(
+            text,
+            model,
+            target,
+            piper_bin=piper_bin,
+            backend=backend,
+            voices_path=voices_path,
+            voice=voice,
+            speed=speed,
+            lang=lang,
+        )
+    alias = host_dir / weather_alias_filename(bucket)
+    if force or not alias.exists():
+        try:
+            if alias.is_symlink() or alias.exists():
+                alias.unlink()
+            os.symlink(target.name, alias)
+        except OSError:
             if force or not (alias.is_file() and alias.stat().st_size > 0):
                 alias.write_bytes(target.read_bytes())
     return target

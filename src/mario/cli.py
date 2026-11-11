@@ -29,6 +29,7 @@ def generate_cmd(
     time_bucket: str | None = typer.Option(None, "--time-bucket", help="Override the time bucket (e.g. 2026-11-10T14)."),
     time_bucket_hours: int | None = typer.Option(None, "--time-bucket-hours", help="Bucket width in hours."),
     liners_preset: Path | None = typer.Option(None, "--liners-preset", help="Path to liners preset YAML (station idents)."),
+    weather_file: Path | None = typer.Option(None, "--weather-file", help="Path to local weather snapshot JSON."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print planned outputs without rendering."),
     force: bool = typer.Option(False, "--force", help="Re-render even if cached."),
     piper_bin: str = typer.Option("piper", "--piper-bin", help="Piper executable (piper backend)."),
@@ -52,6 +53,8 @@ def generate_cmd(
         config.time_bucket_hours = time_bucket_hours
     if liners_preset is not None:
         config.liners_preset = liners_preset
+    if weather_file is not None:
+        config.weather_file = weather_file
     paths = run_generate(
         config,
         time_bucket=time_bucket,

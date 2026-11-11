@@ -216,8 +216,9 @@ def test_no_network_imports() -> None:
     import mario.render as r
     import mario.tracks as t
     import mario.vibe as v
+    import mario.weather as w
 
-    src = "\n".join(__import__("inspect").getsource(m) for m in (g, l, r, t, v))
+    src = "\n".join(__import__("inspect").getsource(m) for m in (g, l, r, t, v, w))
     for forbidden in ("requests", "urllib", "httpx", "socket"):
         assert forbidden not in src, f"forbidden network client referenced: {forbidden}"
 

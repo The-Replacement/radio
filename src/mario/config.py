@@ -24,11 +24,13 @@ class MarioConfig(BaseModel):
     voice: str = Field(default="af_sarah")
     tts_speed: float = Field(default=1.0, gt=0)
     liners_preset: Path | None = Field(default=None)
+    weather_file: Path | None = Field(default=None)
 
     @classmethod
     def from_env(cls) -> MarioConfig:
         voices = os.environ.get("MARIO_VOICES_PATH")
         liners = os.environ.get("MARIO_LINERS_PRESET")
+        weather = os.environ.get("MARIO_WEATHER_FILE")
         return cls(
             music_dir=Path(os.environ.get("MARIO_MUSIC_DIR", "/music")),
             host_dir=Path(os.environ.get("MARIO_HOST_DIR", "/data/host")),
@@ -41,4 +43,5 @@ class MarioConfig(BaseModel):
             voice=os.environ.get("MARIO_VOICE", "af_sarah"),
             tts_speed=float(os.environ.get("MARIO_TTS_SPEED", "1.0")),
             liners_preset=Path(liners) if liners else None,
+            weather_file=Path(weather) if weather else None,
         )
