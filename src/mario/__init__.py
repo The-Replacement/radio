@@ -6,4 +6,4 @@ spoken Host segments between tracks, cached by (current_seed, next_seed, time_bu
 """
 
 __version__ = "0.1.0"
-TEMPLATE_VERSION = "mario/1"
+TEMPLATE_VERSION = "mario/2"

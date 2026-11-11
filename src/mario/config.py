@@ -18,7 +18,7 @@ class MarioConfig(BaseModel):
     model: Path = Field(default=Path("/models/piper/es_ES-sharvard-medium.onnx"))
     time_bucket_hours: int = Field(default=1, ge=1)
     model_lang: str = Field(default="es")
-    template_version: str = Field(default="mario/1")
+    template_version: str = Field(default="mario/2")
     tts_backend: str = Field(default="piper")
     voices_path: Path | None = Field(default=None)
     voice: str = Field(default="af_sarah")
@@ -33,7 +33,7 @@ class MarioConfig(BaseModel):
             model=Path(os.environ.get("MARIO_MODEL", "/models/piper/es_ES-sharvard-medium.onnx")),
             time_bucket_hours=int(os.environ.get("MARIO_TIME_BUCKET_HOURS", "1")),
             model_lang=os.environ.get("MARIO_MODEL_LANG", "es"),
-            template_version=os.environ.get("MARIO_TEMPLATE_VERSION", "mario/1"),
+            template_version=os.environ.get("MARIO_TEMPLATE_VERSION", "mario/2"),
             tts_backend=os.environ.get("MARIO_TTS_BACKEND", "piper"),
             voices_path=Path(voices) if voices else None,
             voice=os.environ.get("MARIO_VOICE", "af_sarah"),

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from datetime import UTC
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +15,7 @@ from mario.render import cache_filename, generate_segment, render_wav
 from mario.text import build_text
 from mario.timebucket import quantize_bucket, sanitize_bucket
 from mario.tracks import TrackMeta, load_tracks
+from mario.vibe import SPEED_MAX, SPEED_MIN, lane_mood, vibe_for
 
 
 def _sidecar(music_dir: Path, seed: int, lane: str = "motorik", form: str = "A") -> None:
@@ -23,7 +26,12 @@ def _sidecar(music_dir: Path, seed: int, lane: str = "motorik", form: str = "A")
         "preset": "motorik",
         "pcm_sha256": f"hash{seed}",
         "plan": {"form": form, "techniques": [], "sections": [], "director_log": []},
-        "measurements": {"duration_seconds": 10.0, "integrated_lufs": -16.0, "true_peak_dbtp": -1.5, "loudness_range_lu": 5.0},
+        "measurements": {
+            "duration_seconds": 10.0,
+            "integrated_lufs": -16.0,
+            "true_peak_dbtp": -1.5,
+            "loudness_range_lu": 5.0,
+        },
     }
     (music_dir / f"track{seed}.json").write_text(json.dumps(payload), encoding="utf-8")
 
@@ -45,13 +53,48 @@ def test_time_bucket_quantization() -> None:
     assert quantize_bucket(dt, 24) == "2026-11-10"
 
 
-def test_text_determinism() -> None:
+def test_text_determinism_and_persona() -> None:
     a = TrackMeta(seed=1, lane="motorik", form="A", preset="p", pcm_sha256="h1", path="x", duration_seconds=10.0)
     b = TrackMeta(seed=2, lane="kosmische", form="B", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
     t1 = build_text(a, b, "2026-11-10T14")
     t2 = build_text(a, b, "2026-11-10T14")
     assert t1 == t2
-    assert "motorik" in t1 and "kosmische" in t1
+    # DJ claims the act and cues the incoming track/vibe.
+    assert "I'm" in t1
+    assert "kosmische" in t1 and "B" in t1
+    assert "..." in t1  # spacious pacing markers
+
+
+def test_text_reflects_lane_contrast() -> None:
+    motorik = TrackMeta(seed=1, lane="motorik", form="A", preset="p", pcm_sha256="h1", path="x", duration_seconds=10.0)
+    ambient = TrackMeta(seed=2, lane="ambient", form="B", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
+    text = build_text(motorik, ambient, "2026-11-10T14")
+    # Shift from driving to hush should be named softly.
+    assert "settle" in text.lower() or "dim" in text.lower() or "quiet" in text.lower()
+
+
+def test_vibe_speed_deterministic_and_in_bounds() -> None:
+    a = TrackMeta(seed=11, lane="motorik", form="A", preset="p", pcm_sha256="h1", path="x", duration_seconds=10.0)
+    b = TrackMeta(seed=22, lane="ambient", form="B", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
+    v1 = vibe_for(a, b, "2026-11-10T14")
+    v2 = vibe_for(a, b, "2026-11-10T14")
+    assert v1 == v2
+    assert SPEED_MIN <= v1.speed <= SPEED_MAX
+
+
+def test_lane_to_mood_and_pacing_mapping() -> None:
+    assert lane_mood("motorik") == "pulse"
+    assert lane_mood("kosmische") == "drift"
+    assert lane_mood("ambient") == "hush"
+    motorik = TrackMeta(seed=1, lane="motorik", form="A", preset="p", pcm_sha256="h1", path="x", duration_seconds=10.0)
+    kosmische = TrackMeta(seed=2, lane="kosmische", form="A", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
+    ambient = TrackMeta(seed=3, lane="ambient", form="A", preset="p", pcm_sha256="h3", path="z", duration_seconds=10.0)
+    v_motorik = vibe_for(motorik, motorik, "2026-11-10T14")
+    v_drift = vibe_for(motorik, kosmische, "2026-11-10T14")
+    v_hush = vibe_for(motorik, ambient, "2026-11-10T14")
+    assert v_hush.speed < v_motorik.speed
+    assert v_drift.speed < v_motorik.speed
+    assert v_hush.speed <= v_drift.speed + 0.03  # both floaty, ambient can be slowest
 
 
 def test_load_tracks_from_sidecars(tmp_path: Path) -> None:
@@ -70,10 +113,12 @@ def test_render_noise_scales(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
         captured["cmd"] = list(cmd)
         out = Path(cmd[cmd.index("-f") + 1])
         out.write_bytes(b"RIFF")
+
         class R:
             returncode = 0
             stdout = b""
             stderr = b""
+
         return R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -97,10 +142,12 @@ def test_cache_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         calls["n"] += 1
         out = Path(cmd[cmd.index("-f") + 1])
         out.write_bytes(b"RIFF")
+
         class R:
             returncode = 0
             stdout = b""
             stderr = b""
+
         return R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -108,14 +155,54 @@ def test_cache_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     model.write_bytes(b"x")
     host_dir = tmp_path / "host"
     host_dir.mkdir()
-    # First render creates file.
     p1 = generate_segment(1, 2, "2026-11-10T14", "hi", model, host_dir, piper_bin="piper")
     assert p1.is_file()
     assert calls["n"] == 1
-    # Second run skips (no piper call).
     p2 = generate_segment(1, 2, "2026-11-10T14", "hi", model, host_dir, piper_bin="piper")
     assert p2 == p1
     assert calls["n"] == 1
+
+
+def test_kokoro_path_receives_speed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    class FakeKokoro:
+        def __init__(self, model: str, voices: str) -> None:
+            seen["model"] = model
+            seen["voices"] = voices
+
+        def create(self, text: str, voice: str, speed: float, lang: str):  # type: ignore[no-untyped-def]
+            seen["text"] = text
+            seen["voice"] = voice
+            seen["speed"] = speed
+            seen["lang"] = lang
+            return [0.0, 0.0], 24000
+
+    def fake_write(path: str, samples: object, sample_rate: int, format: str = "WAV") -> None:
+        Path(path).write_bytes(b"RIFF")
+
+    monkeypatch.setitem(__import__("sys").modules, "kokoro_onnx", SimpleNamespace(Kokoro=FakeKokoro))
+    monkeypatch.setitem(__import__("sys").modules, "soundfile", SimpleNamespace(write=fake_write))
+
+    model = tmp_path / "kokoro.onnx"
+    voices = tmp_path / "voices.bin"
+    model.write_bytes(b"x")
+    voices.write_bytes(b"v")
+    out = tmp_path / "seg.wav"
+    render_wav(
+        "hello there",
+        model,
+        out,
+        backend="kokoro",
+        voices_path=voices,
+        voice="am_adam",
+        speed=0.88,
+        lang="en-us",
+    )
+    assert out.is_file()
+    assert seen["speed"] == 0.88
+    assert seen["voice"] == "am_adam"
+    assert seen["lang"] == "en-us"
 
 
 def test_missing_model_raises(tmp_path: Path) -> None:
@@ -127,14 +214,14 @@ def test_no_network_imports() -> None:
     import mario.gen as g
     import mario.render as r
     import mario.tracks as t
-    src = "\n".join(__import__("inspect").getsource(m) for m in (g, r, t))
+    import mario.vibe as v
+
+    src = "\n".join(__import__("inspect").getsource(m) for m in (g, r, t, v))
     for forbidden in ("requests", "urllib", "httpx", "socket"):
         assert forbidden not in src, f"forbidden network client referenced: {forbidden}"
 
 
 def test_host_determinism(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    import hashlib
-
     music = tmp_path / "music"
     music.mkdir()
     _sidecar(music, 1, "motorik", "A")
@@ -143,10 +230,12 @@ def test_host_determinism(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     def fake_run(cmd: list[str], **kwargs: object) -> object:
         out = Path(cmd[cmd.index("-f") + 1])
         out.write_bytes(b"DETERMINISTIC-WAV-BYTES")
+
         class R:
             returncode = 0
             stdout = b""
             stderr = b""
+
         return R()
 
     monkeypatch.setattr(subprocess, "run", fake_run)

@@ -10,6 +10,7 @@ from .render import generate_segment
 from .text import build_text
 from .timebucket import bucket_for_now
 from .tracks import load_tracks
+from .vibe import vibe_for
 
 
 def generate(
@@ -41,6 +42,7 @@ def generate(
             if current.pcm_sha256 == nxt.pcm_sha256:
                 continue
             text = build_text(current, nxt, bucket, config.template_version)
+            vibe = vibe_for(current, nxt, bucket)
             if dry_run:
                 out.append(config.host_dir / f"{current.seed}_{nxt.seed}_{bucket}.wav")
                 continue
@@ -56,7 +58,7 @@ def generate(
                 backend=config.tts_backend,
                 voices_path=config.voices_path,
                 voice=config.voice,
-                speed=config.tts_speed,
+                speed=vibe.speed,
                 lang=kokoro_lang,
             )
             out.append(path)
