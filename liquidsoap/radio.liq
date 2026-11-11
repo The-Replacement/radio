@@ -1,11 +1,6 @@
-# radio.liq — enable telnet for debugging
+# radio.liq — Mario host transition with single cast to audio source type
 settings.init.allow_root := true
 settings.log.level := 3
-
-# Enable telnet server for debugging (skip tracks to test transitions).
-settings.server.telnet := true
-settings.server.bind_addr := "0.0.0.0"
-settings.server.port := 1234
 
 password = getenv("", "ICECAST_SOURCE_PASSWORD")
 
@@ -20,8 +15,7 @@ musica = playlist(
 )
 
 def host_transition(ending, starting) =
-  log.critical("Mario transition fired")
-  sequence([(single(fallible=true, "/host/1094_1095_2026-11-11T00.wav") : source), (starting.source : source)])
+  sequence([(ending.source : source), (single(fallible=true, "/host/1094_1095_2026-11-11T00.wav") : source(audio=pcm(stereo))), (starting.source : source)])
 end
 
 radio = mksafe(cross(host_transition, musica))
