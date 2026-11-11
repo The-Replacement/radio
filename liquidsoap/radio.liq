@@ -1,6 +1,11 @@
-# radio.liq — Mario host transition (fallible single)
+# radio.liq — enable telnet for debugging
 settings.init.allow_root := true
 settings.log.level := 3
+
+# Enable telnet server for debugging (skip tracks to test transitions).
+settings.server.telnet := true
+settings.server.bind_addr := "0.0.0.0"
+settings.server.port := 1234
 
 password = getenv("", "ICECAST_SOURCE_PASSWORD")
 
