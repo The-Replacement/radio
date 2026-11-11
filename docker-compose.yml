@@ -154,6 +154,32 @@ services:
     networks:
       - radio
 
+  # Mario (the host voice): generates spoken segments between tracks. Runs on
+  # demand (`docker compose run --rm mario generate ...`), not as a long-lived
+  # service — mirroring indiegenerator's build pattern but on-demand. The
+  # watcher (scripts/restart-on-signal.sh) and an hourly cron
+  # (scripts/mario-refresh.sh) trigger it. Output lands in ./data/host, mounted
+  # into Liquidsoap and Caddy (see the mounts below).
+  mario:
+    build:
+      context: ${MARIO_CONTEXT:-../mario}
+      dockerfile: Dockerfile
+    container_name: radio-mario
+    restart: "no"
+    environment:
+      MARIO_MUSIC_DIR: /music
+      MARIO_HOST_DIR: /data/host
+      MARIO_MODEL: /models/piper/es_ES-sharvard-medium.onnx
+      MARIO_TIME_BUCKET_HOURS: ${MARIO_TIME_BUCKET_HOURS:-1}
+      MARIO_MODEL_LANG: ${MARIO_MODEL_LANG:-es}
+      MARIO_TEMPLATE_VERSION: ${MARIO_TEMPLATE_VERSION:-mario/1}
+    volumes:
+      - ./music:/music:ro
+      - ./data/host:/data/host
+      - /home/kbdejavu/Models/piper:/models/piper:ro
+    networks:
+      - radio
+
   caddy:
     image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     container_name: radio-caddy

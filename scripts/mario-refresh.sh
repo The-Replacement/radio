@@ -5,13 +5,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Source .env so MARIO_MODEL (and friends) resolve to the box's real values.
-if [ -f "$ROOT/.env" ]; then
-  set -a
-  . "$ROOT/.env"
-  set +a
-fi
-
-MARIO_MUSIC_DIR="$ROOT/music" MARIO_HOST_DIR="$ROOT/data/host" \
-  mario generate --music-dir "$ROOT/music" --host-dir "$ROOT/data/host" \
+# Mario runs as a container (mirroring indiegenerator).
+docker compose -f "$ROOT/docker-compose.yml" run --rm mario \
+  generate --music-dir /music --host-dir /data/host \
   >/dev/null 2>&1 || true

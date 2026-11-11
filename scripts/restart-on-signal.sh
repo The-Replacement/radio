@@ -33,22 +33,13 @@ if [ -z "$sig" ] || [ "$sig" = "$last" ]; then
 fi
 
 # Pre-render Mario (the host voice) segments BEFORE restarting Liquidsoap, so
-# the new library's transitions find their cached segments on air. Runs on the
-# host (Mario is a host-side install: pip install mario). A failure here must
-# NOT block the restart: the segments are optional (Liquidsoap skips misses).
-# Source .env so MARIO_MODEL (and friends) resolve to the box's real values
-# instead of Mario's generic defaults.
-if [ -f "$ROOT/.env" ]; then
-  set -a
-  . "$ROOT/.env"
-  set +a
-fi
-if command -v mario >/dev/null 2>&1; then
-  MARIO_MUSIC_DIR="${MARIO_MUSIC_DIR:-$ROOT/music}" \\
-  MARIO_HOST_DIR="${MARIO_HOST_DIR:-$ROOT/data/host}" \\
-  mario generate --music-dir "$ROOT/music" --host-dir "$ROOT/data/host" \\
-    >/dev/null 2>&1 || true
-fi
+# the new library's transitions find their cached segments on air. Mario runs
+# as a container (`docker compose run --rm mario`), mirroring indiegenerator.
+# A failure here must NOT block the restart: the segments are optional
+# (Liquidsoap skips misses).
+docker compose -f "$ROOT/docker-compose.yml" run --rm mario \\
+  generate --music-dir /music --host-dir /data/host \\
+  >/dev/null 2>&1 || true
 
 docker compose -f "$ROOT/docker-compose.yml" restart liquidsoap
 printf '%s' "$sig" > "$MARK"

@@ -5,13 +5,18 @@ reads this radio's music library and renders short spoken Host segments, cached
 by (current_seed, next_seed, time_bucket), into `./data/host/`. Liquidsoap plays
 them between tracks.
 
-## Install on the box
+## Deploy on the box (mirroring indiegenerator)
+
+Mario runs as a container, built from the `mario` repo (context `MARIO_CONTEXT`,
+default `../mario`):
 
 ```bash
-pip install /home/kbdejavu/servers/mario   # or a released wheel
+cd /home/kbdejavu/servers/radio
+docker compose build mario
 ```
 
-Verify: `mario --help`.
+The model must be present on the box at the path mounted in docker-compose.yml
+(`/home/kbdejavu/Models/piper/...`). See the `mario` service definition.
 
 ## Wiring (already in the repo)
 
