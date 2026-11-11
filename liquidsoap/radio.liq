@@ -1,4 +1,4 @@
-# radio.liq — annotate params as source
+# radio.liq — cast single() to source type
 settings.init.allow_root := true
 settings.log.level := 3
 
@@ -14,11 +14,11 @@ musica = playlist(
   "/music"
 )
 
-def host_transition(ending : source, starting : source) =
+def host_transition(ending, starting) =
   if file.exists("/host/1094_1095_2026-11-11T00.wav") then
-    sequence([ending, single("/host/1094_1095_2026-11-11T00.wav"), starting])
+    sequence([(single("/host/1094_1095_2026-11-11T00.wav") : source), (starting.source : source)])
   else
-    sequence([ending, starting])
+    (starting.source : source)
   end
 end
 
