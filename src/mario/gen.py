@@ -25,6 +25,16 @@ def generate(
     if not tracks:
         return []
     bucket = time_bucket if time_bucket is not None else bucket_for_now(config.time_bucket_hours)
+    # Map config model_lang (e.g. "es", "en") to kokoro lang tags.
+    kokoro_lang = "en-us"
+    if config.model_lang.startswith("en-gb") or config.model_lang == "b":
+        kokoro_lang = "en-gb"
+    elif config.model_lang.startswith("en"):
+        kokoro_lang = "en-us"
+    elif config.model_lang.startswith("es"):
+        kokoro_lang = "es"
+    else:
+        kokoro_lang = config.model_lang
     out: list[Path] = []
     for current in tracks:
         for nxt in tracks:
@@ -43,6 +53,11 @@ def generate(
                 config.host_dir,
                 piper_bin=piper_bin,
                 force=force,
+                backend=config.tts_backend,
+                voices_path=config.voices_path,
+                voice=config.voice,
+                speed=config.tts_speed,
+                lang=kokoro_lang,
             )
             out.append(path)
     # Write a marker of the current bucket last (atomic-ish).

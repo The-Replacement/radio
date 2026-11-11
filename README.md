@@ -23,25 +23,34 @@ pip install /path/to/mario
 ## Run
 
 ```bash
+# Piper (default)
 mario generate --music-dir /music --host-dir /data/host --model /models/piper/es_ES-sharvard-medium.onnx
+
+# Kokoro (requires: pip install 'mario[kokoro]' + local model & voices files)
+mario generate --backend kokoro --music-dir /music --host-dir /data/host \
+  --model /models/kokoro/kokoro-v1.0.onnx \
+  --voices-path /models/kokoro/voices-v1.0.bin \
+  --voice af_sarah --model-lang en-us
 ```
 
 ## Design notes
 
-- Determinism: Piper is invoked with `--noise-scale 0 --noise-w-scale 0`.
+- Determinism: Piper uses `--noise-scale 0 --noise-w-scale 0`. Kokoro uses fixed inference parameters; verify hash stability for your setup if byte-identical caching is required.
 - Time is a quantized bucket (default 1 hour), included in the cache key.
 - All ordered pairs of the current library are pre-rendered (N*(N-1) segments).
 - Segments live under `./data/host/`, never under `./music/` (so Liquidsoap
   does not scan them into the playlist).
-- No network calls at generation time. The Piper model is a local file.
+- No network calls at generation time. Models/voices are local files.
 
-## Voice
+## Voice / backends
+
+- **Piper (default):** lightweight, deterministic, local `.onnx` voices.
+- **Kokoro:** higher-quality 82M TTS via `kokoro-onnx` (local model + voices). Better prosody; install extra `mario[kokoro]` and supply `--model`, `--voices-path`, `--voice`.
 
 The aspiration is a voice inspired by Mario Pergolini: Argentine (rioplatense),
-energetic, ironic, distinctive. The default model shipped is a Castilian
-Spanish Piper voice; swapping to an Argentine voice model is a matter of
-pointing `--model` (or `MARIO_MODEL`) at a different `.onnx`. Voice cloning
-or an Argentine Piper model is future work.
+energetic, ironic, distinctive. Swapping to another voice is a matter of
+pointing `--model`/`--voice` at different local assets. Voice cloning or a
+true Argentine/Stern-like timbre requires a cloning-capable backend (future work).
 
 ## License
 

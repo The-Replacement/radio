@@ -1,7 +1,8 @@
-"""Render a Host segment with Piper and publish it atomically.
+"""Render a Host segment and publish it atomically.
 
-Determinism relies on --noise-scale 0 and --noise-w-scale 0. Piper is invoked
-as a subprocess so the model path and flags are inspectable and testable.
+Backends:
+- piper (default): subprocess, deterministic with --noise-scale 0/--noise-w-scale 0.
+- kokoro: kokoro-onnx Python API (local model+voices files).
 """
 
 from __future__ import annotations
@@ -17,20 +18,31 @@ def cache_filename(current_seed: int, next_seed: int, bucket: str) -> str:
     return f"{current_seed}_{next_seed}_{sanitize_bucket(bucket)}.wav"
 
 
-def render_wav(
-    text: str,
-    model: Path,
-    output_path: Path,
-    *,
-    piper_bin: str = "piper",
-) -> None:
-    """Render `text` to a WAV at output_path using Piper. Raises on failure."""
+def _fsync_publish(tmp: Path, output_path: Path) -> None:
+    if not tmp.is_file() or tmp.stat().st_size == 0:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError("tts produced an empty file")
+    # fsync the rendered bytes before publishing so a crash cannot leave a
+    # half-written (or stale) segment behind.
+    with tmp.open("rb") as fh:
+        os.fsync(fh.fileno())
+    os.replace(tmp, output_path)
+    # Durability of the directory entry.
+    try:
+        dir_fd = os.open(str(output_path.parent), os.O_DIRECTORY)
+    except (OSError, AttributeError):
+        dir_fd = -1
+    if dir_fd >= 0:
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+
+
+def _render_piper(text: str, model: Path, tmp: Path, *, piper_bin: str = "piper") -> None:
     model = Path(model)
     if not model.is_file():
         raise FileNotFoundError(f"Piper model not found: {model}")
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = output_path.with_suffix(".wav.tmp")
     cmd = [
         piper_bin,
         "-m", str(model),
@@ -50,24 +62,73 @@ def render_wav(
     if proc.returncode != 0:
         tmp.unlink(missing_ok=True)
         raise RuntimeError(f"piper failed ({proc.returncode}): {proc.stderr.decode('utf-8', 'replace')}")
-    if not tmp.is_file() or tmp.stat().st_size == 0:
-        tmp.unlink(missing_ok=True)
-        raise RuntimeError("piper produced an empty file")
-    # fsync the rendered bytes before publishing so a crash cannot leave a
-    # half-written (or stale) segment behind.
-    with tmp.open("rb") as fh:
-        os.fsync(fh.fileno())
-    os.replace(tmp, output_path)
-    # Durability of the directory entry.
+
+
+def _render_kokoro(
+    text: str,
+    model: Path,
+    tmp: Path,
+    *,
+    voices_path: Path | None,
+    voice: str,
+    speed: float,
+    lang: str,
+) -> None:
+    model = Path(model)
+    if voices_path is None:
+        raise FileNotFoundError("Kokoro voices_path is required")
+    voices_path = Path(voices_path)
+    if not model.is_file():
+        raise FileNotFoundError(f"Kokoro model not found: {model}")
+    if not voices_path.is_file():
+        raise FileNotFoundError(f"Kokoro voices file not found: {voices_path}")
     try:
-        dir_fd = os.open(str(output_path.parent), os.O_DIRECTORY)
-    except (OSError, AttributeError):
-        dir_fd = -1
-    if dir_fd >= 0:
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
+        import soundfile as sf  # type: ignore[import-not-found]
+        from kokoro_onnx import Kokoro  # type: ignore[import-not-found]
+    except Exception as exc:  # pragma: no cover - import error path
+        raise RuntimeError(
+            "kokoro backend requires kokoro-onnx and soundfile to be installed"
+        ) from exc
+    kokoro = Kokoro(str(model), str(voices_path))
+    samples, sample_rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)
+    sf.write(str(tmp), samples, sample_rate)
+
+
+def render_wav(
+    text: str,
+    model: Path,
+    output_path: Path,
+    *,
+    piper_bin: str = "piper",
+    backend: str = "piper",
+    voices_path: Path | None = None,
+    voice: str = "af_sarah",
+    speed: float = 1.0,
+    lang: str = "en-us",
+) -> None:
+    """Render `text` to a WAV at output_path. Raises on failure."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output_path.with_suffix(".wav.tmp")
+    try:
+        if backend == "piper":
+            _render_piper(text, model, tmp, piper_bin=piper_bin)
+        elif backend == "kokoro":
+            _render_kokoro(
+                text,
+                model,
+                tmp,
+                voices_path=voices_path,
+                voice=voice,
+                speed=speed,
+                lang=lang,
+            )
+        else:
+            raise ValueError(f"unknown tts backend: {backend}")
+        _fsync_publish(tmp, output_path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def generate_segment(
@@ -80,6 +141,11 @@ def generate_segment(
     *,
     piper_bin: str = "piper",
     force: bool = False,
+    backend: str = "piper",
+    voices_path: Path | None = None,
+    voice: str = "af_sarah",
+    speed: float = 1.0,
+    lang: str = "en-us",
 ) -> Path:
     """Render (if missing) the cached segment. Returns its path."""
     host_dir = Path(host_dir)
@@ -88,5 +154,15 @@ def generate_segment(
     target = host_dir / name
     if target.is_file() and target.stat().st_size > 0 and not force:
         return target
-    render_wav(text, model, target, piper_bin=piper_bin)
+    render_wav(
+        text,
+        model,
+        target,
+        piper_bin=piper_bin,
+        backend=backend,
+        voices_path=voices_path,
+        voice=voice,
+        speed=speed,
+        lang=lang,
+    )
     return target
