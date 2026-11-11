@@ -84,6 +84,9 @@ def host_transition(ending, starting) =
   end
 end
 
+# Log every track change to confirm transitions fire.
+musica.on_track(fun (m) -> log.critical("Track changed: " ^ list.assoc(default="", "title", m)))
+
 radio = mksafe(cross(host_transition, musica))
 
 enc = %mp3(bitrate=128, samplerate=44100, stereo=true)
