@@ -1,4 +1,4 @@
-# radio.liq — test doc pattern with ending.source included
+# radio.liq — test single() with literal path
 settings.init.allow_root := true
 settings.log.level := 3
 
@@ -14,11 +14,9 @@ musica = playlist(
   "/music"
 )
 
-# Doc pattern: sequence([ending.source, single(jingle), starting.source])
 def host_transition(ending, starting) =
-  jingle = "/host/1094_1095_2026-11-11T00.wav"
-  if file.exists(jingle) then
-    sequence([ending.source, single(jingle), starting.source])
+  if file.exists("/host/1094_1095_2026-11-11T00.wav") then
+    sequence([ending.source, single("/host/1094_1095_2026-11-11T00.wav"), starting.source])
   else
     sequence([ending.source, starting.source])
   end
