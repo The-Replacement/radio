@@ -1,104 +1,26 @@
-# radio.liq — the private radio's source.
-#
-# Takes every audio file in /music, plays them in random order and pushes them
-# to Icecast in MP3 128 kbps. Between two tracks, if Mario (the host voice)
-# has pre-rendered a segment for that (current_seed, next_seed, time_bucket)
-# pair, it plays it first.
-#
-# It is intentionally short: every line here is the heart of the project
-# and you want to be able to read it whole.
-
-# The container runs as root; liquidsoap asks for it explicitly.
+# radio.liq — test doc pattern with log
 settings.init.allow_root := true
-
-# 3 = info. Raise it to 4 if something does not start.
 settings.log.level := 3
 
-# ---------------------------------------------------------------- secretos
-
-# CAREFUL with the signature: getenv(default, variable_name).
-# The variable name goes SECOND. This is not a typo.
 password = getenv("", "ICECAST_SOURCE_PASSWORD")
 
 if password == "" then
-  log.critical("ICECAST_SOURCE_PASSWORD is empty: Icecast will reject the connection.")
+  log.critical("ICECAST_SOURCE_PASSWORD is empty.")
 end
 
-# ---------------------------------------------------------------- music
-
-# Playlist over a directory. reload_mode="watch" makes the new tracks you add
-# to ./music come in on their own, with nothing to restart.
-# CAREFUL: DELETIONS are not removed on their own (Liquidsoap keeps them in its
-# in-memory random playlist). To remove tracks, restart liquidsoap:
-#   docker compose restart liquidsoap
 musica = playlist(
   mode        = "randomize",
   reload_mode = "watch",
   "/music"
 )
 
-# ---------------------------------------------------------------- Mario (the host voice)
-#
-# Mario pre-renders short spoken segments into /host (mounted from
-# ./data/host) and publishes the current time bucket in
-# /host/current-bucket. Between two tracks we play the cached segment for
-# (current_seed, next_seed, bucket) if it exists; otherwise we go straight
-# to the next track. Everything is guarded so a missing segment, a missing
-# bucket or an unparseable seed degrades to "play the next track" and never
-# drops the stream.
-
-# Parse a seed from a COMMENT tag ("seed=1000; preset=station; v1").
-def seed_from_comment(c) =
-  if c == "" then
-    ""
-  else
-    try
-      m = r/seed=(?<seed>[0-9]+)/.exec(c)
-      list.assoc(default="", "seed", m.groups)
-    catch _ do
-      ""
-    end
-  end
-end
-
-# Fallback: parse the seed from a filename ("..._s1000.flac").
-def seed_from_filename(f) =
-  if f == "" then
-    ""
-  else
-    try
-      m = r/_s(?<seed>[0-9]+)/.exec(f)
-      list.assoc(default="", "seed", m.groups)
-    catch _ do
-      ""
-    end
-  end
-end
-
-# Read the current bucket Mario published. Empty string on any failure.
-def host_bucket() =
-  try
-    if file.exists("/host/current-bucket") then
-      file.contents("/host/current-bucket")
-    else
-      ""
-    end
-  catch _ do
-    ""
-  end
-end
-
 def host_transition(ending, starting) =
   log.critical("Mario transition fired")
-  (starting.source : source)
+  sequence([(ending.source : source), (starting.source : source)])
 end
 
 radio = mksafe(cross(host_transition, musica))
 
-# ---------------------------------------------------------------- salida
-
-# Encoder: MP3 128 kbps. It is what ANYTHING plays
-# (browser, iOS, VLC, Android) without codec arguments.
 enc = %mp3(bitrate=128, samplerate=44100, stereo=true)
 
 output.icecast(
@@ -108,8 +30,5 @@ output.icecast(
   user        = "source",
   password    = password,
   mount       = "/stream",
-  name        = "Radio Privada",
-  description = "Token access",
-  genre       = "various",
   radio
 )
