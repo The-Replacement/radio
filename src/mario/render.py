@@ -91,7 +91,7 @@ def _render_kokoro(
         ) from exc
     kokoro = Kokoro(str(model), str(voices_path))
     samples, sample_rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)
-    sf.write(str(tmp), samples, sample_rate)
+    sf.write(str(tmp), samples, sample_rate, format="WAV")
 
 
 def render_wav(
