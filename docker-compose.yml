@@ -169,6 +169,14 @@ services:
       dockerfile: Dockerfile
     container_name: radio-mario
     restart: "no"
+    # The host resolves through systemd-resolved's stub (nameserver 127.0.0.53).
+    # Docker classifies that as an internal resolver and drops it, leaving the
+    # container's /etc/resolv.conf with NO nameservers at all - every lookup
+    # fails with "Name or service not known". That silently kills RSS fetches.
+    # Pin the real upstreams: LAN router first, public resolver as fallback.
+    dns:
+      - 192.168.100.1
+      - 1.1.1.1
     environment:
       MARIO_MUSIC_DIR: /music
       MARIO_HOST_DIR: /data/host
