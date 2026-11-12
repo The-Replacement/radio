@@ -169,6 +169,8 @@ def test_staging_name_is_unique_per_run(
     assert staged[0] != staged[1]
     assert staged[0].parent == out.parent
     assert not list(tmp_path.glob("*.tmp"))
+    # Playback runs under a different user; a 0600 segment is unreadable there.
+    assert out.stat().st_mode & 0o044 == 0o044
 
 
 def test_cache_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

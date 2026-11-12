@@ -132,6 +132,9 @@ def render_wav(
     )
     os.close(fd)
     tmp = Path(tmp_name)
+    # mkstemp creates 0600. Segments are read by the playout container under a
+    # different user, so restore the 0644 the backends used to produce.
+    os.chmod(tmp, 0o644)
     try:
         if backend == "piper":
             _render_piper(text, model, tmp, piper_bin=piper_bin)
