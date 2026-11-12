@@ -95,8 +95,8 @@ def _render_kokoro(
     if not voices_path.is_file():
         raise FileNotFoundError(f"Kokoro voices file not found: {voices_path}")
     try:
-        import soundfile as sf  # type: ignore[import-not-found]
-        from kokoro_onnx import Kokoro  # type: ignore[import-not-found]
+        import soundfile as sf  # type: ignore
+        from kokoro_onnx import Kokoro  # type: ignore
     except Exception as exc:  # pragma: no cover - import error path
         raise RuntimeError(
             "kokoro backend requires kokoro-onnx and soundfile to be installed"
