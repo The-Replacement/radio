@@ -172,6 +172,10 @@ services:
     environment:
       MARIO_MUSIC_DIR: /music
       MARIO_HOST_DIR: /data/host
+      # Bundled presets (liners/weather/rss) ship in the image at /app/presets.
+      # The package is installed, not checked out, so presets are not beside
+      # __file__; this makes the location explicit instead of a fallback guess.
+      MARIO_PRESETS_DIR: /app/presets
       MARIO_TTS_BACKEND: ${MARIO_TTS_BACKEND:-kokoro}
       MARIO_MODEL: ${MARIO_MODEL:-/models/kokoro/kokoro-v1.0.onnx}
       MARIO_VOICES_PATH: ${MARIO_VOICES_PATH:-/models/kokoro/voices-v1.0.bin}
