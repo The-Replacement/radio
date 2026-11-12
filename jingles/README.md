@@ -1,10 +1,10 @@
 # Jingles (DJ)
 
-Short audio clips played occasionally between tracks by the DJ transition.
-Never placed under `./music/` (Liquidsoap would scan them into the playlist).
+Clips de audio cortos que el DJ reproduce ocasionalmente entre temas.
+Nunca se colocan bajo `./music/` (Liquidsoap los escanearía dentro del playlist).
 
-Supported formats: any format Liquidsoap can decode (mp3, wav, flac, ogg).
-Selection is deterministic: `jingles[seed % count]`.
+Formatos soportados: cualquiera que Liquidsoap pueda decodificar (mp3, wav, flac, ogg).
+La selección es determinista: `jingles[seed % count]`.
 
-Add your own jingles here. The directory is mounted read-only into Liquidsoap
-at `/jingles`.
+Agregá tus propios jingles acá. El directorio se monta read-only en Liquidsoap
+en `/jingles`.

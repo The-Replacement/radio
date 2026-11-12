@@ -238,8 +238,8 @@ output.icecast(
   user        = "source",
   password    = password,
   mount       = "/stream",
-  name        = "Radio Privada",
-  description = "Token access",
+  name        = "Radio Comechingona",
+  description = "Acceso por invitacion",
   genre       = "various",
   radio
 )
