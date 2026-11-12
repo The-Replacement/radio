@@ -23,7 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml uv.lock README.md LICENSE /app/
+COPY pyproject.toml uv.lock LICENSE /app/
+COPY docs/ /app/docs/
 COPY src/ /app/src/
 COPY presets/ /app/presets/
 
