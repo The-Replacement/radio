@@ -1,0 +1,12 @@
+# ShellCheck configuration for the radio repo.
+#
+# The scripts under scripts/ are a mix of deploy gates, smoke tests and
+# one-shot ops helpers. Some of them deliberately use `cmd && ok || fail`
+# chains (SC2015), single-quoted literals that must stay literal (SC2016,
+# e.g. grepping for a literal "$CK"), ls over a glob (SC2012), indirect
+# exit-code checks (SC2181) and trap/cleanup code that ShellCheck marks as
+# unreachable (SC2317). Those are intentional and reviewed; raising them to
+# failures would only create noise. Real defects (undefined vars, broken cd,
+# unreachable code that masks failures) come in at warning level or above and
+# are NOT disabled here.
+disable=SC2015,SC2016,SC2012,SC2181,SC2317

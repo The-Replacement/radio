@@ -12,7 +12,7 @@
 set -uo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$RAIZ"
+cd "$RAIZ" || exit 1
 
 VERDE=$'\033[32m'; ROJO=$'\033[31m'; FIN=$'\033[0m'
 

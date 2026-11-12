@@ -37,8 +37,8 @@ fi
 # as a container (`docker compose run --rm mario`), mirroring indiegenerator.
 # A failure here must NOT block the restart: the segments are optional
 # (Liquidsoap skips misses).
-docker compose -f "$ROOT/docker-compose.yml" run --rm mario \\
-  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json \\
+docker compose -f "$ROOT/docker-compose.yml" run --rm mario \
+  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json \
   >/dev/null 2>&1 || true
 
 docker compose -f "$ROOT/docker-compose.yml" restart liquidsoap

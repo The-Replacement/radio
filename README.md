@@ -1,5 +1,7 @@
 # Private radio with token
 
+[![ci](https://github.com/juanmanueldaza/radio/actions/workflows/ci.yml/badge.svg)](https://github.com/juanmanueldaza/radio/actions/workflows/ci.yml)
+
 A radio that exists for a closed circle. Without a credential, there is no radio.
 
 - **Liquidsoap** plays `./music` in random order.
@@ -977,6 +979,14 @@ radio/
 ```
 
 `secrets/`, `.env` and `data/` are in `.gitignore`: they are not committed.
+
+---
+
+## License
+
+Apache-2.0 for the whole repository (code, infra configs, Caddyfile, Liquidsoap,
+web assets, presets). See `LICENSE`. Third-party assets under `web/vendor/`
+keep their own licenses.
 
 ---
 
