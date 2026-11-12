@@ -31,6 +31,14 @@ end
 # CAREFUL: DELETIONS are not removed on their own (Liquidsoap keeps them in its
 # in-memory random playlist). To remove tracks, restart liquidsoap:
 #   docker compose restart liquidsoap
+#
+# Non-audio files under /music (JSON sidecars, catalog.json, LEEME.txt) are
+# intentionally present by contract and will produce cosmetic decode-attempt
+# log noise on Liquidsoap 2.4.6 (issue #53). No in-config filter is applied:
+# native=true does not filter, and check_next is unsafe on 2.4.6 (request
+# pitfalls and, if all candidates are rejected, request leak/stack overflow
+# instead of silence). The empty-library silence guarantee must be preserved.
+# See docs/INDIEGENERATOR.md ("Residual non-audio decode noise").
 musica = playlist(
   mode        = "randomize",
   reload_mode = "watch",

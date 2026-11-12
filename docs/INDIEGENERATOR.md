@@ -85,6 +85,31 @@ this, these were discarded: `playlist` has no `recursive`; `request.directory`
 does not exist in 2.4.6; and `check_next` is useless because `request.filename`
 returns `""` until the request is resolved.)
 
+### Residual non-audio decode noise (issue #53, accepted)
+
+`playlist("/music")` also queues non-audio files that intentionally live under
+`./music` by contract: per-track JSON sidecars (`*.json`), `catalog.json`, and
+`LEEME.txt`. On Liquidsoap 2.4.6 this produces cosmetic decoder-attempt log
+noise on playlist walks/reloads (no audible gap). These files are load-bearing
+and must remain under `/music` for now: Mario reads `music_dir/*.json` and
+`catalog.json` for the determinism contract, the frontend/Caddy serve sidecars
+and catalog from `/music/*`, and `LEEME.txt` documents operator behavior
+(including the empty-library silence guarantee).
+
+No in-Liquidsoap filter is applied today because measured approaches are unsafe
+on 2.4.6 (see issue #53): `native=true` does not filter non-audio; `check_next`
+is error-prone (`request.filename` resolves and can recurse/overflow, while
+`request.uri` works but `file.extension` returns the extension with a leading
+dot, e.g. `.flac`). Critically, when a predicate rejects every candidate,
+Liquidsoap can enter a request leak / stack-overflow failure instead of emitting
+silence, which would turn an empty library (or a full recatalog/reload with no
+accepted candidates) from a graceful degradation into a stream crash.
+
+Long-term fix (post-fusion / coordinated contract change): separate metadata
+from the scanned audio tree so Liquidsoap only scans audio, with synchronized
+updates to indiegen publishing, Mario reads, and frontend/Caddy paths (Approach
+B in the SDD for #53). Do not remove the `/music/.tmp` tmpfs as part of this.
+
 ### uid/gid: the generator runs as your user, not as root
 
 The `indiegen` service uses `user: "${INDIEGEN_UID}:${INDIEGEN_GID}"`, taken
