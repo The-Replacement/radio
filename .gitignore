@@ -11,6 +11,12 @@ logs/
 # Tonos de prueba generados por el README
 music/_prueba-*
 
+# Biblioteca generada por indiegen (se reemplaza cada ciclo): NO va al repo.
+# Incluye el staging .tmp que trepa dentro de /music antes del rename atómico.
+music/*.flac
+music/*.json
+music/.tmp/
+
 # Restos de herramientas
 __pycache__/
 .ruff_cache/
