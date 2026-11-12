@@ -10,13 +10,17 @@
 # Qué toca, y qué NUNCA toca:
 #   - caddy/Caddyfile o caddy/tokens.caddy cambiaron -> `caddy reload`
 #     adentro del contenedor: reload graceful, sin cortar a los oyentes.
+#   - src/, presets/, pyproject.toml, uv.lock, Dockerfile.mario o
+#     docker-compose.yml cambiaron -> `docker compose build mario`: reconstruye
+#     la imagen radio-mario. No corta el stream (es una imagen, no un restart
+#     de Liquidsoap); el próximo ciclo horario (mario-refresh.sh) la usa.
 #   - todo lo demás: sólo se registra. web/ la despliega Pages; cam,
 #     liquidsoap y mediamtx NO se reinician por un push — reiniciar
 #     Liquidsoap corta el stream, y eso es una decisión humana.
 #
-# Registra todo en data/deploy.log (gitignored). Si el reload falla, abre
-# un reclamo en el log y sale 1 — el push llega igual (ya estaba escrito)
-# y la config anterior sigue en pie.
+# Registra todo en data/deploy.log (gitignored). Si el reload o el build
+# fallan, abre un reclamo en el log y sale 1 — el push llega igual (ya estaba
+# escrito) y la config/imagen anterior siguen en pie.
 set -u
 
 # Bajo un receive hook, el cwd ES el git dir (no el worktree): con
@@ -61,6 +65,22 @@ while read -r OLD NEW REF; do
     fi
   else
     log "sin cambios de Caddyfile/tokens.caddy: nada que recargar"
+  fi
+
+  # Rebuild radio-mario si el push tocó código, presets o dependencias.
+  if printf '%s\n' "$CAMBIOS" | grep -qE '^(src/|presets/|pyproject\.toml$|uv\.lock$|Dockerfile\.mario$|docker-compose\.yml$)'; then
+    log "mario: cambios detectados, reconstruyendo imagen radio-mario"
+    build_start=$(date +%s)
+    if docker compose -f "$RAIZ/docker-compose.yml" build mario >> "$LOG" 2>&1; then
+      build_dur=$(( $(date +%s) - build_start ))
+      log "mario: build OK en ${build_dur}s — próximo ciclo horario usa el código nuevo"
+    else
+      build_dur=$(( $(date +%s) - build_start ))
+      log "FALLO: mario build falló tras ${build_dur}s; la imagen anterior sigue en pie"
+      exit 1
+    fi
+  else
+    log "mario: sin cambios de código/presets/deps; no se reconstruye"
   fi
 done
 log "deploy listo"

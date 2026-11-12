@@ -38,6 +38,13 @@ fresh without rotating music, run Mario hourly via cron:
 0 * * * * /home/kbdejavu/servers/radio/scripts/mario-refresh.sh
 ```
 
+Deploy note: `scripts/post-receive` (installed as the receive hook) rebuilds the
+`radio-mario` image automatically when a push touches `src/`, `presets/`,
+`pyproject.toml`, `uv.lock`, `Dockerfile.mario` or `docker-compose.yml`, and
+fails loudly if the build breaks. A push that only touches `web/` or docs does
+not pay the build. The new image is picked up by the next hourly run of
+`mario-refresh.sh`; the stream is never restarted by a push.
+
 where `scripts/mario-refresh.sh` is:
 
 ```bash
