@@ -60,7 +60,7 @@ def test_text_determinism_and_persona() -> None:
     t2 = build_text(a, b, "2026-11-10T14")
     assert t1 == t2
     # DJ claims the act and cues the incoming track/vibe.
-    assert "I'm" in t1
+    assert "Te " in t1
     assert "kosmische" in t1 and "B" in t1
     assert "..." in t1  # spacious pacing markers
 
@@ -70,7 +70,7 @@ def test_text_reflects_lane_contrast() -> None:
     ambient = TrackMeta(seed=2, lane="ambient", form="B", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
     text = build_text(motorik, ambient, "2026-11-10T14")
     # Shift from driving to hush should be named softly.
-    assert "settle" in text.lower() or "dim" in text.lower() or "quiet" in text.lower()
+    assert "asiente" in text.lower() or "bajo" in text.lower() or "quieto" in text.lower()
 
 
 def test_vibe_speed_deterministic_and_in_bounds() -> None:

@@ -19,32 +19,32 @@ _VALID_SKY: tuple[Sky, ...] = ("clear", "partly_cloudy", "overcast", "rain", "st
 FALLBACK_WEATHER_HASH: str = hashlib.sha256(b"fallback").hexdigest()
 
 _COMPASS_16: tuple[str, ...] = (
-    "north",
-    "north-northeast",
-    "northeast",
-    "east-northeast",
-    "east",
-    "east-southeast",
-    "southeast",
-    "south-southeast",
-    "south",
-    "south-southwest",
-    "southwest",
-    "west-southwest",
-    "west",
-    "west-northwest",
-    "northwest",
-    "north-northwest",
+    "norte",
+    "nornoreste",
+    "noreste",
+    "estenordeste",
+    "este",
+    "estsudeste",
+    "sudeste",
+    "sudsudeste",
+    "sur",
+    "sudsuroeste",
+    "sudoeste",
+    "oestsudoeste",
+    "oeste",
+    "oestenoroeste",
+    "noroeste",
+    "nornoroeste",
 )
 
 _SKY_PHRASES: dict[Sky, str] = {
-    "clear": "clear",
-    "partly_cloudy": "partly cloudy",
-    "overcast": "overcast",
-    "rain": "rain",
-    "storm": "storm",
-    "snow": "snow",
-    "fog": "fog",
+    "clear": "despejado",
+    "partly_cloudy": "parcialmente nublado",
+    "overcast": "cubierto",
+    "rain": "lluvia",
+    "storm": "tormenta",
+    "snow": "nieve",
+    "fog": "neblina",
 }
 
 
@@ -145,17 +145,17 @@ def format_temperature_c(value: float) -> str:
     else:
         # keep one decimal deterministically
         n_str = f"{float(value):.1f}".rstrip("0").rstrip(".")
-        return f"{n_str} degrees Celsius"
-    return f"{n} degrees Celsius"
+        return f"{n_str} grados Celsius"
+    return f"{n} grados Celsius"
 
 
 def format_wind_speed_kmh(value: float) -> str:
     rounded = round(float(value))
     if abs(float(value) - rounded) < 1e-9:
         n = int(rounded)
-        return f"{n} kilometers per hour"
+        return f"{n} kilómetros por hora"
     n_str = f"{float(value):.1f}".rstrip("0").rstrip(".")
-    return f"{n_str} kilometers per hour"
+    return f"{n_str} kilómetros por hora"
 
 
 def build_weather_text(snapshot: WeatherSnapshot | None, preset: WeatherPreset) -> tuple[str, str]:

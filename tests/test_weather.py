@@ -48,11 +48,11 @@ def test_weather_preset_loads() -> None:
 
 
 def test_compass_16_deterministic() -> None:
-    assert compass_16(0) == "north"
-    assert compass_16(360) == "north"
-    assert compass_16(270) == "west"
-    assert compass_16(45) == "northeast"
-    assert compass_16(22) == "north-northeast"
+    assert compass_16(0) == "norte"
+    assert compass_16(360) == "norte"
+    assert compass_16(270) == "oeste"
+    assert compass_16(45) == "noreste"
+    assert compass_16(22) == "nornoreste"
 
 
 def test_valid_snapshot_parse_and_text() -> None:
@@ -71,10 +71,10 @@ def test_valid_snapshot_parse_and_text() -> None:
         assert snap.sky == "clear"
         text, h = build_weather_text(snap, preset)
         assert h == weather_snapshot_hash(snap)
-        assert "14 degrees Celsius" in text
-        assert "west" in text  # 270 -> west
-        assert "12 kilometers per hour" in text
-        assert "clear" in text
+        assert "14 grados Celsius" in text
+        assert "oeste" in text  # 270 -> oeste
+        assert "12 kilómetros por hora" in text
+        assert "despejado" in text
 
 
 def test_canonical_hash_stable_across_formatting() -> None:

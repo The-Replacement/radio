@@ -7,10 +7,10 @@
 template_version: mario/rss/1
 
 # Spoken lead-in. The only allowed field is {title}.
-intro: "From the feeds. {title}."
+intro: "De los feeds. {title}."
 
 # Spoken lead-out. May be empty.
-outro: "Back to the music."
+outro: "Volviendo a la música."
 
 # Deterministic fallback when a feed cannot be read or has nothing to say.
-fallback: "The feed is quiet tonight. Stay with the music."
+fallback: "El feed está en silencio esta noche. Quedate con la música."

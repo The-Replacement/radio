@@ -4,7 +4,7 @@
 template_version: mario/weather/1
 
 # Valid-weather phrase template. Fields: temperature, wind_dir, wind_speed, sky.
-template: "From the Sierras de los Comechingones: {temperature}, wind from the {wind_dir} at {wind_speed}, sky {sky}."
+template: "Desde las Sierras de los Comechingones: {temperature}, viento del {wind_dir} a {wind_speed}, cielo {sky}."
 
 # Deterministic fallback when snapshot is missing or invalid.
-fallback: "Weather report unavailable from the Sierras. Stay tuned."
+fallback: "No hay reporte del tiempo desde las Sierras. Seguí sintonizando."

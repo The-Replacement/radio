@@ -468,14 +468,14 @@ def test_truncate_text_policy() -> None:
 def test_text_assembly_caps_body_not_whole() -> None:
     preset = RssPreset(
         template_version="mario/rss/1",
-        intro="From the feeds. {title}.",
-        outro="Back to the music.",
+        intro="De los feeds. {title}.",
+        outro="Volviendo a la música.",
         fallback="quiet",
     )
     item = FeedItem(item_key="k", title="Headline", body="y" * 40, published_at="")
     text, text_hash = build_rss_text(item, preset)
-    assert text.startswith("From the feeds. Headline.")
-    assert text.endswith("Back to the music.")
+    assert text.startswith("De los feeds. Headline.")
+    assert text.endswith("Volviendo a la música.")
     assert len(text) > 40
     assert text_hash == hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -502,8 +502,8 @@ def test_cache_and_alias_filenames() -> None:
 
 def test_phrasing_change_changes_filename() -> None:
     item = FeedItem(item_key="g1", title="Story", body="Body text.", published_at="")
-    original = RssPreset("mario/rss/1", "From the feeds. {title}.", "Back to the music.", "q")
-    edited = RssPreset("mario/rss/1", "Reading now. {title}.", "Back to the music.", "q")
+    original = RssPreset("mario/rss/1", "De los feeds. {title}.", "Volviendo a la música.", "q")
+    edited = RssPreset("mario/rss/1", "Reading now. {title}.", "Volviendo a la música.", "q")
 
     text_a, hash_a = build_rss_text(item, original)
     text_b, hash_b = build_rss_text(item, edited)
@@ -519,7 +519,7 @@ def test_phrasing_change_changes_filename() -> None:
 def test_preset_loader(tmp_path: Path) -> None:
     preset = load_rss_preset(Path(__file__).resolve().parents[1] / "presets" / "rss.yaml")
     assert preset.template_version == "mario/rss/1"
-    assert preset.intro.format(title="X") == "From the feeds. X."
+    assert preset.intro.format(title="X") == "De los feeds. X."
     assert preset.fallback
 
     bad = tmp_path / "bad.yaml"
