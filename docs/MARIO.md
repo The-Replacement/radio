@@ -1,22 +1,27 @@
 # Mario — the host voice (integration notes)
 
-Mario is a separate generator (repo: https://github.com/juanmanueldaza/mario). It
-reads this radio's music library and renders short spoken Host segments, cached
-by (current_seed, next_seed, time_bucket), into `./data/host/`. Liquidsoap plays
-them between tracks.
+Mario is the host voice for the radio: a deterministic TTS generator (package
+`mario`, source under `src/mario/`, presets under `presets/`, image
+`Dockerfile.mario`). It reads this radio's music library and renders short
+spoken Host segments, cached by (current_seed, next_seed, time_bucket), into
+`./data/host/`. Liquidsoap plays them between tracks. It never touches the
+stream and never restarts anything.
 
 ## Deploy on the box (mirroring indiegenerator)
 
-Mario runs as a container, built from the `mario` repo (context `MARIO_CONTEXT`,
-default `../mario`):
+Mario runs as a container, built from this repo (context `./`, dockerfile
+`Dockerfile.mario`):
 
 ```bash
 cd /home/kbdejavu/servers/radio
 docker compose build mario
 ```
 
-The model must be present on the box at the path mounted in docker-compose.yml
-(`/home/kbdejavu/Models/piper/...`). See the `mario` service definition.
+The image is rebuilt automatically by `scripts/post-receive` when a push touches
+`src/`, `presets/`, `pyproject.toml`, `uv.lock`, `Dockerfile.mario` or
+`docker-compose.yml`. The model must be present on the box at the path mounted
+in docker-compose.yml (`/home/kbdejavu/Models/...`). See the `mario` service
+definition.
 
 ## Wiring (already in the repo)
 

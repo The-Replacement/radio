@@ -26,7 +26,6 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 VERDE=$'\033[32m'; ROJO=$'\033[31m'; GRIS=$'\033[90m'; FIN=$'\033[0m'
-INICIO="mermaid"
 
 # ------------------------------------------------------------ dependencias
 

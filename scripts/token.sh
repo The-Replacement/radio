@@ -271,7 +271,7 @@ cmd_ls() {
   fi
   local hoy; hoy="$(date +%F)"
   printf '%-20s %-16s %s\n' "WHO" "TOKEN" "EXPIRES"
-  while read -r n t c v; do
+  while read -r n t _ v; do
     [[ -z "${n:-}" ]] && continue
     if [[ -z "${v:-}" ]]; then
       printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "never"
