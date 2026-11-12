@@ -1,0 +1,16 @@
+# Mario — announcement templates (voice identity: inspired by Mario Pergolini).
+# template_version is bumped to invalidate all cached segments.
+template_version: mario/1
+
+thoughts:
+  - "The seed remembers what the ear forgets."
+  - "Another lap around the same number."
+  - "Nothing here is an accident, only a decision made earlier."
+  - "The machine keeps its own time."
+  - "Listen twice; it will not change."
+  - "A small room, a single voice, a number that keeps returning."
+  - "The door stays closed; the sound does not."
+  - "We do not broadcast. We continue."
+
+# Body template (Python str.format fields: lane_cur, form_cur, lane_next, form_next, hour)
+body: "You just heard {lane_cur}, {form_cur}. Next up: {lane_next}, {form_next}. {time_phrase} {thought}"

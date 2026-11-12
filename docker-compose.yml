@@ -165,8 +165,8 @@ services:
   # into Liquidsoap and Caddy (see the mounts below).
   mario:
     build:
-      context: ${MARIO_CONTEXT:-../mario}
-      dockerfile: Dockerfile
+      context: ./
+      dockerfile: Dockerfile.mario
     container_name: radio-mario
     restart: "no"
     # The host resolves through systemd-resolved's stub (nameserver 127.0.0.53).

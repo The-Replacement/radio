@@ -12,7 +12,6 @@ logs/
 music/_prueba-*
 
 # Biblioteca generada por indiegen (se reemplaza cada ciclo): NO va al repo.
-# Incluye el staging .tmp que trepa dentro de /music antes del rename atómico.
 music/*.flac
 music/*.json
 music/.tmp/
@@ -22,12 +21,28 @@ __pycache__/
 .ruff_cache/
 
 # El matcher generado. Contiene credenciales reales: NO va al repo.
-# La plantilla sin credenciales sí: caddy/tokens.caddy.example
 caddy/tokens.caddy
 
 # Archivos temporales del generador de matchers
 caddy/tokens.caddy.nuevo
 caddy/tokens.caddy.previo
+
+# --- mario (paquete python) ---
+.venv/
+venv/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+out*/
+*.json.tmp
+
+# editors / OS
+.idea/
+.vscode/
+.DS_Store
 
 # N3RV — NEVER COMMIT (template-controlled)
 .n3rv/
