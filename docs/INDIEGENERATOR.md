@@ -69,46 +69,26 @@ docker compose logs -f indiegen
 docker compose stop indiegen
 ```
 
+### Split layout (SDD #65, T0 locked — rollout gated)
+
+Target state (coordinated with indiegenerator): **separate audio scan root from metadata root** to eliminate non-audio decode noise structurally while preserving contracts.
+
+- **`meta_root = ./music`** (library metadata): `catalog.json`, per-track sidecars (`*.json`), operator docs (e.g. `LEEME.txt`). Served by Caddy at `/music/*` and read by Mario (`MARIO_META_DIR`, compat `MARIO_MUSIC_DIR`). **Not scanned by Liquidsoap.**
+- **`audio_root = ./music-audio`** (Liquidsoap scan only): strictly `*.flac` plus audio-only `.tmp` staging. Mounted as Liquidsoap's playlist source; must never contain sidecars/catalog/docs.
+
+See `docs/SDD-65-SPLIT-LAYOUT.md` for the locked layout, publish protocol, lockstep deploy via `INDIEGEN_CONTEXT`, migration, and runtime acceptance (AC1/AC5).
+
+**Important:** applying this layout requires coordinated indiegenerator dual-root publish/rotation changes and a migration. Do not deploy partial state.
+
 ### `.tmp` and liquidsoap's tmpfs
 
-The generator publishes with an atomic rename: it writes each file into
-`./music/.tmp` and renames it to the final name. That staging lives inside the
-tree liquidsoap scans, and `playlist("/music")` walks subdirectories — so
-liquidsoap tried to decode half-written files (and the old `.mix` files left
-there), in a loop, one error per attempt.
+The generator publishes with an atomic rename into a staging directory and renames into place. With the split layout, audio staging lives inside `audio_root` (`./music-audio/.tmp` in-container as `/music/.tmp`) and must remain hidden from `playlist` scans.
 
-The `liquidsoap` service mounts an empty `tmpfs` over `/music/.tmp`: the
-generator still sees its real folder (the publish does not change), liquidsoap
-sees an empty directory. **Do not remove it** thinking it is a leftover. Tested
-with a canary on the host: 0 entries inside the container. (Before choosing
-this, these were discarded: `playlist` has no `recursive`; `request.directory`
-does not exist in 2.4.6; and `check_next` is useless because `request.filename`
-returns `""` until the request is resolved.)
+The `liquidsoap` service mounts an empty `tmpfs` over `/music/.tmp` in the **audio-only** scan root so in-progress publishes are never scanned. **Do not remove it**. (Historic note: `playlist` recurses and 2.4.6 has no safe in-config non-audio filter; see #53.)
 
-### Residual non-audio decode noise (issue #53, accepted)
+### Residual non-audio decode noise (issue #53) — resolved by split layout
 
-`playlist("/music")` also queues non-audio files that intentionally live under
-`./music` by contract: per-track JSON sidecars (`*.json`), `catalog.json`, and
-`LEEME.txt`. On Liquidsoap 2.4.6 this produces cosmetic decoder-attempt log
-noise on playlist walks/reloads (no audible gap). These files are load-bearing
-and must remain under `/music` for now: Mario reads `music_dir/*.json` and
-`catalog.json` for the determinism contract, the frontend/Caddy serve sidecars
-and catalog from `/music/*`, and `LEEME.txt` documents operator behavior
-(including the empty-library silence guarantee).
-
-No in-Liquidsoap filter is applied today because measured approaches are unsafe
-on 2.4.6 (see issue #53): `native=true` does not filter non-audio; `check_next`
-is error-prone (`request.filename` resolves and can recurse/overflow, while
-`request.uri` works but `file.extension` returns the extension with a leading
-dot, e.g. `.flac`). Critically, when a predicate rejects every candidate,
-Liquidsoap can enter a request leak / stack-overflow failure instead of emitting
-silence, which would turn an empty library (or a full recatalog/reload with no
-accepted candidates) from a graceful degradation into a stream crash.
-
-Long-term fix (post-fusion / coordinated contract change): separate metadata
-from the scanned audio tree so Liquidsoap only scans audio, with synchronized
-updates to indiegen publishing, Mario reads, and frontend/Caddy paths (Approach
-B in the SDD for #53). Do not remove the `/music/.tmp` tmpfs as part of this.
+Pre-#65, `playlist("/music")` queued load-bearing non-audio files (`*.json` sidecars, `catalog.json`, `LEEME.txt`) producing cosmetic decode-attempt log noise on 2.4.6; in-Liquidsoap filtering was unsafe (see #53). The structural fix is the split layout above (coordinated, post-rollout): Liquidsoap scans only `audio_root`, while metadata remains in `meta_root` for Mario/Caddy/frontend consumers. The empty/no-valid-audio library must still degrade to silence (no crash/leak) — verify AC5 on rollout.
 
 ### uid/gid: the generator runs as your user, not as root
 

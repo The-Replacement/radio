@@ -64,7 +64,7 @@ def generate(
     keep_buckets: int | None = None,
 ) -> list[Path]:
     """Generate all missing Host segments for the current library. Returns paths."""
-    tracks = load_tracks(config.music_dir)
+    tracks = load_tracks(config.metadata_dir)
     bucket = time_bucket if time_bucket is not None else bucket_for_now(config.time_bucket_hours)
     # Map config model_lang (e.g. "es", "en") to kokoro lang tags.
     kokoro_lang = "en-us"

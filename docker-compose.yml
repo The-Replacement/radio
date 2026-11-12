@@ -30,7 +30,9 @@ services:
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?missing from .env}
     volumes:
       - ./liquidsoap/radio.liq:/etc/radio.liq:ro
-      - ./music:/music:ro
+      # SDD #65 (T0 locked): audio-only scan root. meta_root (catalog/sidecars)
+      # remains ./music, served to Caddy/Mario but NOT scanned by Liquidsoap.
+      - ./music-audio:/music:ro
       # Mario (the host voice): pre-rendered segments, read-only. Mounted at
       # /host so radio.liq can play them between tracks. Never under /music:
       # Liquidsoap must not scan them into the playlist.
@@ -39,13 +41,9 @@ services:
       # Never under /music: Liquidsoap must not scan them into the playlist.
       - ./jingles:/jingles:ro
     # The generator publishes with an atomic rename, so it writes each file
-    # first into ./music/.tmp and renames it to the final name. That staging
-    # lives INSIDE the tree this container scans: `playlist("/music")` walks
-    # subdirectories, so Liquidsoap tried to decode half-written files (and the
-    # old .mix files left there). An empty tmpfs mounted over /music/.tmp covers
-    # that folder: the generator still sees the real one, Liquidsoap sees an
-    # empty directory. Measured: with the canary on the host, 0 entries are
-    # visible inside.
+    # first into an audio-root .tmp and renames it to the final name. That
+    # staging must not be visible to `playlist("/music")`. An empty tmpfs mounted
+    # over /music/.tmp covers that folder in the audio-only scan root.
     tmpfs:
       - /music/.tmp:size=1m
     command: ["--verbose", "/etc/radio.liq"]
@@ -136,10 +134,15 @@ services:
       INDIEGEN_SEED_STRATEGY: ${INDIEGEN_SEED_STRATEGY:-advance}
       INDIEGEN_INTERVAL_SECONDS: ${INDIEGEN_INTERVAL_SECONDS:-21600}
       INDIEGEN_RESTART: ${INDIEGEN_RESTART:-signal:/var/lib/indiegen/restart-request}
+    # SDD #65 (T0 locked): dual-root publish (audio_root + meta_root).
+    # REQUIRES coordinated indiegenerator update supporting --audio-dir/--meta-dir
+    # (lockstep deploy via INDIEGEN_CONTEXT). Do not deploy this compose change
+    # without the matching indiegen image/CLI and migration.
     command:
       [
         "serve",
-        "--music-dir", "/music",
+        "--audio-dir", "/music-audio",
+        "--meta-dir", "/music-meta",
         "--work-dir", "/var/lib/indiegen",
         "--presets-dir", "/app/presets",
         "--preset", "${INDIEGEN_PRESET:-station}",
@@ -152,7 +155,8 @@ services:
         "--no-run-on-start",
       ]
     volumes:
-      - ./music:/music
+      - ./music-audio:/music-audio
+      - ./music:/music-meta
       - ./data/indiegen:/var/lib/indiegen
     networks:
       - radio
@@ -178,7 +182,10 @@ services:
       - 192.168.100.1
       - 1.1.1.1
     environment:
+      # SDD #65 (T0 locked): meta_root ./music holds catalog/sidecars (served at
+      # /music/*). Audio lives in ./music-audio and is not needed by Mario.
       MARIO_MUSIC_DIR: /music
+      MARIO_META_DIR: /music
       MARIO_HOST_DIR: /data/host
       # Bundled presets (liners/weather/rss) ship in the image at /app/presets.
       # The package is installed, not checked out, so presets are not beside
@@ -241,8 +248,8 @@ services:
       # read-only mount: "Read-only file system (os error 30)". That is why the
       # directory goes to /srv-cam and the Caddyfile uses handle_path.
       - ./data/cam:/srv-cam:ro
-      # The library's sidecars (indiegenerator's per-track JSON with lane/seed/
-      # plan_sha256). Read-only: the radio only reads them, never writes.
+      # SDD #65 (T0 locked): meta_root (catalog/sidecars), served at /music/*.
+      # Read-only: the radio only reads metadata, never writes.
       - ./music:/srv-music:ro
       # Mario (the host voice): pre-rendered segments, served under the door.
       - ./data/host:/srv-host:ro

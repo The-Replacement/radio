@@ -13,7 +13,12 @@ from pydantic import BaseModel, Field
 
 
 class MarioConfig(BaseModel):
+    # Library metadata directory (catalog + sidecars). In the split layout this is
+    # meta_root (e.g. ./music) while audio may live elsewhere; tracks are loaded
+    # from metadata without requiring audio co-location. music_dir is kept as a
+    # backward-compatible alias.
     music_dir: Path = Field(default=Path("/music"))
+    meta_dir: Path | None = Field(default=None)
     host_dir: Path = Field(default=Path("/data/host"))
     model: Path = Field(default=Path("/models/piper/es_ES-sharvard-medium.onnx"))
     time_bucket_hours: int = Field(default=1, ge=1)
@@ -31,6 +36,19 @@ class MarioConfig(BaseModel):
     rss_max_text_chars: int = Field(default=600, ge=1)
     rss_timeout_seconds: float = Field(default=10.0, gt=0)
 
+    def model_post_init(self, __context: object, /) -> None:
+        # Backward compat: meta_dir defaults to music_dir when not set explicitly.
+        if self.meta_dir is None:
+            object.__setattr__(self, "meta_dir", self.music_dir)
+        # Keep legacy field aligned when only meta_dir is provided.
+        elif self.music_dir == Path("/music") and self.meta_dir != self.music_dir:
+            object.__setattr__(self, "music_dir", self.meta_dir)
+
+    @property
+    def metadata_dir(self) -> Path:
+        """Directory containing catalog/sidecars (meta_root in split layout)."""
+        return self.meta_dir if self.meta_dir is not None else self.music_dir
+
     @classmethod
     def from_env(cls) -> MarioConfig:
         voices = os.environ.get("MARIO_VOICES_PATH")
@@ -38,8 +56,13 @@ class MarioConfig(BaseModel):
         weather = os.environ.get("MARIO_WEATHER_FILE")
         rss_feeds = os.environ.get("MARIO_RSS_FEEDS_FILE")
         rss_cache = os.environ.get("MARIO_RSS_CACHE_DIR")
+        music_env = os.environ.get("MARIO_MUSIC_DIR")
+        meta_env = os.environ.get("MARIO_META_DIR")
+        meta = Path(meta_env or music_env or "/music")
+        music = Path(music_env) if music_env else meta
         return cls(
-            music_dir=Path(os.environ.get("MARIO_MUSIC_DIR", "/music")),
+            music_dir=music,
+            meta_dir=meta,
             host_dir=Path(os.environ.get("MARIO_HOST_DIR", "/data/host")),
             model=Path(os.environ.get("MARIO_MODEL", "/models/piper/es_ES-sharvard-medium.onnx")),
             time_bucket_hours=int(os.environ.get("MARIO_TIME_BUCKET_HOURS", "1")),

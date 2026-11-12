@@ -53,3 +53,7 @@ AGENTS.md
 constitution.md
 opencode.json
 opencode.template.json
+
+# Audio scan root (split layout, #65): runtime audio files, not tracked
+music-audio/*.flac
+music-audio/.tmp/

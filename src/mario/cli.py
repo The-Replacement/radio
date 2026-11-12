@@ -19,7 +19,8 @@ def _root() -> None:
 
 @app.command("generate")
 def generate_cmd(
-    music_dir: Path | None = typer.Option(None, "--music-dir", help="Radio music directory."),
+    music_dir: Path | None = typer.Option(None, "--music-dir", help="Radio music/metadata directory."),
+    meta_dir: Path | None = typer.Option(None, "--meta-dir", help="Metadata directory (catalog/sidecars). Overrides --music-dir."),
     host_dir: Path | None = typer.Option(None, "--host-dir", help="Output directory for Host segments."),
     model: Path | None = typer.Option(None, "--model", help="TTS model path (piper .onnx or kokoro .onnx)."),
     voices_path: Path | None = typer.Option(None, "--voices-path", help="Kokoro voices .bin path."),
@@ -43,6 +44,10 @@ def generate_cmd(
     config = MarioConfig.from_env()
     if music_dir is not None:
         config.music_dir = music_dir
+        config.meta_dir = music_dir
+    if meta_dir is not None:
+        config.meta_dir = meta_dir
+        config.music_dir = meta_dir
     if host_dir is not None:
         config.host_dir = host_dir
     if model is not None:
