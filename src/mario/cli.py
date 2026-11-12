@@ -38,6 +38,7 @@ def generate_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print planned outputs without rendering."),
     force: bool = typer.Option(False, "--force", help="Re-render even if cached."),
     piper_bin: str = typer.Option("piper", "--piper-bin", help="Piper executable (piper backend)."),
+    keep_buckets: int | None = typer.Option(None, "--keep-buckets", help="Prune host pool to this many recent buckets after generating."),
 ) -> None:
     config = MarioConfig.from_env()
     if music_dir is not None:
@@ -76,6 +77,7 @@ def generate_cmd(
         dry_run=dry_run,
         force=force,
         piper_bin=piper_bin,
+        keep_buckets=keep_buckets,
     )
     typer.echo(f"mario: {len(paths)} segment(s) {'planned' if dry_run else 'ready'}")
     for p in paths:

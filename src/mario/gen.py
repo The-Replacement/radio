@@ -10,6 +10,7 @@ from .config import MarioConfig
 from .feedfetch import fetch_feed
 from .liners import load_liners, select_liner
 from .presets import require_preset_path, resolve_preset_path
+from .prune import prune_host_dir
 from .render import (
     generate_liner_segment,
     generate_rss_fallback_segment,
@@ -60,6 +61,7 @@ def generate(
     force: bool = False,
     piper_bin: str = "piper",
     feed_fetcher: FeedFetcher | None = None,
+    keep_buckets: int | None = None,
 ) -> list[Path]:
     """Generate all missing Host segments for the current library. Returns paths."""
     tracks = load_tracks(config.music_dir)
@@ -293,4 +295,6 @@ def generate(
                 os.fsync(dir_fd)
             finally:
                 os.close(dir_fd)
+    if not dry_run and keep_buckets is not None:
+        prune_host_dir(config.host_dir, keep_buckets)
     return out
