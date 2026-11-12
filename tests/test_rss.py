@@ -36,6 +36,7 @@ from mario.rss import (
     rss_cache_filename,
     rss_cache_key,
     rss_fallback_filename,
+    rss_stable_alias_filename,
     select_feed_item,
     strip_html,
     truncate_text,
@@ -584,7 +585,9 @@ def test_force_refetches_and_rerenders(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert tts["n"] == 2
 
 
-def test_max_items_per_cycle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_max_items_per_cycle_caps_aired_segments(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     _install_tts(monkeypatch)
     feeds = _feeds_file(
         tmp_path,
@@ -603,13 +606,92 @@ def test_max_items_per_cycle(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
 
+    # The cap bounds how many segments air, not how many feeds exist: fetching
+    # stops as soon as it is met instead of truncating the feed list.
     assert len(fetcher.calls) == 2
-    assert fetcher.calls == ["https://example.org/1", "https://example.org/2"]
-    aliases = [p.name for p in cfg.host_dir.glob("rss_*")]
-    assert any(name.startswith("rss_one_") for name in aliases)
-    assert any(name.startswith("rss_two_") for name in aliases)
-    assert not any(name.startswith("rss_three_") for name in aliases)
     assert len([p for p in paths if p.name.startswith("rss_")]) == 2
+
+
+def test_rotation_visits_every_feed_across_buckets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_tts(monkeypatch)
+    feeds = _feeds_file(
+        tmp_path,
+        "- name: one\n  url: https://example.org/1\n"
+        "- name: two\n  url: https://example.org/2\n"
+        "- name: three\n  url: https://example.org/3\n",
+    )
+    cfg = _config(tmp_path, "rotate", rss_feeds_file=feeds)
+
+    aired: list[str] = []
+    for hour in range(6):
+        fetcher = FakeFetcher(
+            {
+                "https://example.org/1": RSS20,
+                "https://example.org/2": RSS20,
+                "https://example.org/3": RSS20,
+            }
+        )
+        bucket = f"2026-11-{10 + hour:02d}T14"
+        generate(cfg, time_bucket=bucket, feed_fetcher=fetcher)
+        aired.append(fetcher.calls[0])
+
+    # Truncating the list by position (the old behaviour) would pin one feed.
+    assert len(set(aired)) > 1
+
+
+def test_empty_feed_is_skipped_without_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_tts(monkeypatch)
+    feeds = _feeds_file(
+        tmp_path,
+        "- name: dead\n  url: https://example.org/dead\n"
+        "- name: live\n  url: https://example.org/live\n",
+    )
+    cfg = _config(tmp_path, "skip", rss_feeds_file=feeds)
+    fetcher = FakeFetcher(
+        {"https://example.org/dead": EMPTY_FEED, "https://example.org/live": RSS20}
+    )
+
+    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
+
+    # Whichever feed the rotation starts on, the dead one must not air.
+    assert len(paths) == 1
+    assert (cfg.host_dir / rss_alias_filename("live", BUCKET)).exists()
+    assert not (cfg.host_dir / rss_alias_filename("dead", BUCKET)).exists()
+    assert not list(cfg.host_dir.glob("rss_fallback_*"))
+
+
+def test_stable_alias_points_at_the_aired_item(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _install_tts(monkeypatch)
+    feeds = _feeds_file(tmp_path, "- name: hn\n  url: https://example.org/feed\n")
+    cfg = _config(tmp_path, "stable", rss_feeds_file=feeds)
+
+    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=FakeFetcher({"https://example.org/feed": RSS20}))
+
+    stable = cfg.host_dir / rss_stable_alias_filename(BUCKET)
+    target = paths[0]
+    assert stable.is_symlink()
+    assert os.readlink(stable) == target.name
+
+
+def test_fetch_failures_stop_early(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _install_tts(monkeypatch)
+    feeds = _feeds_file(
+        tmp_path,
+        "".join(f"- name: f{i}\n  url: https://example.org/{i}\n" for i in range(6)),
+    )
+    cfg = _config(tmp_path, "failfast", rss_feeds_file=feeds)
+    fetcher = FakeFetcher({f"https://example.org/{i}": None for i in range(6)})
+
+    generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
+
+    # A dead network must not cost one timeout per configured feed.
+    assert len(fetcher.calls) == 2
 
 
 def test_fallback_on_fetch_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -678,10 +760,9 @@ def test_rss_dry_run_no_fetch(tmp_path: Path) -> None:
 
     paths = generate(cfg, time_bucket=BUCKET, dry_run=True, feed_fetcher=_blow_up)
 
-    assert [p.name for p in paths] == [
-        rss_alias_filename("one", BUCKET),
-        rss_alias_filename("two", BUCKET),
-    ]
+    # Which feed has items needs a fetch, which a dry run must not do. The only
+    # honest answer is the name playout will read.
+    assert [p.name for p in paths] == [rss_stable_alias_filename(BUCKET)]
     assert all(not p.exists() for p in paths)
     assert not cfg.host_dir.exists()
 

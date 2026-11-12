@@ -19,7 +19,9 @@ from .render import (
 )
 from .rss import (
     DEFAULT_RSS_MAX_BYTES,
+    FeedConfig,
     FeedFetcher,
+    FeedItem,
     RssParseError,
     build_rss_fallback_text,
     build_rss_text,
@@ -27,9 +29,9 @@ from .rss import (
     load_rss_feeds,
     load_rss_preset,
     parse_feed_items,
-    rss_alias_filename,
     rss_bucket_seed,
     rss_cache_key,
+    rss_stable_alias_filename,
     select_feed_item,
 )
 from .text import build_text
@@ -44,6 +46,10 @@ from .weather import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Stop walking the feed list once this many fetches in a row fail outright:
+# a dead network should not cost one timeout per configured feed.
+RSS_MAX_CONSECUTIVE_FAILURES = 2
 
 
 def generate(
@@ -152,13 +158,12 @@ def generate(
             )
             out.append(path)
 
-    # RSS reader: one deterministic item per configured feed, cached per bucket.
-    # The feature is off unless an operator configures a feeds file.
+    # RSS reader: one deterministic news item per cycle, rotating over the
+    # configured feeds. The feature is off unless an operator sets a feeds file.
     if config.rss_feeds_file is not None:
         rss_preset_path = require_preset_path("rss.yaml")
         rss_preset = load_rss_preset(rss_preset_path)
-        # Slice before any fetch: the cap bounds network work, not just output.
-        feeds = load_rss_feeds(config.rss_feeds_file)[: config.rss_max_items_per_cycle]
+        all_feeds = load_rss_feeds(config.rss_feeds_file)
         rss_cache_dir = config.rss_cache_dir
         if rss_cache_dir is None:
             rss_cache_dir = config.host_dir.parent / "rss-cache"
@@ -176,27 +181,56 @@ def generate(
             fetcher = _fetch
 
         seed = rss_bucket_seed(bucket)
-        for feed in feeds:
-            if dry_run:
-                # Hash-derived names are unknowable without the payload, and a
-                # dry run must not touch the network: report the playout alias.
-                out.append(config.host_dir / rss_alias_filename(feed.slug, bucket))
-                continue
-            raw = load_feed_bytes(feed, rss_cache_dir, bucket, fetcher=fetcher, force=force)
-            item = None
-            if raw is not None:
+        # Rotate the starting feed per bucket. Without this the first N entries
+        # in the file win every hour and the rest never air.
+        start = seed % len(all_feeds)
+        ordered = all_feeds[start:] + all_feeds[:start]
+
+        if dry_run:
+            # A dry run must not touch the network, and which feeds have items
+            # is unknowable without fetching. Report the name playout reads.
+            out.append(config.host_dir / rss_stable_alias_filename(bucket))
+        else:
+            airing: list[tuple[FeedConfig, FeedItem]] = []
+            failures = 0
+            for feed in ordered:
+                if len(airing) >= config.rss_max_items_per_cycle:
+                    break
+                raw = load_feed_bytes(
+                    feed, rss_cache_dir, bucket, fetcher=fetcher, force=force
+                )
+                if raw is None:
+                    failures += 1
+                    logger.warning("rss: feed %s fetch failed", feed.slug)
+                    if failures >= RSS_MAX_CONSECUTIVE_FAILURES:
+                        logger.warning(
+                            "rss: stopping after %d consecutive fetch failures",
+                            failures,
+                        )
+                        break
+                    continue
+                failures = 0
                 try:
-                    items = parse_feed_items(raw, max_text_chars=config.rss_max_text_chars)
+                    items = parse_feed_items(
+                        raw, max_text_chars=config.rss_max_text_chars
+                    )
                 except RssParseError:
                     items = []
                 item = select_feed_item(items, seed)
-            if item is None:
-                reason = "fetch-failed" if raw is None else "no-items"
-                logger.warning("rss: feed %s fell back (%s)", feed.slug, reason)
+                if item is None:
+                    # Empty or unreadable feed: skip it. Announcing "no news"
+                    # for every dead category is worse than saying nothing.
+                    logger.info("rss: feed %s has no items; skipped", feed.slug)
+                    continue
+                airing.append((feed, item))
+
+            if not airing:
+                # Every candidate failed this cycle: publish one fallback so the
+                # news slot says something rather than going quiet.
                 fallback_text, _fallback_hash = build_rss_fallback_text(rss_preset)
                 out.append(
                     generate_rss_fallback_segment(
-                        feed.slug,
+                        ordered[0].slug,
                         bucket,
                         fallback_text,
                         config.model,
@@ -208,28 +242,35 @@ def generate(
                         voice=config.voice,
                         speed=config.tts_speed,
                         lang=kokoro_lang,
+                        stable_alias=True,
                     )
                 )
-                continue
-            rss_text, text_hash = build_rss_text(item, rss_preset)
-            cache_key = rss_cache_key(feed.normalized_url, item.item_key, bucket, text_hash)
-            out.append(
-                generate_rss_segment(
-                    cache_key,
-                    feed.slug,
-                    bucket,
-                    rss_text,
-                    config.model,
-                    config.host_dir,
-                    piper_bin=piper_bin,
-                    force=force,
-                    backend=config.tts_backend,
-                    voices_path=config.voices_path,
-                    voice=config.voice,
-                    speed=config.tts_speed,
-                    lang=kokoro_lang,
+
+            for index, (feed, item) in enumerate(airing):
+                rss_text, text_hash = build_rss_text(item, rss_preset)
+                cache_key = rss_cache_key(
+                    feed.normalized_url, item.item_key, bucket, text_hash
                 )
-            )
+                out.append(
+                    generate_rss_segment(
+                        cache_key,
+                        feed.slug,
+                        bucket,
+                        rss_text,
+                        config.model,
+                        config.host_dir,
+                        piper_bin=piper_bin,
+                        force=force,
+                        backend=config.tts_backend,
+                        voices_path=config.voices_path,
+                        voice=config.voice,
+                        speed=config.tts_speed,
+                        lang=kokoro_lang,
+                        # Playout reads one stable name per bucket, so only the
+                        # first aired item may claim it.
+                        stable_alias=index == 0,
+                    )
+                )
 
     # Preserve contract: no outputs when nothing applicable.
     if not out:

@@ -13,7 +13,12 @@ import subprocess
 from pathlib import Path
 
 from .liners import liner_cache_filename
-from .rss import rss_alias_filename, rss_cache_filename_from_key, rss_fallback_filename
+from .rss import (
+    rss_alias_filename,
+    rss_cache_filename_from_key,
+    rss_fallback_filename,
+    rss_stable_alias_filename,
+)
 from .timebucket import sanitize_bucket
 from .weather import weather_alias_filename, weather_cache_filename
 
@@ -268,6 +273,22 @@ def generate_weather_segment(
     return target
 
 
+def _publish_playout_alias(
+    host_dir: Path, alias_name: str, target: Path, *, force: bool
+) -> None:
+    """Point a stable playout name at target (symlink, copy when unsupported)."""
+    alias = host_dir / alias_name
+    if not force and alias.is_symlink() and os.readlink(alias) == target.name:
+        return
+    try:
+        if alias.is_symlink() or alias.exists():
+            alias.unlink()
+        os.symlink(target.name, alias)
+    except OSError:
+        # Fallback: hard copy if symlinks are unsupported.
+        alias.write_bytes(target.read_bytes())
+
+
 def generate_rss_segment(
     cache_key: str,
     slug: str,
@@ -283,6 +304,7 @@ def generate_rss_segment(
     voice: str = "af_sarah",
     speed: float = 1.0,
     lang: str = "en-us",
+    stable_alias: bool = False,
 ) -> Path:
     """Render (if missing) a cached RSS segment keyed by (cache_key, time_bucket)."""
     host_dir = Path(host_dir)
@@ -301,19 +323,15 @@ def generate_rss_segment(
             speed=speed,
             lang=lang,
         )
-    # Stable per-feed alias: playout reads this name, never the hash-derived one.
-    # It must always point at the item selected for this bucket, so a stale alias
-    # is replaced even when the target file is already cached.
-    alias = host_dir / rss_alias_filename(slug, bucket)
-    alias_current = alias.is_symlink() and os.readlink(alias) == target.name
-    if force or not alias_current:
-        try:
-            if alias.is_symlink() or alias.exists():
-                alias.unlink()
-            os.symlink(target.name, alias)
-        except OSError:
-            # Fallback: hard copy if symlinks are unsupported.
-            alias.write_bytes(target.read_bytes())
+    # Per-feed alias: kept for debugging and for the dry-run contract.
+    # It must always point at the item selected for this bucket, so a stale
+    # alias is replaced even when the target file is already cached.
+    _publish_playout_alias(host_dir, rss_alias_filename(slug, bucket), target, force=force)
+    if stable_alias:
+        # The per-bucket name is what playout reads: it cannot know the slug.
+        _publish_playout_alias(
+            host_dir, rss_stable_alias_filename(bucket), target, force=force
+        )
     return target
 
 
@@ -331,6 +349,7 @@ def generate_rss_fallback_segment(
     voice: str = "af_sarah",
     speed: float = 1.0,
     lang: str = "en-us",
+    stable_alias: bool = False,
 ) -> Path:
     """Render (if missing) the per-feed fallback segment and drop any stale item alias."""
     host_dir = Path(host_dir)
@@ -355,4 +374,8 @@ def generate_rss_fallback_segment(
         alias.unlink(missing_ok=True)
     except OSError as exc:
         logger.warning("rss: could not remove stale alias %s (%s)", alias.name, exc)
+    if stable_alias:
+        _publish_playout_alias(
+            host_dir, rss_stable_alias_filename(bucket), target, force=force
+        )
     return target

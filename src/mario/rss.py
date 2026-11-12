@@ -364,6 +364,16 @@ def rss_alias_filename(slug: str, bucket: str) -> str:
     return f"rss_{slug}_{sanitize_bucket(bucket)}.wav"
 
 
+def rss_stable_alias_filename(bucket: str) -> str:
+    """Playout name for the bucket, independent of which feed aired.
+
+    Playout cannot know which feed wins a given bucket (that depends on the
+    feed list, the rotation seed and which feeds actually have items), so it
+    reads this single name. Mirrors weather_<bucket>.wav.
+    """
+    return f"rss_{sanitize_bucket(bucket)}.wav"
+
+
 def rss_fallback_filename(slug: str, bucket: str) -> str:
     """Stable per-feed playout name for the fallback segment."""
     return f"rss_fallback_{slug}_{sanitize_bucket(bucket)}.wav"

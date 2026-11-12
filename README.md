@@ -50,6 +50,39 @@ mario generate --backend kokoro --music-dir /music --host-dir /data/host \
   generation time on a cache miss. Transitions, liners, and weather are local.
   On-air playback uses cached WAVs, never the network.
 
+## RSS news slot
+
+Off by default. Point `--rss-feeds-file` (or `MARIO_RSS_FEEDS_FILE`) at a feeds
+file to enable one spoken news item per time bucket:
+
+```yaml
+feeds:
+  - name: Cultura
+    url: https://example.org/rss/cultura/
+  - https://example.org/rss/deportes/      # bare URL also works
+```
+
+`name` is optional and only feeds the filesystem slug (ASCII: an accent becomes
+a hyphen). Any config mistake raises loudly instead of being ignored.
+
+Behaviour worth knowing:
+
+- **Rotation, not truncation.** The starting feed for a bucket is
+  `sha256(bucket) % len(feeds)`, so every feed gets its turn over the day.
+  `--rss-max-items-per-cycle` (default 1) caps how many segments *air*; the
+  walk stops as soon as it is met.
+- **Empty feeds are skipped, not announced.** A category with no items is
+  passed over silently; a single fallback line is spoken only when *every*
+  candidate fails that hour.
+- **Fetch failures stop early.** Two consecutive failures end the walk, so a
+  dead network costs two timeouts, not one per feed.
+- **Playout reads one name:** `rss_<bucket>.wav` (symlink to the hash-derived
+  file), mirroring `weather_<bucket>.wav`. The per-feed alias
+  `rss_<slug>_<bucket>.wav` exists for debugging only.
+- **Set `MARIO_RSS_CACHE_DIR` in containers.** The default derives from
+  `host_dir.parent`, which is not a mount in the shipped image — the cache
+  would die with the container and every run would refetch from cold.
+
 ## Voice / backends
 
 - **Piper (default):** lightweight, deterministic, local `.onnx` voices.
