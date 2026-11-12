@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 from .liners import liner_cache_filename
@@ -120,7 +121,17 @@ def render_wav(
     """Render `text` to a WAV at output_path. Raises on failure."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = output_path.with_suffix(".wav.tmp")
+    # Staging name is unique per run. A fixed "<target>.wav.tmp" makes two
+    # concurrent renders (hourly cron overlapping a manual run, or a run that
+    # outlives its interval) write the same file: one publishes the other's
+    # half-written bytes, and the loser dies on "tts produced an empty file".
+    fd, tmp_name = tempfile.mkstemp(
+        dir=output_path.parent,
+        prefix=f".{output_path.stem}.",
+        suffix=".wav.tmp",
+    )
+    os.close(fd)
+    tmp = Path(tmp_name)
     try:
         if backend == "piper":
             _render_piper(text, model, tmp, piper_bin=piper_bin)

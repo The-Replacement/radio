@@ -135,6 +135,42 @@ def test_render_noise_scales(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     assert cmd[idx2 + 1] == "0"
 
 
+def test_staging_name_is_unique_per_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Two runs staging the same target must never share a file.
+
+    A fixed "<target>.wav.tmp" let concurrent runs (hourly cron overlapping a
+    manual run) publish each other's half-written bytes.
+    """
+    staged: list[Path] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        out = Path(cmd[cmd.index("-f") + 1])
+        staged.append(out)
+        out.write_bytes(b"RIFF")
+
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    model = tmp_path / "m.onnx"
+    model.write_bytes(b"x")
+    out = tmp_path / "seg.wav"
+
+    render_wav("a", model, out)
+    render_wav("b", model, out)
+
+    assert len(staged) == 2
+    assert staged[0] != staged[1]
+    assert staged[0].parent == out.parent
+    assert not list(tmp_path.glob("*.tmp"))
+
+
 def test_cache_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls = {"n": 0}
 
