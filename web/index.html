@@ -458,7 +458,7 @@
       var base = normalizarTitulo(ruta.replace(/\.flac$/i, ''));
       if (!base) continue;
       // Match: every word of the title appears in the file stem, or vice versa.
-      // The Icecast title carries the station suffix ("Radio Privada") that is
+      // The Icecast title carries the station suffix ("Radio Comechingona") that is
       // not part of the file name: require only that at least one significant
       // word of the title (4+ letters) appears in the file stem.
       var significativas = palabras.filter(function (w) { return w.length >= 4; });
@@ -650,7 +650,7 @@
     There used to be TWO polls in parallel (15 s each) against the same
     endpoint, and both wrote #now — one with server_name, the other with
     title: the last answer won and the caption could alternate between
-    "Radio Privada" and the track. The poll that did not know about the
+    "Radio Comechingona" and the track. The poll that did not know about the
     reconnection chain also painted "live" over "reconnecting" in the middle
     of a retry: the `pause` handler had already been cured of that class of
     bug (:433-441), the poll had not.
