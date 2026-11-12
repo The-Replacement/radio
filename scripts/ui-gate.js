@@ -376,8 +376,8 @@ try {
 
 // The air: the source Icecast reports when the radio is on air.
 const AIRE = {
-  server_name: 'Radio Privada',
-  title: 'Steady Hand — Radio Privada',
+  server_name: 'Radio Comechingona',
+  title: 'Steady Hand — Radio Comechingona',
   listeners: 3,
 };
 
@@ -393,7 +393,7 @@ async function escenarioUnTick() {
   // Start-up: one immediate check, not two.
   check(soloEstado(p).length === 1, 'on load: exactly 1 status fetch');
   check((p.escrituras.now || 0) === 1, 'on load: #now is written 1 time');
-  check(p.el('estado').textContent === 'live', 'on load: the banner says live');
+  check(p.el('estado').textContent === 'en vivo', 'on load: the banner says live');
 
   // No other interval in the player may talk to the endpoint.
   const queFetchean = [];
@@ -427,12 +427,12 @@ async function escenarioUnTick() {
 async function escenarioCadenaManda() {
   titular('\nthe reconnection chain outranks the tick:');
   const p = await abrirPagina({ datos: AIRE });
-  check(p.el('estado').textContent === 'live', 'starts live');
+  check(p.el('estado').textContent === 'en vivo', 'starts live');
 
   // A cut: the same path the browser would use (audio error).
   p.el('audio').dispara('error');
   await flush();
-  check(p.el('estado').textContent === 'reconnecting', 'the cut sets reconnecting');
+  check(p.el('estado').textContent === 'reconectando', 'the cut sets reconnecting');
   check(!p.el('dot').classList.contains('live'), 'the green dot goes off');
   check(p.timeouts.length > 0, 'the retry was scheduled');
 
@@ -441,21 +441,21 @@ async function escenarioCadenaManda() {
   const antes = soloEstado(p).length;
   await p.disparar(15000);
   check(soloEstado(p).length - antes === 1, 'the tick keeps running (the page does not freeze)');
-  check(p.el('estado').textContent === 'reconnecting', 'tick live: the banner does NOT turn live');
+  check(p.el('estado').textContent === 'reconectando', 'tick live: the banner does NOT turn live');
   check((p.escrituras.estado || 0) === escritas, 'tick live: not one banner write');
 
   // And with the backend down neither: "Radio off air" does not rule either.
   p.config.alcanzable = false;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'reconnecting', 'tick with no backend: the banner stays intact');
+  check(p.el('estado').textContent === 'reconectando', 'tick with no backend: the banner stays intact');
 
   // The chain ends on its own and the tick rules again.
   await p.correrTimeouts();           // reintento agendado -> conectar()
   p.el('audio').dispara('playing');   // el stream volvio
-  check(p.el('estado').textContent === 'live', 'stream back: live again');
+  check(p.el('estado').textContent === 'en vivo', 'stream back: live again');
   p.config.alcanzable = true;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'live', 'with the chain closed, the tick paints again');
+  check(p.el('estado').textContent === 'en vivo', 'with the chain closed, the tick paints again');
 }
 
 async function escenarioDosFormas() {
@@ -476,14 +476,14 @@ async function escenarioDosFormas() {
   const c = leer(dos);
   check(a === b, `object and array give the same render\n        object: ${a}\n        array:  ${b}`);
   check(b === c, 'with two mounts the first is read, same as with one');
-  check(/Radio Privada/.test(a), 'the render carries title');
+  check(/Radio Comechingona/.test(a), 'the render carries title');
 }
 
 /* ---------------------------------------------- the door and the air */
 
 // The door's sentence, exactly as it must appear on screen (without the <br>).
-const FRASE_PUERTA = 'Server replied 404.\n' +
-  'Access expired or the browser did not save the cookie. Ask for a new link.';
+const FRASE_PUERTA = 'El servidor respondió 404.\n' +
+  'El acceso expiró o el navegador no guardó la cookie. Pedí un link nuevo.';
 
 const verErr = (p) => String(p.el('err').innerHTML || '').replace(/<br\s*\/?>/gi, '\n');
 
@@ -505,17 +505,17 @@ async function escenarioMatriz() {
   titular('\nthe tick matrix at load (F-03 / F-04):');
 
   const aire = await abrirPagina({ datos: AIRE });
-  check(aire.el('estado').textContent === 'live' && aire.el('play').disabled === false,
+  check(aire.el('estado').textContent === 'en vivo' && aire.el('play').disabled === false,
     '200 with source -> live, button enabled');
   check(aire.el('aviso').style.display === 'none' && aire.el('err').style.display !== 'block',
     '200 with source -> no notices');
-  check(/Radio Privada/.test(aire.el('now').textContent), '200 with source -> #now with the track');
+  check(/Radio Comechingona/.test(aire.el('now').textContent), '200 with source -> #now with the track');
 
   const sinAire = await abrirPagina({ datos: null });
-  check(sinAire.el('aviso').textContent === 'Broadcast is stopped'
+  check(sinAire.el('aviso').textContent === 'La transmisión está detenida'
         && sinAire.el('aviso').style.display === 'block',
-    '200 without source -> "Broadcast is stopped"');
-  check(sinAire.el('estado').textContent === 'stopped' && sinAire.el('play').disabled === true,
+    '200 without source -> "La transmisión está detenida"');
+  check(sinAire.el('estado').textContent === 'detenido' && sinAire.el('play').disabled === true,
     '200 without source -> stopped and a dead button');
 
   // THIS is the row that did not exist: the closed door speaking when it
@@ -527,8 +527,8 @@ async function escenarioMatriz() {
   check(puerta.el('aviso').style.display !== 'block', '404 -> it does NOT say "Broadcast is stopped"');
   check(puerta.el('estado').textContent === 'error', '404 -> the status says error, not stopped');
   check(puerta.el('play').disabled === true, '404 -> dead button (there is nothing to play)');
-  check(/Ask for a new link/.test(verErr(puerta)),
-    '404 -> "Ask for a new link" is in sight at load');
+  check(/Pedí un link nuevo/.test(verErr(puerta)),
+    '404 -> "Pedí un link nuevo" is in sight at load');
 
   const rechazo = await abrirPagina({ alcanzable: false });
   check(soloEstado(rechazo).length === 1, 'network down -> it still fetches (it measures, it does not claim)');
@@ -544,14 +544,14 @@ async function escenarioTransitoria() {
   titular('\na transient failure does not turn the radio off (F-04):');
   const p = await abrirPagina({ datos: AIRE });
   p.el('audio').dispara('playing'); // the audio is really playing
-  check(p.el('estado').textContent === 'live' && p.el('play').disabled === false,
+  check(p.el('estado').textContent === 'en vivo' && p.el('play').disabled === false,
     'starts live, button enabled');
 
   p.config.alcanzable = false;
   const antes = soloEstado(p).length;
   await p.disparar(15000);
   check(soloEstado(p).length - antes === 1, 'the tick still polls: it measured, it did not go mute');
-  check(p.el('estado').textContent === 'live', 'the status stays live');
+  check(p.el('estado').textContent === 'en vivo', 'the status stays live');
   check(p.el('play').disabled === false, 'the button stays enabled');
   check(p.el('aviso').style.display !== 'block', 'no notice appears');
   check(!/off air/i.test(p.el('aviso').textContent + p.el('err').innerHTML),
@@ -560,7 +560,7 @@ async function escenarioTransitoria() {
 
   p.config.alcanzable = true;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'live', 'network back -> the tick resumes painting on its own');
+  check(p.el('estado').textContent === 'en vivo', 'network back -> the tick resumes painting on its own');
 }
 
 async function escenarioPuerta() {
@@ -580,7 +580,7 @@ async function escenarioPuerta() {
   check(verErr(tick) === verErr(cadena), 'the two paths cannot diverge');
 
   // And they cannot diverge in the future: the sentence is written once.
-  const veces = CODIGO.split('Access expired or the browser did not save').length - 1;
+  const veces = CODIGO.split('El acceso expiró o el navegador no guardó').length - 1;
   check(veces === 1, `the door's sentence is written only once in the code (${veces})`);
 }
 
@@ -604,7 +604,7 @@ async function escenarioTokenFueraDeLaBarra() {
     `live cookie: one single request — the one that tests the cookie (${soloEstado(viva).length})`);
   check(soloEstado(viva).every((u) => !/[?&]t=/.test(u)),
     'live cookie: NO request carries the token');
-  check(viva.el('estado').textContent === 'live',
+  check(viva.el('estado').textContent === 'en vivo',
     'live cookie: the radio starts live without spending the token');
   await viva.disparar(15000);
   check(soloEstado(viva).length === 2 && !/[?&]t=/.test(soloEstado(viva)[1]),
@@ -622,12 +622,12 @@ async function escenarioTokenFueraDeLaBarra() {
     'dead cookie: the first request tests the cookie WITHOUT the token');
   check(/[?&]t=/.test(soloEstado(muerta)[1]),
     'dead cookie: the verdict comes with the token (the fallback)');
-  check(muerta.el('estado').textContent === 'live',
+  check(muerta.el('estado').textContent === 'en vivo',
     'dead cookie: the fallback holds the radio up');
   await muerta.disparar(15000);
   check(/[?&]t=/.test(soloEstado(muerta)[2]),
     'dead cookie: the ticks keep carrying the token');
-  check(muerta.el('estado').textContent === 'live',
+  check(muerta.el('estado').textContent === 'en vivo',
     'dead cookie: on the next tick it is still live (it did not fall to the 404)');
 
   // 3) Dead link: the door speaks, with the bar just as clean.
@@ -652,7 +652,7 @@ async function escenarioTokenFueraDeLaBarra() {
     'radio back: the tick that can answer cleans the bar');
   check(!/[?&]t=/.test(soloEstado(caida)[soloEstado(caida).length - 1]),
     'radio back: and the token no longer travels');
-  check(caida.el('estado').textContent === 'live',
+  check(caida.el('estado').textContent === 'en vivo',
     'radio back: the verdict comes from the probe, not from a phantom');
 
   // 5) Broken tunnel (502): a proxy error proves nothing either.
@@ -673,7 +673,7 @@ async function escenarioTokenFueraDeLaBarra() {
 /* ---------------------------------------- the station's banner (F-10) */
 
 // The autoplay sentence, exactly as it must appear on screen.
-const FRASE_AUTOPLAY = 'The browser blocked autoplay. Press play.';
+const FRASE_AUTOPLAY = 'El navegador bloqueó la reproducción automática. Presioná reproducir.';
 
 async function escenarioVozDeLaEstacion() {
   titular('\nthe station\'s banner, in one voice (F-10 / F-11):');
@@ -685,7 +685,7 @@ async function escenarioVozDeLaEstacion() {
   const mano = CODIGO.match(/\.(textContent|innerHTML|title)\s*=\s*'[^'\n]*[A-Za-zÀ-ÿ][^'\n]*'/g) || [];
   check(mano.length === 0,
     `not one visible sentence hand-written outside STR${mano.length ? `\n        e.g. "${mano[0]}"` : ''}`);
-  check(/<html lang="en">/.test(HTML), 'the copy is in English and <html> says so');
+  check(/<html lang="es">/.test(HTML), 'the copy is in Spanish and <html> says so');
 
   for (const id of ['estado', 'err', 'aviso']) {
     const tag = HTML.match(new RegExp('<[^>]+id="' + id + '"[^>]*>'));
@@ -697,9 +697,9 @@ async function escenarioVozDeLaEstacion() {
   check(p.el('play')._attrs['aria-label'] === undefined,
     'on load: the label comes from the static HTML');
   p.el('audio').dispara('playing');
-  check(p.el('play')._attrs['aria-label'] === 'Pause', 'when playing: the button says Pause');
+  check(p.el('play')._attrs['aria-label'] === 'Pausar', 'when playing: the button says Pause');
   p.el('audio').dispara('pause');
-  check(p.el('play')._attrs['aria-label'] === 'Play', 'when stopped: the button says Play');
+  check(p.el('play')._attrs['aria-label'] === 'Reproducir', 'when stopped: the button says Play');
 }
 
 /* -------------------------------------------- the browser's policy */
@@ -709,17 +709,17 @@ async function escenarioAutoplayBloqueado() {
 
   const p = await abrirPagina({ datos: AIRE, playRechaza: 'NotAllowedError' });
   p.el('audio').dispara('playing'); // the audio was really playing
-  check(p.el('estado').textContent === 'live', 'starts live, sounding');
+  check(p.el('estado').textContent === 'en vivo', 'starts live, sounding');
 
   p.el('audio').dispara('error');   // the stream cuts
   await flush();                     // alFallar -> fetch -> reintentar (scheduled)
-  check(p.el('estado').textContent === 'reconnecting', 'the cut sets reconnecting');
+  check(p.el('estado').textContent === 'reconectando', 'the cut sets reconnecting');
   check(p.timeouts.length > 0, 'the retry was scheduled');
 
   await p.correrTimeouts();          // the retry runs -> conectar(true) -> play() rejects
   check(p.el('aviso').style.display === 'block' && p.el('aviso').textContent === FRASE_AUTOPLAY,
     'play() rejected with NotAllowedError -> the dedicated copy, NOT silence');
-  check(p.el('estado').textContent === 'blocked',
+  check(p.el('estado').textContent === 'bloqueado',
     'the status says blocked, NOT reconnecting or stopped');
   check(p.el('play').disabled === false, 'the button stays alive: the click resolves it');
   check(!p.el('dot').classList.contains('live'), 'the green dot goes off');
@@ -727,7 +727,7 @@ async function escenarioAutoplayBloqueado() {
   // The tick does not paint over the block: the air does not unblock a browser.
   const pintaAntes = p.escrituras.estado || 0;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'blocked', 'the tick does NOT paint over the block: the banner stays');
+  check(p.el('estado').textContent === 'bloqueado', 'the tick does NOT paint over the block: the banner stays');
   check((p.escrituras.estado || 0) === pintaAntes, 'the tick measures but does not write the banner');
   check(p.el('aviso').style.display === 'block', 'and the notice still stands');
 
@@ -735,8 +735,8 @@ async function escenarioAutoplayBloqueado() {
   p.el('audio')._playError = null;
   p.el('play').dispara('click');
   p.el('audio').dispara('playing');
-  check(p.el('estado').textContent === 'live', 'the click resolves what autoplay could not');
-  check(p.el('play')._attrs['aria-label'] === 'Pause', 'and the button says Pause');
+  check(p.el('estado').textContent === 'en vivo', 'the click resolves what autoplay could not');
+  check(p.el('play')._attrs['aria-label'] === 'Pausar', 'and the button says Pause');
 }
 
 /* ------------------------------- the listener's hand (F-17 / F-18) */
@@ -758,7 +758,7 @@ async function escenarioManoDelOyente() {
     await flush();
     await p.correrTimeouts();
   }
-  check(/Could not connect/.test(String(p.el('err').innerHTML || '')),
+  check(/No se pudo conectar/.test(String(p.el('err').innerHTML || '')),
     'budget spent: definitive banner');
   check(pendientes(p).length === 0, 'and nothing is left scheduled');
 
@@ -792,12 +792,12 @@ async function escenarioManoDelOyente() {
   r.el('audio').readyState = 4;        // really playing
   r.el('audio').paused = false;
   r.el('play').dispara('click');       // the listener presses Pause
-  check(r.el('estado').textContent === 'stopped',
+  check(r.el('estado').textContent === 'detenido',
     'manual pause: the banner says stopped (it does not get stuck on reconnecting)');
   const playsR = r.el('audio')._plays || 0;
   r.el('audio').dispara('error');      // a later error from the paused element
   await flush();
-  check(r.el('estado').textContent === 'stopped', 'the chain does not revive it');
+  check(r.el('estado').textContent === 'detenido', 'the chain does not revive it');
   check((r.el('audio')._plays || 0) === playsR, 'not one attempt started');
   check(pendientes(r).length === 0, 'not one retry scheduled');
   await r.correrTimeouts();
@@ -826,7 +826,7 @@ async function escenarioProbeAcotado() {
 
   const p = await abrirPagina({ datos: AIRE });
   p.el('audio').dispara('playing');
-  check(p.el('estado').textContent === 'live', 'starts live, sounding');
+  check(p.el('estado').textContent === 'en vivo', 'starts live, sounding');
 
   // The cut, and the gate swallows the request: black hole, no RST.
   p.config.cuelga = true;
@@ -847,16 +847,16 @@ async function escenarioProbeAcotado() {
   // not run. The page looks alive: it is exactly the failure F-09 describes.
   const pintadas = p.escrituras.estado || 0;
   await p.disparar(15000);
-  check(p.el('estado').textContent === 'live', 'hung: the banner does not change (the cut was not announced)');
+  check(p.el('estado').textContent === 'en vivo', 'hung: the banner does not change (the cut was not announced)');
   check((p.escrituras.estado || 0) === pintadas, 'hung: the tick measures but does not paint');
   check(p.el('err').style.display !== 'block', 'hung: not one error banner');
 
   // And then the bound fires: the abort reads as network, the chain advances.
   await p.correrTimeouts();   // abort -> catch -> reintentar -> attempt 1 scheduled
-  check(p.el('estado').textContent === 'reconnecting', 'the bound fires: the chain advances on its own');
+  check(p.el('estado').textContent === 'reconectando', 'the bound fires: the chain advances on its own');
   check(String(p.el('err').textContent).indexOf('(1/5)') !== -1,
     'it reached attempt 1 (1/5)');
-  check(!/Ask for a new link/.test(String(p.el('err').innerHTML || '')),
+  check(!/Pedí un link nuevo/.test(String(p.el('err').innerHTML || '')),
     'the abort is NOT read as the door: it proves nothing about the credential');
   check(pendientes(p).filter((t) => t.ms === 800).length === 1,
     'attempt 1 was scheduled (800 ms)');
@@ -866,7 +866,7 @@ async function escenarioProbeAcotado() {
   p.config.cuelga = false;
   await p.correrTimeouts();   // intento 1: conectar(true)
   p.el('audio').dispara('playing');
-  check(p.el('estado').textContent === 'live', 'stream back: the chain closes on live');
+  check(p.el('estado').textContent === 'en vivo', 'stream back: the chain closes on live');
 
   // And the bound is not pasted onto the shared object: the next tick asks
   // without a signal (an aborted signal there would kill every tick forever).
@@ -918,12 +918,12 @@ async function escenarioViajeCorteReconexion() {
   const p = await abrirPagina({ datos: AIRE });
   p.el('audio').dispara('playing');
   await flush();
-  check(p.el('estado').textContent === 'live', 'starts live');
+  check(p.el('estado').textContent === 'en vivo', 'starts live');
 
   // The cut.
   p.el('audio').dispara('error');
   await flush();
-  check(p.el('estado').textContent === 'reconnecting', 'the cut opens the reconnection chain');
+  check(p.el('estado').textContent === 'reconectando', 'the cut opens the reconnection chain');
 
   // The probe answers 200: not the door, retrying is worth it.
   check(p.el('err').style.display === 'block', 'the banner announces the retry');
@@ -932,7 +932,7 @@ async function escenarioViajeCorteReconexion() {
   await p.correrTimeouts();   // attempt 1 -> conectar(true)
   p.el('audio').dispara('playing');
   await flush();
-  check(p.el('estado').textContent === 'live', 'the stream comes back: live again');
+  check(p.el('estado').textContent === 'en vivo', 'the stream comes back: live again');
   check(p.el('err').style.display !== 'block', 'and the banner clears');
 }
 
@@ -947,7 +947,7 @@ async function escenarioViajeExpiracion() {
   await flush();
   await p.disparar(15000);
   await flush();
-  check(/Ask for a new link/.test(String(p.el('err').innerHTML || '')),
+  check(/Pedí un link nuevo/.test(String(p.el('err').innerHTML || '')),
     'expired link: the door copy is shown');
   check(p.el('estado').textContent === 'error', 'the status reads error (door closed)');
 }
@@ -962,14 +962,14 @@ async function escenarioViajeFueraDeAire() {
   await flush();
   await p.disparar(15000);
   await flush();
-  check(p.el('estado').textContent === 'live', 'starts live');
+  check(p.el('estado').textContent === 'en vivo', 'starts live');
 
   // The source disappears: next tick answers 200 with no source.
   p.config.datos = null;
   const antes = p.escrituras.estado || 0;
   await p.disparar(15000);
   await flush();
-  check(p.el('estado').textContent === 'stopped', 'off-air: the banner says stopped');
+  check(p.el('estado').textContent === 'detenido', 'off-air: the banner says stopped');
   check(p.el('aviso').style.display === 'block', 'and the notice appears');
   check(p.el('play').disabled === true, 'the button is disabled while off-air');
 }
@@ -984,7 +984,7 @@ async function escenarioViajeSilencio() {
   await flush();
   await p.disparar(15000);
   await flush();
-  check(p.el('estado').textContent === 'stopped', 'silence: the banner says stopped');
+  check(p.el('estado').textContent === 'detenido', 'silence: the banner says stopped');
   check(p.el('aviso').style.display === 'block', 'and the notice appears');
   check(p.el('play').disabled === true, 'the button is disabled');
   check(String(p.el('aviso').textContent).length > 0, 'the notice carries copy (not empty)');
@@ -1000,18 +1000,18 @@ async function escenarioViajeCadenaManda() {
   await flush();
   await p.disparar(15000);
   await flush();
-  check(p.el('estado').textContent === 'live', 'starts live');
+  check(p.el('estado').textContent === 'en vivo', 'starts live');
 
   // The cut opens the chain.
   p.el('audio').dispara('error');
   await flush();
-  check(p.el('estado').textContent === 'reconnecting', 'reconnecting');
+  check(p.el('estado').textContent === 'reconectando', 'reconectando');
 
-  // A tick fires while reconnecting: it must NOT paint 'live' over it.
+  // A tick fires while reconnecting: it must NOT paint 'en vivo' over it.
   const antes = p.escrituras.estado || 0;
   await p.disparar(15000);
   await flush();
-  check(p.el('estado').textContent === 'reconnecting', 'the tick does not overwrite reconnecting with live');
+  check(p.el('estado').textContent === 'reconectando', 'the tick does not overwrite reconnecting with live');
   check((p.escrituras.estado || 0) === antes, 'and does not even repaint');
 }
 
@@ -1130,7 +1130,7 @@ const MUTACIONES = [
   {
     que: 'the door\'s sentence is written twice',
     aplica: (h) => h.replace('  var STR = {',
-      "  var PUERTA_COPIA = 'Access expired or the browser did not save the cookie.';\n  var STR = {"),
+      "  var PUERTA_COPIA = 'El acceso expiró o el navegador no guardó la cookie.';\n  var STR = {"),
   },
   {
     que: 'the bar is never cleaned (the t stays in the address)',
@@ -1159,7 +1159,7 @@ const MUTACIONES = [
   {
     que: 'a visible sentence is left hand-written, outside STR (F-10)',
     aplica: (h) => h.replace("    estado.textContent = STR.live;",
-      "    estado.textContent = 'live';"),
+      "    estado.textContent = 'en vivo';"),
   },
   {
     que: 'the camera is shown even when the playlist is stale (F-08)',

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -172,38 +172,38 @@
     station: 'comechingona',
     playIcon: '&#9654;',
     pauseIcon: '&#10073;&#10073;',
-    play: 'Play',
-    pause: 'Pause',
-    live: 'live',
-    stopped: 'stopped',
-    reconnecting: 'reconnecting',
+    play: 'Reproducir',
+    pause: 'Pausar',
+    live: 'en vivo',
+    stopped: 'detenido',
+    reconnecting: 'reconectando',
     error: 'error',
-    blocked: 'blocked',
-    broadcastStopped: 'Broadcast is stopped',
-    autoplayBlocked: 'The browser blocked autoplay. Press play.',
-    door: 'Server replied 404.<br>Access expired or the browser did not save the cookie. Ask for a new link.',
-    cameraCaption: 'camera',
-    doorToast: 'Access expired. Ask for a new link.',
-    copySeed: 'copy',
-    seedHint: 'share the seed, not the link',
-    seedCopied: 'copied',
+    blocked: 'bloqueado',
+    broadcastStopped: 'La transmisión está detenida',
+    autoplayBlocked: 'El navegador bloqueó la reproducción automática. Presioná reproducir.',
+    door: 'El servidor respondió 404.<br>El acceso expiró o el navegador no guardó la cookie. Pedí un link nuevo.',
+    cameraCaption: 'cámara',
+    doorToast: 'Acceso expirado. Pedí un link nuevo.',
+    copySeed: 'copiar',
+    seedHint: 'compartí la semilla, no el link',
+    seedCopied: 'copiado',
     connectFailed: function (code) {
-      return 'Could not connect to the stream' + (code ? ' (error ' + code + ')' : '') +
-        '.<br>Connection dropped and did not come back. Check the network.';
+      return 'No se pudo conectar al stream' + (code ? ' (error ' + code + ')' : '') +
+        '.<br>La conexión se cortó y no volvió. Revisá la red.';
     },
     reconnectingLine: function (n, max) {
-      return 'Stream cut. Reconnecting (' + n + '/' + max + ')...';
+      return 'Stream cortado. Reconectando (' + n + '/' + max + ')...';
     },
     debugWebRtc: function (ms, t) {
-      return 'transport: webrtc  |  jitter buffer: ' +
+      return 'transporte: webrtc  |  buffer de jitter: ' +
         (ms === null ? '?' : ms.toFixed(0) + ' ms') +
         '  |  t: ' + t.toFixed(1) + 's';
     },
-    debugNative: 'transport: native hls',
+    debugNative: 'transporte: hls nativo',
     debugHls: function (latency, target, rate) {
-      return 'transport: hls.js  |  latency: ' + latency.toFixed(2) + 's' +
-        '  |  target: ' + (target === null ? '?' : target.toFixed(2)) + 's' +
-        '  |  rate: ' + rate.toFixed(2) + 'x';
+      return 'transporte: hls.js  |  latencia: ' + latency.toFixed(2) + 's' +
+        '  |  objetivo: ' + (target === null ? '?' : target.toFixed(2)) + 's' +
+        '  |  tasa: ' + rate.toFixed(2) + 'x';
     }
   };
 
