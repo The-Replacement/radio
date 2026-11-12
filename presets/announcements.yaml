@@ -1,6 +1,6 @@
 # Mario — announcement templates (voice identity: inspired by Mario Pergolini).
 # template_version is bumped to invalidate all cached segments.
-template_version: mario/1
+template_version: mario/2
 
 thoughts:
   - "The seed remembers what the ear forgets."
