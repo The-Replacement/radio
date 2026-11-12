@@ -184,6 +184,11 @@ services:
       # The package is installed, not checked out, so presets are not beside
       # __file__; this makes the location explicit instead of a fallback guess.
       MARIO_PRESETS_DIR: /app/presets
+      # News slot. The feeds file is station-specific config (versioned in this
+      # repo, mounted read-only); the cache must live on the host bind mount or
+      # it dies with the container and every run refetches from cold.
+      MARIO_RSS_FEEDS_FILE: /etc/mario/feeds.yaml
+      MARIO_RSS_CACHE_DIR: /data/host/rss-cache
       MARIO_TTS_BACKEND: ${MARIO_TTS_BACKEND:-kokoro}
       MARIO_MODEL: ${MARIO_MODEL:-/models/kokoro/kokoro-v1.0.onnx}
       MARIO_VOICES_PATH: ${MARIO_VOICES_PATH:-/models/kokoro/voices-v1.0.bin}
@@ -194,6 +199,7 @@ services:
     volumes:
       - ./music:/music:ro
       - ./data/host:/data/host
+      - ./config/feeds.yaml:/etc/mario/feeds.yaml:ro
       - /home/kbdejavu/Models/kokoro:/models/kokoro:ro
     networks:
       - radio

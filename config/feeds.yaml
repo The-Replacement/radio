@@ -1,0 +1,57 @@
+# Feeds for Mario's news slot.
+#
+# One item airs per time bucket, and the starting feed rotates with the bucket
+# seed, so every feed below gets its turn over the course of a day. Feeds with
+# no items this hour are skipped silently - an empty category does not get
+# announced, it just does not air.
+#
+# Schema: a `feeds` list. Each entry is either a URL string or a mapping with
+# `url` plus an optional `name`. The name is only used to derive a
+# filesystem-safe slug, so keep it ASCII (an accent becomes a hyphen).
+#
+# An unreachable feed is not fatal: it falls back and the stream keeps going.
+feeds:
+  - name: Traslasierra
+    url: https://www.infomerlo.com/rss/traslasierra/
+  - name: Cultura
+    url: https://www.infomerlo.com/rss/cultura/
+  - name: Deportes
+    url: https://www.infomerlo.com/rss/deportes/
+  - name: Naschel
+    url: https://www.infomerlo.com/rss/naschel/
+  - name: Longboard
+    url: https://www.infomerlo.com/rss/longboard/
+  - name: Villa Elena
+    url: https://www.infomerlo.com/rss/villa-elena/
+  - name: Cortaderas
+    url: https://www.infomerlo.com/rss/cortaderas/
+  - name: Politica
+    url: https://www.infomerlo.com/rss/politica/
+  - name: Los Molles
+    url: https://www.infomerlo.com/rss/los-molles/
+  - name: Tenis
+    url: https://www.infomerlo.com/rss/tenis/
+  - name: Rugby
+    url: https://www.infomerlo.com/rss/rugby/
+  - name: Carpinteria
+    url: https://www.infomerlo.com/rss/carpinteria/
+  - name: Santa Rosa
+    url: https://www.infomerlo.com/rss/santa-rosa/
+  - name: Sociedad
+    url: https://www.infomerlo.com/rss/sociedad/
+  - name: Concaran
+    url: https://www.infomerlo.com/rss/concaran/
+  - name: Turismo
+    url: https://www.infomerlo.com/rss/turismo/
+  - name: Villa Larca
+    url: https://www.infomerlo.com/rss/villa-larca/
+  - name: Futbol
+    url: https://www.infomerlo.com/rss/futbol/
+  - name: Tilisarao
+    url: https://www.infomerlo.com/rss/tilisarao/
+  - name: Provinciales
+    url: https://www.infomerlo.com/rss/provinciales/
+  - name: Policiales
+    url: https://www.infomerlo.com/rss/policiales/
+  - name: Papagayos
+    url: https://www.infomerlo.com/rss/papagayos/

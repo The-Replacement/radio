@@ -49,6 +49,7 @@ musica = playlist(
 # the next track; if no spacer applies it crossfades. Idents are chosen by
 # scanning /host (Mario stays the single source of truth for the pool). Policy:
 #   - host segment always (when cached)
+#   - news (RSS) on transitions where next_seed mod 4 == 0, else weather
 #   - station ident only when no host segment AND next_seed is even
 #   - jingle only when next_seed mod 5 == 0 and < 2 spacers already
 #   - at most 2 spacers total (bounded gap)
@@ -127,6 +128,22 @@ def host_transition(ending, starting) =
       end
     catch _ do
       ()
+    end
+
+    # News (RSS). One item per time bucket, so it may not air on every gap:
+    # the same headline repeated between every track would be absurd. It takes
+    # the second slot on its turn; otherwise weather fills that slot.
+    rss_turn = try (int_of_string(ss) mod 4) == 0 catch _ do false end
+
+    if bucket != "" and rss_turn and list.length(spacers()) < 2 then
+      try
+        rss_path = "/host/rss_#{bucket}.wav"
+        if file.exists(rss_path) then
+          spacers := list.append(spacers(), [single(rss_path)])
+        end
+      catch _ do
+        ()
+      end
     end
 
     # Weather (meteorologist): one segment per bucket when available.
