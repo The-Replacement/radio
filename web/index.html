@@ -480,7 +480,8 @@
       if (!sidecar || !sidecar.lane || sidecar.seed == null || !sidecar.plan_sha256) {
         ocultarSeed(); return;
       }
-      var textoSeed = sidecar.lane + ' \\u00b7 ' + sidecar.seed + ' \\u00b7 ' + sidecar.plan_sha256;
+      var nombrePista = (sidecar.alias || (sidecar.plan && sidecar.plan.alias) || sidecar.lane);
+      var textoSeed = nombrePista + ' \\u00b7 ' + sidecar.seed + ' \\u00b7 ' + sidecar.plan_sha256;
       seed.textContent = textoSeed;
       seed.hidden = false;
       if (seedCopy) { seedCopy.textContent = STR.copySeed; seedCopy.hidden = false; seedCopy.onclick = function () {
@@ -500,7 +501,7 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           if (j && j.plan_sha256) mostrar(j);
-          else if (entrada.lane && entrada.seed != null) mostrar({ lane: entrada.lane, seed: entrada.seed, plan_sha256: (entrada.plan_sha256 || '') });
+          else if (entrada.lane && entrada.seed != null) mostrar({ lane: entrada.lane, alias: entrada.alias, seed: entrada.seed, plan_sha256: (entrada.plan_sha256 || '') });
           else ocultarSeed();
         })
         .catch(ocultarSeed);

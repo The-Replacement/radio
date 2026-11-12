@@ -100,7 +100,10 @@ def build_text(
     mix = current.seed * 131542391 + nxt.seed * 2654435761 + sum(ord(c) for c in bucket)
 
     opener = _pick(_openers_for(vibe.current_mood), mix)
-    cue = _pick(_cues_for(vibe.next_mood), mix >> 3).format(lane=nxt.lane, form=nxt.form)
+    # Prefer the track's own name (alias) when the library provides one; fall
+    # back to the lane/form identifiers for legacy sidecars without it.
+    lane_label = nxt.alias if getattr(nxt, "alias", None) else nxt.lane
+    cue = _pick(_cues_for(vibe.next_mood), mix >> 3).format(lane=lane_label, form=nxt.form)
 
     parts = [opener]
     # If the character shifts, name the crossing softly.

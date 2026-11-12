@@ -12,6 +12,13 @@ from pathlib import Path
 from typing import Any
 
 
+def _optional_str(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    return v if v else None
+
+
 @dataclass(frozen=True)
 class TrackMeta:
     seed: int
@@ -21,6 +28,9 @@ class TrackMeta:
     pcm_sha256: str
     path: str
     duration_seconds: float
+    alias: str | None = None
+    album: str | None = None
+    title: str | None = None
 
 
 def _from_sidecar(payload: dict[str, Any], path: Path) -> TrackMeta | None:
@@ -39,6 +49,9 @@ def _from_sidecar(payload: dict[str, Any], path: Path) -> TrackMeta | None:
         pcm_sha256=digest,
         path=str(path),
         duration_seconds=float(measurements.get("duration_seconds", 0.0)),
+        alias=_optional_str(plan.get("alias")) or _optional_str(payload.get("alias")),
+        album=_optional_str(plan.get("album")) or _optional_str(payload.get("album")),
+        title=_optional_str(plan.get("title")) or _optional_str(payload.get("title")),
     )
 
 
@@ -81,6 +94,9 @@ def _read_catalog(music_dir: Path) -> list[TrackMeta] | None:
                 pcm_sha256=str(digest),
                 path=str(entry.get("path", "")),
                 duration_seconds=float(entry.get("duration_seconds", 0.0)),
+                alias=_optional_str(entry.get("alias")),
+                album=_optional_str(entry.get("album")),
+                title=_optional_str(entry.get("title")),
             )
         )
     return out
