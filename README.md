@@ -1,6 +1,6 @@
 # Private radio with token
 
-[![ci](https://github.com/juanmanueldaza/radio/actions/workflows/ci.yml/badge.svg)](https://github.com/juanmanueldaza/radio/actions/workflows/ci.yml)
+[![ci](https://github.com/The-Replacement/radio/actions/workflows/ci.yml/badge.svg)](https://github.com/The-Replacement/radio/actions/workflows/ci.yml)
 
 A radio that exists for a closed circle. Without a credential, there is no radio.
 

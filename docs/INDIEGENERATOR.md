@@ -172,4 +172,4 @@ consequence of the gate looking at the plan.
 
 Changes that affect the music↔radio contract (format/name, the `./music` mount,
 the liquidsoap restart, the `INDIEGEN_*` variables) must be reviewed in both
-repos: `juanmanueldaza/indiegenerator` and `juanmanueldaza/radio`.
+repos: `The-Replacement/indiegenerator` and `The-Replacement/radio`.
