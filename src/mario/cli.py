@@ -40,38 +40,35 @@ def generate_cmd(
     keep_buckets: int | None = typer.Option(None, "--keep-buckets", help="Prune host pool to this many recent buckets after generating."),
 ) -> None:
     config = MarioConfig.from_env()
+
+    # Paired directory overrides preserve intentional precedence:
+    # --music-dir sets both, then --meta-dir sets both (wins if both provided).
     if music_dir is not None:
         config.music_dir = music_dir
         config.meta_dir = music_dir
     if meta_dir is not None:
         config.meta_dir = meta_dir
         config.music_dir = meta_dir
-    if host_dir is not None:
-        config.host_dir = host_dir
-    if model is not None:
-        config.model = model
-    if voices_path is not None:
-        config.voices_path = voices_path
-    if voice is not None:
-        config.voice = voice
-    if model_lang is not None:
-        config.model_lang = model_lang
-    if time_bucket_hours is not None:
-        config.time_bucket_hours = time_bucket_hours
-    if liners_preset is not None:
-        config.liners_preset = liners_preset
-    if weather_file is not None:
-        config.weather_file = weather_file
-    if rss_feeds_file is not None:
-        config.rss_feeds_file = rss_feeds_file
-    if rss_cache_dir is not None:
-        config.rss_cache_dir = rss_cache_dir
-    if rss_max_items_per_cycle is not None:
-        config.rss_max_items_per_cycle = rss_max_items_per_cycle
-    if rss_max_text_chars is not None:
-        config.rss_max_text_chars = rss_max_text_chars
-    if rss_timeout_seconds is not None:
-        config.rss_timeout_seconds = rss_timeout_seconds
+
+    simple_overrides = {
+        "host_dir": host_dir,
+        "model": model,
+        "voices_path": voices_path,
+        "voice": voice,
+        "model_lang": model_lang,
+        "time_bucket_hours": time_bucket_hours,
+        "liners_preset": liners_preset,
+        "weather_file": weather_file,
+        "rss_feeds_file": rss_feeds_file,
+        "rss_cache_dir": rss_cache_dir,
+        "rss_max_items_per_cycle": rss_max_items_per_cycle,
+        "rss_max_text_chars": rss_max_text_chars,
+        "rss_timeout_seconds": rss_timeout_seconds,
+    }
+    for field, value in simple_overrides.items():
+        if value is not None:
+            setattr(config, field, value)
+
     paths = run_generate(
         config,
         time_bucket=time_bucket,
