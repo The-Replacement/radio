@@ -227,7 +227,7 @@ cmd_verify() {
   mem_avail_mb=$(awk '/^MemAvailable:/ {printf "%d", $2/1024}' /proc/meminfo)
   disk_free_gb=$(df --output=avail -B1G / | tail -1 | tr -d ' ')
   disk_below_floor=$([ "$disk_free_gb" -lt "$DISK_FLOOR_GB" ] && echo true || echo false)
-  mem_pressure=$(awk '/^some/ {print $2}' /proc/pressure/memory 2>/dev/null | sed 's/avg60=//')
+  mem_pressure=$(awk '/^some/ {print $3}' /proc/pressure/memory 2>/dev/null | sed 's/avg60=//')
 
   # --- caps: every radio container must report a memory limit
   local uncapped=0
@@ -327,7 +327,7 @@ preflight() {
     cmd_verify >/dev/null 2>&1 || { GATE_REASON="status unavailable"; return 1; }
   fi
 
-  GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" <<'PYGATE'
+  if ! GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" <<'PYGATE'
 import json
 import sys
 
@@ -343,7 +343,10 @@ elif r.get("below_floor"):
 elif not d["stream"]["flowing"]:
     print("stream unhealthy: no audio flowing")
 PYGATE
-)
+); then
+    GATE_REASON="gate evaluation failed (unreadable status)"
+    return 1
+  fi
   [ -z "$GATE_REASON" ] && return 0
   return 1
 }
