@@ -96,9 +96,13 @@ cmd_gc() {
     else
       log_gc "FAIL: builder prune failed"
     fi
-    local imgs
-    imgs=$(docker image prune -f 2>&1 | tail -1)
-    log_gc "dangling images: ${imgs:-no output}"
+    if [ "$DRY_RUN" = "1" ]; then
+      log_gc "dry: would prune dangling images"
+    else
+      local imgs
+      imgs=$(docker image prune -f 2>&1 | tail -1)
+      log_gc "dangling images: ${imgs:-no output}"
+    fi
   else
     log_gc "SKIP: docker daemon not reachable"
   fi
@@ -160,20 +164,16 @@ cmd_verify() {
   # shellcheck disable=SC2064
   trap "rm -f '$tmp'" RETURN
 
-  # --- stream: source connected, bytes actually moving
-  local icecast_json bytes1 bytes2 title
+  # --- stream: source connected, and bytes actually moving
+  local icecast_json title source_present=false bytes_rate=0 tx1 tx2
   icecast_json=$(docker exec radio-caddy wget -qO- http://icecast:8000/status-json.xsl 2>/dev/null)
-  if [ -n "$icecast_json" ]; then
-    bytes1=$(printf '%s' "$icecast_json" | sed -n 's/.*"total_bytes_read":\([0-9]*\).*/\1/p' | head -1)
-    title=$(printf '%s' "$icecast_json" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p' | head -1)
-  fi
-  sleep 2
-  icecast_json=$(docker exec radio-caddy wget -qO- http://icecast:8000/status-json.xsl 2>/dev/null)
-  bytes2=$(printf '%s' "$icecast_json" | sed -n 's/.*"total_bytes_read":\([0-9]*\).*/\1/p' | head -1)
-  local source_present=false bytes_rate=0
+  title=$(printf '%s' "$icecast_json" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p' | head -1)
   [ -n "$title" ] && source_present=true
-  if [ -n "${bytes1:-}" ] && [ -n "${bytes2:-}" ]; then
-    case "$bytes1$bytes2" in ''|*[!0-9]*) ;; *) bytes_rate=$(( (bytes2 - bytes1) / 2 )) ;; esac
+  tx1=$(docker exec radio-icecast cat /sys/class/net/eth0/statistics/tx_bytes 2>/dev/null)
+  sleep 2
+  tx2=$(docker exec radio-icecast cat /sys/class/net/eth0/statistics/tx_bytes 2>/dev/null)
+  if [ -n "${tx1:-}" ] && [ -n "${tx2:-}" ]; then
+    case "$tx1$tx2" in ''|*[!0-9]*) ;; *) bytes_rate=$(( (tx2 - tx1) / 2 )) ;; esac
   fi
 
   # --- door: no token must not get through
@@ -283,7 +283,8 @@ print(f"radio status  {data['ts']}  ({age}s old)")
 print(f"  deploy    {data['deploy']['commit']}  detached={data['deploy']['detached_head']}")
 print(f"  {mark(s['source'] and s['bytes_per_s'] > 0)} stream   source={s['source']} rate={s['bytes_per_s']} B/s  {s['title']!r}")
 print(f"  {mark(d['closed'])} door     GET / without token -> {d['status_without_token']}")
-print(f"  {mark(c['fresh'])} camera   segment age {c['segment_age_s']}s")
+cam = f"segment age {c['segment_age_s']}s" if c['segment_age_s'] >= 0 else "no segments (device absent?)"
+print(f"  {mark(c['fresh'])} camera   {cam}")
 print(f"  {mark(ct['catalog_ok'] and ct['tracks'] > 0)} content  {ct['tracks']} tracks, catalog_ok={ct['catalog_ok']}, last TTS {ct['last_tts_age_s']}s ago")
 print(f"  {mark(r['uncapped_containers'] == 0)} caps     {r['uncapped_containers']} uncapped container(s)")
 print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free  PSI {r['mem_pressure_some']}")
