@@ -2,7 +2,7 @@
 # Fix ownership of bind-mounted runtime data dirs for radio services (#83).
 # Intended to be run as root (or via scoped passwordless sudo) on deploy hosts.
 # Safe/idempotent: only chowns known data paths under this repo.
-set -euo pipefail
+set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$ROOT/.env"
@@ -25,15 +25,20 @@ CAM_GID="$(get_env CAM_GID "$INDIEGEN_GID")"
 CADDY_UID="$(get_env CADDY_UID "$INDIEGEN_UID")"
 CADDY_GID="$(get_env CADDY_GID "$INDIEGEN_GID")"
 
-fix=0
+fixed=0
+failed=0
 chown_path() {
   local path="$1" owner="$2" label="$3"
-  if [[ -e "$path" ]]; then
-    chown -R "$owner" "$path"
-    echo "fixed $label -> $owner ($path)"
-    fix=$((fix+1))
-  else
+  if [[ ! -e "$path" ]]; then
     echo "skip  $label (missing: $path)"
+    return 0
+  fi
+  if chown -R "$owner" "$path" 2>/dev/null; then
+    echo "fixed $label -> $owner ($path)"
+    fixed=$((fixed+1))
+  else
+    echo "warn  $label -> $owner ($path) partial/failed (need privileged fix?)"
+    failed=$((failed+1))
   fi
 }
 
@@ -45,4 +50,8 @@ chown_path "$ROOT/data/caddy"    "${CADDY_UID}:${CADDY_GID}"       "caddy"
 
 # Do not touch secrets/tokens.txt or caddy/tokens.caddy here; they have their
 # own permission constraints (#87).
-echo "radio: ownership fix complete ($fix path group(s) processed)"
+echo "radio: ownership fix complete (ok=$fixed warn=$failed)"
+
+if [[ "$failed" -gt 0 ]]; then
+  exit 2
+fi
