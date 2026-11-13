@@ -141,18 +141,21 @@ access, copy the template: `cp caddy/tokens.caddy.example caddy/tokens.caddy`
 ## Grant and revoke access
 
 ```bash
-./scripts/token.sh add juan       # grants access (creates credential; no link printed)
-./scripts/token.sh reveal juan    # prints invitation/camera links (sensitive)
-./scripts/token.sh ls             # who has access
-./scripts/token.sh rm juan        # cuts access (token and cookie)
-./scripts/token.sh regen          # regenerates the matchers from secrets/tokens.txt
+./scripts/token.sh add juan          # grants access (creates credential; no link printed)
+./scripts/token.sh reveal juan       # prints invitation/camera links (sensitive)
+./scripts/token.sh rotate juan 30d   # reissues token+cookie (revokes old), optional new expiry
+./scripts/token.sh prune             # removes expired credentials from secrets/tokens.txt
+./scripts/token.sh ls                # who has access
+./scripts/token.sh rm juan           # cuts access (token and cookie)
+./scripts/token.sh regen             # regenerates the matchers from secrets/tokens.txt
+./scripts/token.sh check             # validates cookie/transport config basics
 ```
 
 **Per-person credentials.** That is the reason for doing it this way instead
-of a single shared password: if someone leaks their link, you cut access for
-that person and do not change the link for everyone else. Treat revealed links
-as bearer secrets (avoid logs/shell history/screenshots/unencrypted chats) and
-prefer expiring credentials (`add juan 30d`).
+of a single shared password: if someone leaks their link, rotate/revoke that
+credential without changing anyone else's. Treat revealed links as bearer
+secrets (avoid logs/shell history/screenshots/unencrypted chats) and prefer
+expiring credentials (`add juan 30d`) with periodic rotation/pruning.
 
 `regen` is useful if you edit `secrets/tokens.txt` by hand, or after bringing
 the repo to another machine.
@@ -378,21 +381,32 @@ Measured, not assumed. What follows is verified on this installation.
   with `?t=...` is not logged either. Verified: 0 occurrences of both after
   generating traffic.
 
-**What it does NOT solve**
+**What it does NOT solve (threat model / trade-offs)**
 - **The page has no door.** `https://radio.daza.ar/` serves the whole player
   to anyone with no credential (measured: 200, issue #2). Everything behind
   it — stream, status, camera — still answers 404, but the station's story
   is readable by whoever guesses the name. `smoke.sh` group 0 measures this,
   so it cannot change without going red.
-- The token is in the invitation link: if someone shares it or pastes it into
-  an unencrypted chat, it leaks. That is the cost of keeping it simple.
-- Players (VLC) keep sending the token in the URL. If that matters to you,
-  listen from the browser (cookie) and you are done.
-- The camera, in players, needs the token in the path
-  (`/cam/<token>/...`) and not in the query. That is not a concession: that
-  is how HLS works with relative paths.
+- **Invitation links carry bearer tokens.** If someone shares/pastes a link
+  (or it lands in shell history, screenshots, logs outside this stack, or an
+  unencrypted chat), the credential leaks until rotated/revoked/expired.
+- **`?t=` fallback for browsers that refuse cookies.** The exchange tries to
+  move to a cookie and remove `?t=` from the address bar, but if the cookie is
+  not usable the page keeps the token in memory and attaches it to requests as
+  a fallback. Caddy strips the query before proxying upstream and Icecast/log
+  behavior avoids persisting it, but the token can still appear in client-side
+  contexts (browser/network tooling, intermediaries that observe the original
+  request path depending on deployment). This is a compatibility tradeoff, not
+  full secrecy.
+- **Plaintext credential material at rest in this design.** `secrets/tokens.txt`
+  and the generated `caddy/tokens.caddy` (required for Caddy CEL matching)
+  contain bearer-equivalent values; protect host access, permissions, and
+  backups, and treat them as secrets.
+- Players (VLC) keep sending the token in the URL. The camera, in players,
+  needs the token in the path (`/cam/<token>/...`) because of HLS relative
+  requests.
 - It does not hide your IP or your provider. Your VPS knows this exists.
-- If you lower the log level to `INFO` for debugging, the players' tokens are
+- If you lower the log level to `INFO` for debugging, player tokens may be
   written. Go back to `ERROR` afterwards.
 
 **Hardening (in cost/benefit order)**
@@ -997,6 +1011,9 @@ radio/
 ```
 
 `secrets/`, `.env` and `data/` are in `.gitignore`: they are not committed.
+`caddy/tokens.caddy` is generated and contains bearer-equivalent matcher data;
+keep it permission-restricted (`600`) and treat it as sensitive like
+`secrets/tokens.txt`.
 
 ---
 

@@ -6,6 +6,8 @@
 #   ./scripts/token.sh rm  <name>            cuts their access
 #   ./scripts/token.sh ls                    lists who has access
 #   ./scripts/token.sh regen                 regenerates Caddy's matcher
+#   ./scripts/token.sh rotate <name> [expiry] reissues token/cookie (revokes old)
+#   ./scripts/token.sh prune                 removes expired credentials from storage
 #   ./scripts/token.sh check                 validates production cookie/transport config
 #
 # The expiry is optional and takes two forms:
@@ -118,6 +120,7 @@ regenerar_matcher() {
 
   # In-place write: keeps the inode the container has mounted.
   cat "$nuevo" > "$ARCHIVO_CADDY"
+  chmod 600 "$ARCHIVO_CADDY" 2>/dev/null || true
   rm -f "$nuevo"
 
   if ! validar_caddy; then
@@ -255,6 +258,7 @@ cmd_add() {
   local t
   t="$(aleatorio)"
   printf '%s %s %s%s\n' "$nombre" "$t" "$(aleatorio)" "${vence:+ $vence}" >> "$ARCHIVO_TOKENS"
+  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
   regenerar_matcher
   echo "OK access granted to \"$nombre\""
   if [[ -n "$vence" ]]; then
@@ -284,6 +288,7 @@ cmd_rm() {
   # lines, exits with 1, and with `set -e` the script died here without warning.
   grep -vE "^${nombre} " "$ARCHIVO_TOKENS" > "$ARCHIVO_TOKENS.tmp" || true
   mv "$ARCHIVO_TOKENS.tmp" "$ARCHIVO_TOKENS"
+  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
   regenerar_matcher
   echo "OK access revoked for \"$nombre\" (token and cookie)"
   recargar_caddy
@@ -315,6 +320,81 @@ cmd_regen() {
   recargar_caddy
 }
 
+cmd_rotate() {
+  local nombre="${1:?usage: token.sh rotate <name> [expiry]}"
+  local pedido="${2:-}"
+  local vence_nuevo vence_actual
+
+  validar_nombre "$nombre"
+  validar_entorno
+
+  if ! grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
+    echo "\"$nombre\" was not on the list." >&2
+    exit 1
+  fi
+
+  vence_actual="$(awk -v n="$nombre" '$1==n {print $4}' "$ARCHIVO_TOKENS")"
+  if [[ -n "$pedido" ]]; then
+    local rc=0
+    vence_nuevo="$(normalizar_vencimiento "$pedido")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      case "$rc" in
+        3) echo "That date has already passed: '$pedido'" >&2 ;;
+        *) echo "Invalid expiry: '$pedido'. Use 30d or 2026-12-31" >&2 ;;
+      esac
+      exit 1
+    fi
+  else
+    vence_nuevo="$vence_actual"
+  fi
+
+  local tmp="$ARCHIVO_TOKENS.tmp.$$"
+  awk -v n="$nombre" -v t="$(aleatorio)" -v c="$(aleatorio)" -v v="$vence_nuevo" '
+    $1==n { printf "%s %s %s%s\n", n, t, c, (v=="" ? "" : " " v); next }
+    { print }
+  ' "$ARCHIVO_TOKENS" > "$tmp"
+  mv "$tmp" "$ARCHIVO_TOKENS"
+  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
+  regenerar_matcher
+  echo "OK credentials rotated for \"$nombre\" (old token/cookie revoked)"
+  if [[ -n "$vence_nuevo" ]]; then
+    echo "   expires $vence_nuevo"
+  else
+    echo "   no expiry set (long-lived). Prefer an expiry, e.g. ./scripts/token.sh rotate \"$nombre\" 30d" >&2
+  fi
+  echo "   Reveal new links (sensitive): ./scripts/token.sh reveal \"$nombre\""
+  recargar_caddy
+}
+
+cmd_prune() {
+  # Removes expired credentials from secrets/tokens.txt (lifecycle hygiene).
+  # Active/non-expiring credentials are kept. Regenerates matcher afterward.
+  if ! [[ -s "$ARCHIVO_TOKENS" ]]; then
+    echo "(no credentials file or empty)"
+    return 0
+  fi
+  local hoy tmp removed
+  hoy="$(date +%F)"
+  tmp="$ARCHIVO_TOKENS.tmp.$$"
+  removed=$(awk -v hoy="$hoy" '
+    NF>=4 && $4 < hoy { r++; next }
+    { print }
+    END { print r+0 > "/dev/stderr" }
+  ' "$ARCHIVO_TOKENS" 2> "$tmp.count" > "$tmp" || true)
+  removed="$(cat "$tmp.count" 2>/dev/null || echo 0)"
+  rm -f "$tmp.count"
+  if [[ "$removed" == "0" ]]; then
+    rm -f "$tmp"
+    echo "No expired credentials to prune."
+    return 0
+  fi
+  mv "$tmp" "$ARCHIVO_TOKENS"
+  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
+  regenerar_matcher
+  echo "OK pruned $removed expired credential(s) from secrets/tokens.txt"
+  recargar_caddy
+}
+
 cmd_check() {
   validar_entorno
   echo "OK production/config checks passed (cookie/transport basics)."
@@ -325,6 +405,8 @@ case "${1:-}" in
   reveal|show) shift; cmd_reveal "$@" ;;
   rm|del|remove) shift; cmd_rm "$@" ;;
   regen|sync) cmd_regen ;;
+  rotate) shift; cmd_rotate "$@" ;;
+  prune) cmd_prune ;;
   check|doctor) cmd_check ;;
   ls|list) cmd_ls ;;
   *) sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' | sed '$d'; exit 1 ;;

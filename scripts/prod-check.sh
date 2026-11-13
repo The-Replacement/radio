@@ -52,6 +52,7 @@ fi
 
 # #87: credential storage/lifecycle notes (explicit checks where possible)
 TOKENS_FILE="$RAIZ/secrets/tokens.txt"
+MATCHER_FILE="$RAIZ/caddy/tokens.caddy"
 if [[ -f "$TOKENS_FILE" ]]; then
   perms="$(stat -c '%a' "$TOKENS_FILE" 2>/dev/null || echo '?')"
   if [[ "$perms" == "600" || "$perms" == "400" ]]; then
@@ -62,7 +63,7 @@ if [[ -f "$TOKENS_FILE" ]]; then
   if [[ -s "$TOKENS_FILE" ]]; then
     # warn if any credential has no expiry (4th field missing)
     if awk 'NF==3 {found=1} END{exit found?0:1}' "$TOKENS_FILE"; then
-      aviso "one or more credentials have no expiry; prefer time-limited credentials and rotation"
+      aviso "one or more credentials have no expiry; prefer time-limited credentials and rotation (token.sh rotate/prune)"
     else
       pasa "all listed credentials include an expiry field"
     fi
@@ -70,6 +71,18 @@ if [[ -f "$TOKENS_FILE" ]]; then
   aviso "secrets/tokens.txt stores bearer credentials in plaintext - restrict host access/backups and avoid leaking logs/shell history"
 else
   aviso "secrets/tokens.txt not found (no issued credentials yet)"
+fi
+
+if [[ -f "$MATCHER_FILE" ]]; then
+  mperms="$(stat -c '%a' "$MATCHER_FILE" 2>/dev/null || echo '?')"
+  if [[ "$mperms" == "600" || "$mperms" == "400" ]]; then
+    pasa "caddy/tokens.caddy permissions are restrictive ($mperms)"
+  else
+    falla "caddy/tokens.caddy permissions are $mperms (expected 600; contains bearer credentials) - fix with: chmod 600 caddy/tokens.caddy"
+  fi
+  aviso "caddy/tokens.caddy contains plaintext credential matchers required by Caddy CEL - treat as secret, keep out of backups/repos where possible"
+else
+  aviso "caddy/tokens.caddy not found (run: ./scripts/token.sh regen)"
 fi
 
 echo

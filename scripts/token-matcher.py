@@ -98,15 +98,20 @@ def main() -> int:
 
     if migrado:
         # Atomic write: tmp + os.replace. If the process dies halfway,
-        # tokens.txt is not left truncated.
+        # tokens.txt is not left truncated. Keep credentials file restrictive.
         tmp = entrada + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.writelines(
                 " ".join(x for x in (n, t, c, v) if x) + "\n" for n, t, c, v in filas
             )
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp, entrada)
+        try:
+            os.chmod(entrada, 0o600)
+        except OSError:
+            pass
 
     hoy = date.today()
     vigentes: list[list[str]] = []
@@ -196,8 +201,19 @@ def main() -> int:
         "}",
     ]
 
-    with open(salida, "w", encoding="utf-8") as fh:
+    # Generated matcher contains bearer credentials (query token, cookie id, bridge).
+    # Write atomically with restrictive permissions to reduce leakage surface (#87).
+    tmp = salida + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lineas) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, salida)
+    try:
+        os.chmod(salida, 0o600)
+    except OSError:
+        pass
     return 0
 
 
