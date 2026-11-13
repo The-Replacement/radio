@@ -6,7 +6,7 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from .config import MarioConfig
 from .feedfetch import fetch_feed
@@ -14,6 +14,7 @@ from .liners import liner_cache_filename, load_liners, select_liner
 from .presets import require_preset_path, resolve_preset_path
 from .prune import prune_host_dir
 from .render import (
+    RenderBackend,
     generate_liner_segment,
     generate_rss_fallback_segment,
     generate_rss_segment,
@@ -65,6 +66,7 @@ class _GenerationContext:
     force: bool
     feed_fetcher: FeedFetcher | None
     keep_buckets: int | None
+    backend: RenderBackend | None = None
 
 
 class _SegmentSink:
@@ -75,6 +77,7 @@ class _SegmentSink:
         self.out = out
         self.host_dir = ctx.config.host_dir
         self.bucket = ctx.bucket
+        self.backend = ctx.backend
 
     @property
     def dry_run(self) -> bool:
@@ -87,6 +90,7 @@ class _SegmentSink:
             "voices_path": self.ctx.config.voices_path,
             "voice": self.ctx.config.voice,
             "lang": self.ctx.kokoro_lang,
+            "backend": self.backend,
         }
 
     def record(self, path: Path) -> Path:
@@ -207,6 +211,55 @@ def _write_bucket_marker(host_dir: Path, bucket: str) -> None:
             os.close(dir_fd)
 
 
+@runtime_checkable
+class SlotGenerator(Protocol):
+    """Structural protocol for segment slot generators.
+
+    A slot generator emits segments for one domain (transitions, liners,
+    weather, RSS) into the shared sink. Implementations are stateless and
+    can be registered in the DEFAULT_SLOTS list or passed via generate(slots=...).
+    """
+
+    def emit(self, ctx: _GenerationContext, sink: _SegmentSink) -> None: ...
+
+
+class TransitionGenerator:
+    """Generates transition segments (per ordered track pair)."""
+
+    def emit(self, ctx: _GenerationContext, sink: _SegmentSink) -> None:
+        _emit_transitions(ctx, sink)
+
+
+class LinerGenerator:
+    """Generates liner/ident segments (per track)."""
+
+    def emit(self, ctx: _GenerationContext, sink: _SegmentSink) -> None:
+        _emit_liners(ctx, sink)
+
+
+class WeatherGenerator:
+    """Generates weather segment (one per bucket)."""
+
+    def emit(self, ctx: _GenerationContext, sink: _SegmentSink) -> None:
+        _emit_weather(ctx, sink)
+
+
+class RssGenerator:
+    """Generates RSS/news segments (per cycle)."""
+
+    def emit(self, ctx: _GenerationContext, sink: _SegmentSink) -> None:
+        _emit_rss(ctx, sink)
+
+
+# Default slot order: transitions → liners → weather → RSS.
+DEFAULT_SLOTS: list[SlotGenerator] = [
+    TransitionGenerator(),
+    LinerGenerator(),
+    WeatherGenerator(),
+    RssGenerator(),
+]
+
+
 def _emit_transitions(ctx: _GenerationContext, sink: _SegmentSink) -> None:
     # Transition segments (per ordered pair, excluding self).
     for current in ctx.tracks:
@@ -325,6 +378,8 @@ def generate(
     force: bool = False,
     feed_fetcher: FeedFetcher | None = None,
     keep_buckets: int | None = None,
+    backend: RenderBackend | None = None,
+    slots: list[SlotGenerator] | None = None,
 ) -> list[Path]:
     """Generate all missing Host segments for the current library. Returns paths."""
     tracks = load_tracks(config.metadata_dir)
@@ -338,14 +393,15 @@ def generate(
         force=force,
         feed_fetcher=feed_fetcher,
         keep_buckets=keep_buckets,
+        backend=backend,
     )
     out: list[Path] = []
     sink = _SegmentSink(ctx, out)
 
-    _emit_transitions(ctx, sink)
-    _emit_liners(ctx, sink)
-    _emit_weather(ctx, sink)
-    _emit_rss(ctx, sink)
+    if slots is None:
+        slots = DEFAULT_SLOTS
+    for slot in slots:
+        slot.emit(ctx, sink)
 
     # Preserve contract: no outputs when nothing applicable.
     if not out:

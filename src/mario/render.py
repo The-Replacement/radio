@@ -9,6 +9,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from .liners import liner_cache_filename
 from .rss import (
@@ -21,6 +22,68 @@ from .timebucket import sanitize_bucket
 from .weather import weather_alias_filename, weather_cache_filename
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class RenderBackend(Protocol):
+    """Structural protocol for TTS backends.
+
+    A backend renders text to a WAV at output_path. The caller (render_wav)
+    handles fsync/publish and missing-file cleanup. Implementations only need
+    to write a valid WAV to output_path.
+    """
+
+    def render(
+        self,
+        text: str,
+        model: Path,
+        output_path: Path,
+        *,
+        voices_path: Path | None = None,
+        voice: str = "ef_dora",
+        speed: float = 1.0,
+        lang: str = "es",
+    ) -> None: ...
+
+
+class KokoroBackend:
+    """Default TTS backend: kokoro-onnx (local model + voices files)."""
+
+    def render(
+        self,
+        text: str,
+        model: Path,
+        output_path: Path,
+        *,
+        voices_path: Path | None = None,
+        voice: str = "ef_dora",
+        speed: float = 1.0,
+        lang: str = "es",
+    ) -> None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            dir=output_path.parent,
+            prefix=f".{output_path.stem}.",
+            suffix=".wav.tmp",
+        )
+        os.close(fd)
+        tmp = Path(tmp_name)
+        os.chmod(tmp, 0o644)
+        try:
+            _render_kokoro(
+                text,
+                model,
+                tmp,
+                voices_path=voices_path,
+                voice=voice,
+                speed=speed,
+                lang=lang,
+            )
+            _fsync_publish(tmp, output_path)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
 
 def cache_filename(current_seed: int, next_seed: int, bucket: str) -> str:
@@ -87,38 +150,25 @@ def render_wav(
     voice: str = "ef_dora",
     speed: float = 1.0,
     lang: str = "es",
+    backend: RenderBackend | None = None,
 ) -> None:
-    """Render `text` to a WAV at output_path using Kokoro. Raises on failure."""
+    """Render `text` to a WAV at output_path. Raises on failure.
+
+    backend: optional RenderBackend. Defaults to KokoroBackend() when None.
+    """
+    if backend is None:
+        backend = KokoroBackend()
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    # Staging name is unique per run. A fixed "<target>.wav.tmp" makes two
-    # concurrent renders (hourly cron overlapping a manual run, or a run that
-    # outlives its interval) write the same file: one publishes the other's
-    # half-written bytes, and the loser dies on "tts produced an empty file".
-    fd, tmp_name = tempfile.mkstemp(
-        dir=output_path.parent,
-        prefix=f".{output_path.stem}.",
-        suffix=".wav.tmp",
+    backend.render(
+        text,
+        model,
+        output_path,
+        voices_path=voices_path,
+        voice=voice,
+        speed=speed,
+        lang=lang,
     )
-    os.close(fd)
-    tmp = Path(tmp_name)
-    # mkstemp creates 0600. Segments are read by the playout container under a
-    # different user, so restore the 0644 the backends used to produce.
-    os.chmod(tmp, 0o644)
-    try:
-        _render_kokoro(
-            text,
-            model,
-            tmp,
-            voices_path=voices_path,
-            voice=voice,
-            speed=speed,
-            lang=lang,
-        )
-        _fsync_publish(tmp, output_path)
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
 
 
 def generate_segment(
@@ -134,6 +184,7 @@ def generate_segment(
     voice: str = "ef_dora",
     speed: float = 1.0,
     lang: str = "es",
+    backend: RenderBackend | None = None,
 ) -> Path:
     """Render (if missing) the cached transition segment. Returns its path."""
     host_dir = Path(host_dir)
@@ -150,6 +201,7 @@ def generate_segment(
         voice=voice,
         speed=speed,
         lang=lang,
+        backend=backend,
     )
     return target
 
@@ -167,6 +219,7 @@ def generate_liner_segment(
     voice: str = "ef_dora",
     speed: float = 1.0,
     lang: str = "es",
+    backend: RenderBackend | None = None,
 ) -> Path:
     """Render (if missing) a cached liner segment keyed by (ident_id, seed, time_bucket)."""
     host_dir = Path(host_dir)
@@ -182,6 +235,7 @@ def generate_liner_segment(
             voice=voice,
             speed=speed,
             lang=lang,
+            backend=backend,
         )
     # Stable alias for playout systems: deterministic selection by seed means
     # this file is the liner for (seed, bucket).
@@ -212,6 +266,7 @@ def generate_weather_segment(
     voice: str = "ef_dora",
     speed: float = 1.0,
     lang: str = "es",
+    backend: RenderBackend | None = None,
 ) -> Path:
     """Render (if missing) a cached weather segment keyed by (weather_hash, time_bucket)."""
     host_dir = Path(host_dir)
@@ -227,6 +282,7 @@ def generate_weather_segment(
             voice=voice,
             speed=speed,
             lang=lang,
+            backend=backend,
         )
     alias = host_dir / weather_alias_filename(bucket)
     if force or not alias.exists():
@@ -269,6 +325,7 @@ def generate_rss_segment(
     voice: str = "ef_dora",
     speed: float = 1.0,
     lang: str = "es",
+    backend: RenderBackend | None = None,
     stable_alias: bool = False,
 ) -> Path:
     """Render (if missing) a cached RSS segment keyed by (cache_key, time_bucket)."""
@@ -285,6 +342,7 @@ def generate_rss_segment(
             voice=voice,
             speed=speed,
             lang=lang,
+            backend=backend,
         )
     # Per-feed alias: kept for debugging and for the dry-run contract.
     # It must always point at the item selected for this bucket, so a stale
@@ -310,6 +368,7 @@ def generate_rss_fallback_segment(
     voice: str = "ef_dora",
     speed: float = 1.0,
     lang: str = "es",
+    backend: RenderBackend | None = None,
     stable_alias: bool = False,
 ) -> Path:
     """Render (if missing) the per-feed fallback segment and drop any stale item alias."""
@@ -325,6 +384,7 @@ def generate_rss_fallback_segment(
             voice=voice,
             speed=speed,
             lang=lang,
+            backend=backend,
         )
     # The fallback file already carries the stable name; make sure a previously
     # published item cannot keep playing instead of it.
