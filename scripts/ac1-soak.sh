@@ -23,7 +23,12 @@ log "AC1 soak start: duration=${DUR}s interval=${INT}s out=$OUT"
 log "repo=$(git rev-parse --short HEAD 2>/dev/null || echo unknown) host=$(hostname)"
 log "liquidsoap_service=$(docker compose ps --status running --services 2>/dev/null | grep -x liquidsoap || echo missing)"
 
-baseline_total="$(docker compose logs --no-log-prefix liquidsoap 2>/dev/null | grep -c 'cannot decode' || echo 0)"
+count_decode() {
+  docker compose logs --no-log-prefix liquidsoap 2>/dev/null | grep -c 'cannot decode' || true
+}
+
+baseline_total="$(count_decode)"
+baseline_total="${baseline_total:-0}"
 log "baseline_cannot_decode_total=${baseline_total}"
 
 i=0
@@ -31,7 +36,8 @@ while :; do
   now="$(date +%s)"
   [[ "$now" -ge "$end_epoch" ]] && break
   i=$((i+1))
-  window_total="$(docker compose logs --no-log-prefix liquidsoap 2>/dev/null | grep -c 'cannot decode' || echo 0)"
+  window_total="$(count_decode)"
+  window_total="${window_total:-0}"
   delta=$((window_total - baseline_total))
   running="$(docker compose ps --status running --services 2>/dev/null | grep -x liquidsoap || true)"
   log "sample=${i} elapsed=$((now-start_epoch))s liquidsoap_running=${running:-no} cannot_decode_total=${window_total} delta_since_start=${delta}"
@@ -42,7 +48,8 @@ while :; do
   sleep "$INT" || true
 done
 
-final_total="$(docker compose logs --no-log-prefix liquidsoap 2>/dev/null | grep -c 'cannot decode' || echo 0)"
+final_total="$(count_decode)"
+final_total="${final_total:-0}"
 final_delta=$((final_total - baseline_total))
 log "AC1 soak end: cannot_decode_total=${final_total} delta_since_start=${final_delta}"
 if [[ "$final_delta" -eq 0 ]]; then
