@@ -64,46 +64,77 @@ MARIO_MUSIC_DIR="$ROOT/music" MARIO_HOST_DIR="$ROOT/data/host" \
 ## Voice
 
 Mario's on-air identity keeps the host name **Mario**. The default synthesized
-delivery is a **Spanish female** voice via **Kokoro** (`ef_dora`). Host copy
-remains in rioplatense Spanish (`presets/`); note that Kokoro v1.0's bundled
-Spanish voices are not Argentine-accented.
+delivery is a **Spanish female** voice via **Kokoro** (`ef_dora`, local/offline).
+
+**Limitation (#100, re-scoped 2a, Kokoro-only / no Piper):** `ef_dora` is a
+Spanish voice (Kokoro v1.0 / espeak-ng `es`, Spain-accented), **not** Argentine
+(rioplatense). A true rioplatense accent and the originally requested tone
+cannot be delivered with the available Kokoro voices; original #100 acceptance
+criteria for Argentine accent/verification (AC1/AC3 as written) are not met
+under this scope. Host copy in `presets/` remains rioplatense Spanish. Achieving
+a true Argentine/Stern-like timbre or accent requires a different local/offline
+backend/voice (future work).
 
 ### Default (reproducible, local/offline)
 
-- **Backend:** Kokoro (kokoro-onnx, local inference)
-- **Voice:** `ef_dora` (`MARIO_VOICE=ef_dora`)
+- **Backend:** Kokoro (`kokoro-onnx`, local inference; no Piper)
+- **Voice:** `ef_dora` — Spanish female (`MARIO_VOICE=ef_dora`)
 - **Model files (both required, local):**
-  - `kokoro-v1.0.onnx` (`MARIO_MODEL=/models/kokoro/kokoro-v1.0.onnx`)
-  - `voices-v1.0.bin` (`MARIO_VOICES_PATH=/models/kokoro/voices-v1.0.bin`)
+  - `kokoro-v1.0.onnx` (`MARIO_MODEL=/models/kokoro/kokoro-v1.0.onnx`, default)
+  - `voices-v1.0.bin` (`MARIO_VOICES_PATH=/models/kokoro/voices-v1.0.bin`, default)
 - **Language:** `MARIO_MODEL_LANG=es` (mapped to Kokoro `es`)
-- **Determinism:** fixed inference parameters/speed and cached outputs by
-  segment key. Byte-identical caching depends on model/runtime/version
-  stability; pin and deploy the same Kokoro model, voices, and dependency set
-  (see `uv.lock`) for reproducible results.
+- **Speed:** `MARIO_TTS_SPEED` / `--tts-speed` (default `1.0`, configurable)
+- **Determinism:** fixed inference parameters/speed and outputs cached by
+  segment key. Byte-identical audio depends on identical model + voices files,
+  runtime/dependency versions (see `uv.lock`), and environment; pin and deploy
+  the same artifacts for reproducible results.
 
 ### Provisioning the model
 
-Place `kokoro-v1.0.onnx` and `voices-v1.0.bin` on the host under the directory
-mounted to `/models/kokoro` (default `/home/kbdejavu/Models/kokoro` in
-`docker-compose.yml`). Verify checksums against the exact upstream artifacts you
-fetched and record that revision for reproducible deployments.
+1. Download the exact upstream artifacts (v1.0 files used by this stack):
+   - `kokoro-v1.0.onnx` and `voices-v1.0.bin` (see kokoro-onnx releases/assets,
+     e.g. `model-files-v1.1` in https://github.com/thewh1teagle/kokoro-onnx/releases).
+2. Place them on the host under the directory mounted to `/models/kokoro`
+   (default `/home/kbdejavu/Models/kokoro` in `docker-compose.yml`).
+3. Verify integrity and record for reproducibility (recommended):
+   - `sha256sum kokoro-v1.0.onnx voices-v1.0.bin` and store the checksums plus
+     the upstream source/revision/tag you fetched.
+4. Confirm the container sees them at `MARIO_MODEL` / `MARIO_VOICES_PATH`.
+
+### Validation
+
+```bash
+# plan outputs (no render, no model required beyond config resolution in dry-run paths)
+mario generate --dry-run --music-dir ./music --host-dir ./data/host
+
+# render/generate for real (requires model+voices mounted/available)
+mario generate --music-dir ./music --host-dir ./data/host
+ls data/host/*.wav
+```
+
+Review generated host segments in normal playout paths when validating changes.
+Under 2a, expect Spanish female `ef_dora` delivery (Spain-accented), not
+Argentine/rioplatense.
 
 ### Licensing and source
 
-- **Model/runtime:** Kokoro-82M / kokoro-onnx upstream artifacts and code.
-  Upstreams: https://huggingface.co/hexgrad/Kokoro-82M and
-  https://github.com/thewh1teagle/kokoro-onnx
-- **License:** follow and document the license/terms of the exact Kokoro model,
-  voices, and runtime version you deploy (record upstream revision or file
-  checksums alongside the model files).
+- **Model/runtime:** Kokoro-82M / `kokoro-onnx` upstream artifacts and code.
+  - Model/voices: https://huggingface.co/hexgrad/Kokoro-82M (see `VOICES.md`)
+  - Runtime/lib: https://github.com/thewh1teagle/kokoro-onnx
+- **License/terms:** comply with the license/terms of the exact model, voices,
+  and runtime versions you deploy (e.g. Kokoro-82M Apache-2.0; verify current
+  upstream terms). Record the upstream revision/tag and file checksums alongside
+  deployed artifacts for provenance and reproducibility.
 
 ### Swapping voices
 
 - **Another Kokoro voice:** set `MARIO_VOICE` and/or `MARIO_MODEL`,
-  `MARIO_VOICES_PATH`, `MARIO_MODEL_LANG` as needed (Kokoro v1.0 includes
-  Spanish female `ef_dora`).
-- Host name remains **Mario** regardless of voice/model choice. Voice cloning is
-  future work.
+  `MARIO_VOICES_PATH`, `MARIO_MODEL_LANG` as needed (Kokoro v1.0 Spanish voices:
+  female `ef_dora`, male `em_alex`, `em_santa`). No bundled Argentine/rioplatense
+  voice is available in v1.0.
+- Host name remains **Mario** regardless of voice/model choice. Voice cloning or
+  a true Argentine/rioplatense voice requires a different local/offline backend
+  (future work).
 
 ## Troubleshooting
 
@@ -114,9 +145,9 @@ fetched and record that revision for reproducible deployments.
 
 ---
 
-# Paquete `mario` (absorbido desde el repo mario en la fusión)
+# `mario` package (absorbed from the mario repository in the fusion)
 
-# Mario
+## Mario
 
 Mario is the host voice for the radio — a deterministic TTS generator in living
 tribute to Mario Pergolini.
@@ -200,13 +231,9 @@ Behaviour worth knowing:
 
 ## Voice / backends
 
-- **Kokoro (default):** 82M TTS via `kokoro-onnx` using local model + voices files. Default voice is Spanish female `ef_dora` (`--voice`, `--model`, `--voices-path`).
-
-The aspiration is a voice inspired by Mario Pergolini: Argentine (rioplatense),
-energetic, ironic, distinctive. Swapping to another Kokoro voice is a matter of
-pointing `--voice`/`--model`/`--voices-path` at different local assets. Voice
-cloning or a true Argentine/Stern-like timbre requires a cloning-capable backend
-(future work).
+- **Kokoro (default):** 82M TTS via `kokoro-onnx` using local model + voices files. Default voice is Spanish female `ef_dora` (`--voice`, `--model`, `--voices-path`), local/offline.
+- **Limitation (2a, Kokoro-only / no Piper):** `ef_dora` is a Spanish (espeak-ng `es`, Spain-accented) voice, not Argentine (rioplatense). A true rioplatense accent/tone is not achievable with available Kokoro v1.0 voices; host copy remains rioplatense Spanish in `presets/`.
+- Swapping to another bundled Kokoro voice is a matter of pointing `--voice`/`--model`/`--voices-path` at different local assets. Voice cloning or a true Argentine/rioplatense timbre requires a different local/offline backend (future work).
 
 ## License
 
