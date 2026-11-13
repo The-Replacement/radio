@@ -1015,12 +1015,15 @@ radio/
 |   `-- mediamtx.yml          receives RTSP and publishes WebRTC (WHEP)
 |-- web/
 |   |-- index.html            the player
+|   |-- js/                   player modules (config, audio, seed, status, camera, debug)
 |   `-- vendor/               hls.js and its license. Nothing goes to the internet
 |-- music/                    your music
 |-- data/cam/                 HLS segments. Regenerated on their own
 |-- scripts/
 |   |-- token.sh              grant / revoke / list access
-|   |-- smoke.sh              33 checks in 5 groups (group 0: the public page)
+|   |-- smoke.sh              entrypoint: runs all checks (lib + smoke.d/* probes)
+|   |-- smoke-lib.sh          shared harness for smoke.sh
+|   |-- smoke.d/              domain probes (frontend door, no-credential, auth/media)
 |   |-- post-receive          after a push: log it, reload Caddy iff the Caddyfile changed
 |   |-- query-gate.sh         the token's query never crosses the door
 |   |-- claims.sh             one-origin claim: nobody writes the domain out by hand

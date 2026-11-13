@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .config import MarioConfig
 from .feedfetch import fetch_feed
-from .liners import load_liners, select_liner
+from .liners import liner_cache_filename, load_liners, select_liner
 from .presets import require_preset_path, resolve_preset_path
 from .prune import prune_host_dir
 from .render import (
@@ -53,6 +55,268 @@ logger = logging.getLogger(__name__)
 RSS_MAX_CONSECUTIVE_FAILURES = 2
 
 
+@dataclass(frozen=True)
+class _GenerationContext:
+    config: MarioConfig
+    tracks: list[Any]
+    bucket: str
+    kokoro_lang: str
+    dry_run: bool
+    force: bool
+    feed_fetcher: FeedFetcher | None
+    keep_buckets: int | None
+
+
+class _SegmentSink:
+    """Unifies dry-run path recording and real render calls for host segments."""
+
+    def __init__(self, ctx: _GenerationContext, out: list[Path]) -> None:
+        self.ctx = ctx
+        self.out = out
+        self.host_dir = ctx.config.host_dir
+        self.bucket = ctx.bucket
+
+    @property
+    def dry_run(self) -> bool:
+        return self.ctx.dry_run
+
+    @property
+    def _tts_kwargs(self) -> dict[str, Any]:
+        return {
+            "force": self.ctx.force,
+            "voices_path": self.ctx.config.voices_path,
+            "voice": self.ctx.config.voice,
+            "lang": self.ctx.kokoro_lang,
+        }
+
+    def record(self, path: Path) -> Path:
+        self.out.append(path)
+        return path
+
+    def transition(self, current_seed: int, next_seed: int, text: str, speed: float) -> Path:
+        if self.dry_run:
+            return self.record(self.host_dir / f"{current_seed}_{next_seed}_{self.bucket}.wav")
+        return self.record(
+            generate_segment(
+                current_seed,
+                next_seed,
+                self.bucket,
+                text,
+                self.ctx.config.model,
+                self.host_dir,
+                speed=speed,
+                **self._tts_kwargs,
+            )
+        )
+
+    def liner(self, ident_id: str, seed: int, text: str) -> Path:
+        if self.dry_run:
+            return self.record(
+                self.host_dir / liner_cache_filename(ident_id, seed, self.bucket)
+            )
+        return self.record(
+            generate_liner_segment(
+                ident_id,
+                seed,
+                self.bucket,
+                text,
+                self.ctx.config.model,
+                self.host_dir,
+                speed=self.ctx.config.tts_speed,
+                **self._tts_kwargs,
+            )
+        )
+
+    def weather(self, weather_hash: str, text: str) -> Path:
+        if self.dry_run:
+            return self.record(
+                self.host_dir / weather_cache_filename(weather_hash, self.bucket)
+            )
+        return self.record(
+            generate_weather_segment(
+                weather_hash,
+                self.bucket,
+                text,
+                self.ctx.config.model,
+                self.host_dir,
+                speed=self.ctx.config.tts_speed,
+                **self._tts_kwargs,
+            )
+        )
+
+    def rss_stable_alias(self) -> Path:
+        return self.record(self.host_dir / rss_stable_alias_filename(self.bucket))
+
+    def rss(self, cache_key: str, slug: str, text: str, *, stable_alias: bool) -> Path:
+        return self.record(
+            generate_rss_segment(
+                cache_key,
+                slug,
+                self.bucket,
+                text,
+                self.ctx.config.model,
+                self.host_dir,
+                speed=self.ctx.config.tts_speed,
+                stable_alias=stable_alias,
+                **self._tts_kwargs,
+            )
+        )
+
+    def rss_fallback(self, slug: str, text: str, *, stable_alias: bool) -> Path:
+        return self.record(
+            generate_rss_fallback_segment(
+                slug,
+                self.bucket,
+                text,
+                self.ctx.config.model,
+                self.host_dir,
+                speed=self.ctx.config.tts_speed,
+                stable_alias=stable_alias,
+                **self._tts_kwargs,
+            )
+        )
+
+
+def _resolve_kokoro_lang(model_lang: str) -> str:
+    # Map config model_lang (e.g. "es", "en") to kokoro lang tags.
+    if model_lang.startswith("en-gb") or model_lang == "b":
+        return "en-gb"
+    if model_lang.startswith("en"):
+        return "en-us"
+    if model_lang.startswith("es"):
+        return "es"
+    return model_lang
+
+
+def _write_bucket_marker(host_dir: Path, bucket: str) -> None:
+    # Write a marker of the current bucket last (atomic-ish).
+    marker = host_dir / "current-bucket"
+    tmp = host_dir / "current-bucket.tmp"
+    tmp.write_text(bucket, encoding="utf-8")
+    with tmp.open("rb") as fh:
+        os.fsync(fh.fileno())
+    os.replace(tmp, marker)
+    try:
+        dir_fd = os.open(str(host_dir), os.O_DIRECTORY)
+    except (OSError, AttributeError):
+        dir_fd = -1
+    if dir_fd >= 0:
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+
+
+def _emit_transitions(ctx: _GenerationContext, sink: _SegmentSink) -> None:
+    # Transition segments (per ordered pair, excluding self).
+    for current in ctx.tracks:
+        for nxt in ctx.tracks:
+            if current.pcm_sha256 == nxt.pcm_sha256:
+                continue
+            text = build_text(current, nxt, ctx.bucket, ctx.config.template_version)
+            vibe = vibe_for(current, nxt, ctx.bucket)
+            sink.transition(current.seed, nxt.seed, text, vibe.speed)
+
+
+def _emit_liners(ctx: _GenerationContext, sink: _SegmentSink) -> None:
+    # Liners: deterministic ident per track seed, cached by (ident_id, seed, time_bucket).
+    liners_preset = ctx.config.liners_preset
+    if liners_preset is None:
+        liners_preset = resolve_preset_path("liners.yaml")
+    if liners_preset is None or not liners_preset.is_file():
+        return
+    pool = load_liners(liners_preset)
+    for track in ctx.tracks:
+        liner = select_liner(pool, track.seed)
+        sink.liner(liner.ident_id, track.seed, liner.text)
+
+
+def _emit_weather(ctx: _GenerationContext, sink: _SegmentSink) -> None:
+    # Weather: one deterministic segment per bucket (schedule-driven), if configured.
+    if ctx.config.weather_file is None:
+        return
+    weather_preset_path = require_preset_path("weather.yaml")
+    weather_preset = load_weather_preset(weather_preset_path)
+    snapshot = load_weather_snapshot(ctx.config.weather_file)
+    weather_text, weather_hash = build_weather_text(snapshot, weather_preset)
+    sink.weather(weather_hash, weather_text)
+
+
+def _rss_fetcher(ctx: _GenerationContext) -> FeedFetcher:
+    if ctx.feed_fetcher is not None:
+        return ctx.feed_fetcher
+    timeout_seconds = ctx.config.rss_timeout_seconds
+
+    def _fetch(url: str) -> bytes | None:
+        return fetch_feed(url, timeout=timeout_seconds, max_bytes=DEFAULT_RSS_MAX_BYTES)
+
+    return _fetch
+
+
+def _emit_rss(ctx: _GenerationContext, sink: _SegmentSink) -> None:
+    # RSS reader: one deterministic news item per cycle, rotating over the
+    # configured feeds. The feature is off unless an operator sets a feeds file.
+    if ctx.config.rss_feeds_file is None:
+        return
+    rss_preset_path = require_preset_path("rss.yaml")
+    rss_preset = load_rss_preset(rss_preset_path)
+    all_feeds = load_rss_feeds(ctx.config.rss_feeds_file)
+    rss_cache_dir = ctx.config.rss_cache_dir
+    if rss_cache_dir is None:
+        rss_cache_dir = ctx.config.host_dir.parent / "rss-cache"
+    fetcher = _rss_fetcher(ctx)
+
+    seed = rss_bucket_seed(ctx.bucket)
+    # Rotate the starting feed per bucket. Without this the first N entries
+    # in the file win every hour and the rest never air.
+    start = seed % len(all_feeds)
+    ordered = all_feeds[start:] + all_feeds[:start]
+
+    if ctx.dry_run:
+        # A dry run must not touch the network, and which feeds have items
+        # is unknowable without fetching. Report the name playout reads.
+        sink.rss_stable_alias()
+        return
+
+    airing: list[tuple[FeedConfig, FeedItem]] = []
+    failures = 0
+    for feed in ordered:
+        if len(airing) >= ctx.config.rss_max_items_per_cycle:
+            break
+        raw = load_feed_bytes(feed, rss_cache_dir, ctx.bucket, fetcher=fetcher, force=ctx.force)
+        if raw is None:
+            failures += 1
+            logger.warning("rss: feed %s fetch failed", feed.slug)
+            if failures >= RSS_MAX_CONSECUTIVE_FAILURES:
+                logger.warning("rss: stopping after %d consecutive fetch failures", failures)
+                break
+            continue
+        failures = 0
+        try:
+            items = parse_feed_items(raw, max_text_chars=ctx.config.rss_max_text_chars)
+        except RssParseError:
+            items = []
+        item = select_feed_item(items, seed)
+        if item is None:
+            # Empty or unreadable feed: skip it. Announcing "no news"
+            # for every dead category is worse than saying nothing.
+            logger.info("rss: feed %s has no items; skipped", feed.slug)
+            continue
+        airing.append((feed, item))
+
+    if not airing:
+        # Every candidate failed this cycle: publish one fallback so the
+        # news slot says something rather than going quiet.
+        fallback_text, _fallback_hash = build_rss_fallback_text(rss_preset)
+        sink.rss_fallback(ordered[0].slug, fallback_text, stable_alias=True)
+        return
+
+    for index, (feed, item) in enumerate(airing):
+        rss_text, text_hash = build_rss_text(item, rss_preset)
+        cache_key = rss_cache_key(feed.normalized_url, item.item_key, ctx.bucket, text_hash)
+        sink.rss(cache_key, feed.slug, rss_text, stable_alias=index == 0)
+
+
 def generate(
     config: MarioConfig,
     *,
@@ -65,225 +329,30 @@ def generate(
     """Generate all missing Host segments for the current library. Returns paths."""
     tracks = load_tracks(config.metadata_dir)
     bucket = time_bucket if time_bucket is not None else bucket_for_now(config.time_bucket_hours)
-    # Map config model_lang (e.g. "es", "en") to kokoro lang tags.
-    kokoro_lang = "es"
-    if config.model_lang.startswith("en-gb") or config.model_lang == "b":
-        kokoro_lang = "en-gb"
-    elif config.model_lang.startswith("en"):
-        kokoro_lang = "en-us"
-    elif config.model_lang.startswith("es"):
-        kokoro_lang = "es"
-    else:
-        kokoro_lang = config.model_lang
+    ctx = _GenerationContext(
+        config=config,
+        tracks=tracks,
+        bucket=bucket,
+        kokoro_lang=_resolve_kokoro_lang(config.model_lang),
+        dry_run=dry_run,
+        force=force,
+        feed_fetcher=feed_fetcher,
+        keep_buckets=keep_buckets,
+    )
     out: list[Path] = []
+    sink = _SegmentSink(ctx, out)
 
-    # Transition segments (per ordered pair, excluding self).
-    for current in tracks:
-        for nxt in tracks:
-            if current.pcm_sha256 == nxt.pcm_sha256:
-                continue
-            text = build_text(current, nxt, bucket, config.template_version)
-            vibe = vibe_for(current, nxt, bucket)
-            if dry_run:
-                out.append(config.host_dir / f"{current.seed}_{nxt.seed}_{bucket}.wav")
-                continue
-            path = generate_segment(
-                current.seed,
-                nxt.seed,
-                bucket,
-                text,
-                config.model,
-                config.host_dir,
-                force=force,
-                voices_path=config.voices_path,
-                voice=config.voice,
-                speed=vibe.speed,
-                lang=kokoro_lang,
-            )
-            out.append(path)
-
-    # Liners: deterministic ident per track seed, cached by (ident_id, seed, time_bucket).
-    liners_preset = config.liners_preset
-    if liners_preset is None:
-        liners_preset = resolve_preset_path("liners.yaml")
-    if liners_preset is not None and liners_preset.is_file():
-        pool = load_liners(liners_preset)
-        for track in tracks:
-            liner = select_liner(pool, track.seed)
-            if dry_run:
-                from .liners import liner_cache_filename
-
-                out.append(config.host_dir / liner_cache_filename(liner.ident_id, track.seed, bucket))
-                continue
-            path = generate_liner_segment(
-                liner.ident_id,
-                track.seed,
-                bucket,
-                liner.text,
-                config.model,
-                config.host_dir,
-                force=force,
-                voices_path=config.voices_path,
-                voice=config.voice,
-                speed=config.tts_speed,
-                lang=kokoro_lang,
-            )
-            out.append(path)
-
-    # Weather: one deterministic segment per bucket (schedule-driven), if configured.
-    if config.weather_file is not None:
-        weather_preset_path = require_preset_path("weather.yaml")
-        weather_preset = load_weather_preset(weather_preset_path)
-        snapshot = load_weather_snapshot(config.weather_file)
-        weather_text, weather_hash = build_weather_text(snapshot, weather_preset)
-        if dry_run:
-            out.append(config.host_dir / weather_cache_filename(weather_hash, bucket))
-        else:
-            path = generate_weather_segment(
-                weather_hash,
-                bucket,
-                weather_text,
-                config.model,
-                config.host_dir,
-                force=force,
-                voices_path=config.voices_path,
-                voice=config.voice,
-                speed=config.tts_speed,
-                lang=kokoro_lang,
-            )
-            out.append(path)
-
-    # RSS reader: one deterministic news item per cycle, rotating over the
-    # configured feeds. The feature is off unless an operator sets a feeds file.
-    if config.rss_feeds_file is not None:
-        rss_preset_path = require_preset_path("rss.yaml")
-        rss_preset = load_rss_preset(rss_preset_path)
-        all_feeds = load_rss_feeds(config.rss_feeds_file)
-        rss_cache_dir = config.rss_cache_dir
-        if rss_cache_dir is None:
-            rss_cache_dir = config.host_dir.parent / "rss-cache"
-        fetcher: FeedFetcher
-        if feed_fetcher is not None:
-            fetcher = feed_fetcher
-        else:
-            timeout_seconds = config.rss_timeout_seconds
-
-            def _fetch(url: str) -> bytes | None:
-                return fetch_feed(
-                    url, timeout=timeout_seconds, max_bytes=DEFAULT_RSS_MAX_BYTES
-                )
-
-            fetcher = _fetch
-
-        seed = rss_bucket_seed(bucket)
-        # Rotate the starting feed per bucket. Without this the first N entries
-        # in the file win every hour and the rest never air.
-        start = seed % len(all_feeds)
-        ordered = all_feeds[start:] + all_feeds[:start]
-
-        if dry_run:
-            # A dry run must not touch the network, and which feeds have items
-            # is unknowable without fetching. Report the name playout reads.
-            out.append(config.host_dir / rss_stable_alias_filename(bucket))
-        else:
-            airing: list[tuple[FeedConfig, FeedItem]] = []
-            failures = 0
-            for feed in ordered:
-                if len(airing) >= config.rss_max_items_per_cycle:
-                    break
-                raw = load_feed_bytes(
-                    feed, rss_cache_dir, bucket, fetcher=fetcher, force=force
-                )
-                if raw is None:
-                    failures += 1
-                    logger.warning("rss: feed %s fetch failed", feed.slug)
-                    if failures >= RSS_MAX_CONSECUTIVE_FAILURES:
-                        logger.warning(
-                            "rss: stopping after %d consecutive fetch failures",
-                            failures,
-                        )
-                        break
-                    continue
-                failures = 0
-                try:
-                    items = parse_feed_items(
-                        raw, max_text_chars=config.rss_max_text_chars
-                    )
-                except RssParseError:
-                    items = []
-                item = select_feed_item(items, seed)
-                if item is None:
-                    # Empty or unreadable feed: skip it. Announcing "no news"
-                    # for every dead category is worse than saying nothing.
-                    logger.info("rss: feed %s has no items; skipped", feed.slug)
-                    continue
-                airing.append((feed, item))
-
-            if not airing:
-                # Every candidate failed this cycle: publish one fallback so the
-                # news slot says something rather than going quiet.
-                fallback_text, _fallback_hash = build_rss_fallback_text(rss_preset)
-                out.append(
-                    generate_rss_fallback_segment(
-                        ordered[0].slug,
-                        bucket,
-                        fallback_text,
-                        config.model,
-                        config.host_dir,
-                        force=force,
-                        voices_path=config.voices_path,
-                        voice=config.voice,
-                        speed=config.tts_speed,
-                        lang=kokoro_lang,
-                        stable_alias=True,
-                    )
-                )
-
-            for index, (feed, item) in enumerate(airing):
-                rss_text, text_hash = build_rss_text(item, rss_preset)
-                cache_key = rss_cache_key(
-                    feed.normalized_url, item.item_key, bucket, text_hash
-                )
-                out.append(
-                    generate_rss_segment(
-                        cache_key,
-                        feed.slug,
-                        bucket,
-                        rss_text,
-                        config.model,
-                        config.host_dir,
-                        force=force,
-                        voices_path=config.voices_path,
-                        voice=config.voice,
-                        speed=config.tts_speed,
-                        lang=kokoro_lang,
-                        # Playout reads one stable name per bucket, so only the
-                        # first aired item may claim it.
-                        stable_alias=index == 0,
-                    )
-                )
+    _emit_transitions(ctx, sink)
+    _emit_liners(ctx, sink)
+    _emit_weather(ctx, sink)
+    _emit_rss(ctx, sink)
 
     # Preserve contract: no outputs when nothing applicable.
     if not out:
         return []
 
-    # Write a marker of the current bucket last (atomic-ish).
-    if not dry_run:
-        marker = config.host_dir / "current-bucket"
-        tmp = config.host_dir / "current-bucket.tmp"
-        tmp.write_text(bucket, encoding="utf-8")
-        with tmp.open("rb") as fh:
-            os.fsync(fh.fileno())
-        os.replace(tmp, marker)
-        try:
-            dir_fd = os.open(str(config.host_dir), os.O_DIRECTORY)
-        except (OSError, AttributeError):
-            dir_fd = -1
-        if dir_fd >= 0:
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-    if not dry_run and keep_buckets is not None:
-        prune_host_dir(config.host_dir, keep_buckets)
+    if not ctx.dry_run:
+        _write_bucket_marker(ctx.config.host_dir, ctx.bucket)
+    if not ctx.dry_run and ctx.keep_buckets is not None:
+        prune_host_dir(ctx.config.host_dir, ctx.keep_buckets)
     return out

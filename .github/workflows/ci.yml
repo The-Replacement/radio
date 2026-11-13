@@ -9,6 +9,7 @@ on:
       - "uv.lock"
       - "presets/**"
       - "scripts/**"
+      - "web/**"
       - ".github/workflows/ci.yml"
       - ".shellcheckrc"
   pull_request:
@@ -19,6 +20,7 @@ on:
       - "uv.lock"
       - "presets/**"
       - "scripts/**"
+      - "web/**"
       - ".github/workflows/ci.yml"
       - ".shellcheckrc"
 

@@ -360,14 +360,25 @@ async function abrirPagina(config) {
 
 /* --------------------------------------------------------------- escenarios */
 
-// The player swallows the whole <script> in one go.
+// The player swallows the whole <script> in one go (inline or ordered external modules).
 let CODIGO = '';
 let HTML = '';
 try {
   HTML = fs.readFileSync(PAGINA, 'utf8');
   const m = HTML.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('no <script> block without attributes');
-  CODIGO = m[1];
+  if (m) {
+    CODIGO = m[1];
+  } else {
+    const srcs = [];
+    for (const sm of HTML.matchAll(/<script\s+src="([^"]+)"[^>]*><\/script>/g)) {
+      srcs.push(sm[1]);
+    }
+    if (!srcs.length) throw new Error('no <script> block without attributes and no external scripts');
+    CODIGO = srcs.map((s) => {
+      const rel = s.replace(/^\//, '');
+      return fs.readFileSync(path.join(RAIZ, 'web', rel), 'utf8');
+    }).join('\n');
+  }
   for (const id of HTML.matchAll(/\sid="([^"]+)"/g)) IDS.add(id[1]);
 } catch (e) {
   console.log(`\n  ${ROJO}FAIL${FIN}  could not read the script in web/index.html: ${e.message}\n`);

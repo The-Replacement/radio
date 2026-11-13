@@ -211,6 +211,8 @@
 			# El JS de vendor sí se cachea: cambia sólo si cambiamos versión.
 			@html path / /index.html
 			header @html Cache-Control "no-cache"
+			@js path /js/*
+			header @js Cache-Control "no-cache"
 			file_server
 		}
 	}
