@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -380,10 +381,20 @@ def generate(
     keep_buckets: int | None = None,
     backend: RenderBackend | None = None,
     slots: list[SlotGenerator] | None = None,
+    track_loader: Callable[[Path], list[Any]] | None = None,
+    bucket_provider: Callable[[], str] | None = None,
+    pruner: Callable[[Path, int], Any] | None = None,
 ) -> list[Path]:
     """Generate all missing Host segments for the current library. Returns paths."""
-    tracks = load_tracks(config.metadata_dir)
-    bucket = time_bucket if time_bucket is not None else bucket_for_now(config.time_bucket_hours)
+    if track_loader is None:
+        track_loader = load_tracks
+    if bucket_provider is None:
+        bucket_provider = lambda: bucket_for_now(config.time_bucket_hours)
+    if pruner is None:
+        pruner = prune_host_dir
+
+    tracks = track_loader(config.metadata_dir)
+    bucket = time_bucket if time_bucket is not None else bucket_provider()
     ctx = _GenerationContext(
         config=config,
         tracks=tracks,
@@ -410,5 +421,5 @@ def generate(
     if not ctx.dry_run:
         _write_bucket_marker(ctx.config.host_dir, ctx.bucket)
     if not ctx.dry_run and ctx.keep_buckets is not None:
-        prune_host_dir(ctx.config.host_dir, ctx.keep_buckets)
+        pruner(ctx.config.host_dir, ctx.keep_buckets)
     return out
