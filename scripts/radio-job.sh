@@ -27,6 +27,19 @@ STATUS="$DATA/status.json"
 # of a destructive script should not be its first test.
 DRY_RUN="${RADIO_JOB_DRY_RUN:-0}"
 
+JOB_LOG="$DATA/job.log"
+
+# Shadow mode: evaluate the gate, log what would happen, execute nothing. It is
+# how the scheduler is proven against the live station before it is allowed to act.
+SHADOW="${RADIO_JOB_SHADOW:-0}"
+
+# Gate thresholds. Measured envelope (2026-11-13): idle 42-46 C, hourly TTS peak
+# 72 C, no throttle events. 78 C sits above the known hourly peak and below the
+# point where a real-time encoder starts missing deadlines.
+TEMP_MAX_C=78
+PSI_MEM_MAX=10
+STATUS_MAX_AGE_S=600
+
 # Retention bounds. One place, so a policy change is not a code change.
 BUILD_CACHE_KEEP="5GB"
 JOURNAL_MAX="1G"
@@ -53,6 +66,10 @@ require_writable_data() {
 
 log_gc() {
   printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$GC_LOG"
+}
+
+log_job() {
+  printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$JOB_LOG"
 }
 
 human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || printf '%sB' "$1"; }
@@ -119,6 +136,7 @@ cmd_gc() {
 
   rotate_if_large "$DATA/deploy.log" "$DEPLOY_LOG_MAX_BYTES" 2000
   rotate_if_large "$DATA/mario-refresh.log" $((1024 * 1024)) 500
+  rotate_if_large "$JOB_LOG" $((1024 * 1024)) 500
 
   # Diagnostic artefacts: keep the newest, delete the rest by name.
   local soak
@@ -294,6 +312,75 @@ print(f"  last gc  {data['jobs']['last_gc']}")
 PY
 }
 
+# ---------------------------------------------------------------- gate
+
+# Decide whether a heavy job may start, from sensors rather than from the clock.
+# The signal it trusts is the same one the operator reads: data/status.json, kept
+# fresh by the five-minute verify timer. A stale file is refreshed here, so the
+# gate can never act on a measurement from yesterday.
+preflight() {
+  local age=0
+  if [ -f "$STATUS" ]; then
+    age=$(( $(date +%s) - $(stat -c %Y "$STATUS" 2>/dev/null || echo 0) ))
+  fi
+  if [ ! -f "$STATUS" ] || [ "$age" -gt "$STATUS_MAX_AGE_S" ]; then
+    cmd_verify >/dev/null 2>&1 || { GATE_REASON="status unavailable"; return 1; }
+  fi
+
+  GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" <<'PYGATE'
+import json
+import sys
+
+status, tmax, psimax = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
+d = json.load(open(status))
+r = d["resources"]
+if r["pkg_c"] >= tmax:
+    print(f"hot: {r['pkg_c']}C >= {tmax}C")
+elif float(r["mem_pressure_some"]) > psimax:
+    print(f"memory pressure: {r['mem_pressure_some']} > {psimax}")
+elif r.get("below_floor"):
+    print(f"disk below floor: {r['disk_free_gb']} GB free")
+elif not d["stream"]["flowing"]:
+    print("stream unhealthy: no audio flowing")
+PYGATE
+)
+  [ -z "$GATE_REASON" ] && return 0
+  return 1
+}
+
+# ---------------------------------------------------------------- jobs
+
+# A deferral is a correct outcome, not a failure: the box said "not now".
+defer_or_run() {
+  local job="$1"
+  shift
+  if ! preflight; then
+    log_job "$job deferred: $GATE_REASON"
+    printf '%s deferred: %s\n' "$job" "$GATE_REASON"
+    return 0
+  fi
+  if [ "$SHADOW" = "1" ]; then
+    log_job "$job would run (shadow; gate passed)"
+    printf '%s would run (shadow mode)\n' "$job"
+    return 0
+  fi
+  log_job "$job starting"
+  "$@"
+  local rc=$?
+  log_job "$job finished rc=$rc"
+  return "$rc"
+}
+
+cmd_tts() {
+  require_writable_data || return 1
+  defer_or_run tts "$ROOT/scripts/mario-refresh.sh"
+}
+
+cmd_render() {
+  require_writable_data || return 1
+  defer_or_run render "$ROOT/scripts/indiegen-cycle.sh"
+}
+
 # ---------------------------------------------------------------- disk-ok
 
 # The guard for #105: a publish must not be the thing that discovers a full disk.
@@ -316,19 +403,29 @@ usage() {
 radio-job - scheduled work for the radio appliance
 
   gc        retention: build cache, images, journal, logs, run history
+  preflight print the gate verdict (exit 0 = a heavy job may start)
+  tts       Mario voice refresh, gated
+  render    generator cycle, gated
   disk-ok   exit 1 when free space is below the floor (guard for a publish)
   verify    probe the station and write data/status.json
   status    print data/status.json as text
 
-Planned with #105 (scheduler + resource gate): render, tts, rotate.
+Environment:
+  RADIO_JOB_SHADOW=1  evaluate the gate and log, execute nothing
+  RADIO_JOB_DRY_RUN=1 same, for gc
+
+Tracking: #103 (gc), #104 (status), #105 (scheduler + gate), #106 (ladder).
 USAGE
 }
 
 case "${1:-}" in
-  gc)      cmd_gc ;;
-  disk-ok) cmd_disk_ok ;;
-  verify)  cmd_verify ;;
-  status)  cmd_status ;;
+  gc)        cmd_gc ;;
+  preflight) if preflight; then echo "gate open"; else echo "gate closed: $GATE_REASON"; exit 1; fi ;;
+  tts)       cmd_tts ;;
+  render)    cmd_render ;;
+  disk-ok)   cmd_disk_ok ;;
+  verify)    cmd_verify ;;
+  status)    cmd_status ;;
   -h|--help|"") usage ;;
   *) printf 'unknown subcommand: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
 esac
