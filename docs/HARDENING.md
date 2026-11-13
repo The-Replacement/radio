@@ -82,24 +82,25 @@ root-owned files.
 Root-owned artifacts can recur until every writer path (containers, cron/hooks,
 manual runs) is consistently aligned. To make cleanup automatable:
 
-1. **Script:** `scripts/fix-data-ownership.sh` (idempotent, repo-local, chowns
-   only `data/{indiegen,host,cam,caddy}` using UID/GID vars from `.env`).
-2. **Scoped passwordless sudo (one-time privileged install on host):** allow the
-   deploy user to run only this fixed script. Prefer a root-owned copy/symlink
-   target to avoid privilege escalation via editable repo files. Example
-   `/etc/sudoers.d/radio-deploy` (adjust user/path):
+1. **Script:** `scripts/fix-data-ownership.sh` (idempotent, repo-local). It
+   chowns only `data/{indiegen,host,cam,caddy}` using UID/GID vars from `.env`,
+   first directly, then (if needed and available) via a disposable root Docker
+   container (`alpine`, override with `FIX_OWNER_IMAGE`). Docker-group access is
+   effectively privileged over mounted host paths — treat as such.
+2. **Hooks:** `scripts/mario-refresh.sh` and `scripts/restart-on-signal.sh`
+   attempt `sudo -n ./scripts/fix-data-ownership.sh` after runs (best-effort);
+   `scripts/post-receive` attempts it on deploy. If passwordless sudo is not
+   wired, the script can still self-heal via Docker when the user can run Docker.
+3. **Scoped passwordless sudo (optional, one-time privileged install):** useful
+   when Docker-based repair is unavailable/unwanted. Allow the deploy user to
+   run only a fixed script path. Prefer a root-owned immutable copy to avoid
+   escalation via editable repo files. Example:
 
    ```
-   kbdejavu ALL=(root) NOPASSWD: /home/kbdejavu/servers/radio/scripts/fix-data-ownership.sh
+   kbdejavu ALL=(root) NOPASSWD: /usr/local/sbin/radio-fix-data-ownership
    ```
 
-   Security note: if the deploy user can edit that script path, NOPASSWD on it
-   is effectively root. Safer pattern: install root-owned immutable copy (e.g.
-   `/usr/local/sbin/radio-fix-data-ownership`) and allow only that path.
-3. **Hooks:** `scripts/mario-refresh.sh` and `scripts/restart-on-signal.sh` now
-   attempt `sudo -n ./scripts/fix-data-ownership.sh` (best-effort) to self-heal
-   after runs when sudoers wiring is present. Without wiring, behavior is
-   unchanged except the no-op attempt.
+   (`sudo install -o root -g root -m 0755 scripts/fix-data-ownership.sh /usr/local/sbin/radio-fix-data-ownership`)
 4. **Verification:** `find data -not -user 1000 -o -not -group 1000` should be
    empty after cleanup (or limited to intentionally different owners).
 
