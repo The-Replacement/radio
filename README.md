@@ -116,6 +116,7 @@ chmod +x scripts/*.sh scripts/*.js
 # 3. Generate the matcher and grant yourself access
 #    (creates caddy/tokens.caddy, which is NOT versioned because it holds credentials)
 ./scripts/token.sh add yo
+./scripts/token.sh reveal yo
 
 # 4. Bring it up
 docker compose up -d --build
@@ -124,7 +125,8 @@ docker compose up -d --build
 ./scripts/smoke.sh
 ```
 
-Step 3 prints the link. **That link is the key.** It is opened once in the
+`add` creates the credential; `reveal` prints the link (sensitive, treat as a secret).
+**That link is the key.** It is opened once in the
 browser: the page exchanges the token for the cookie and then takes it out
 of the address bar. From then on the token travels only while the browser
 refuses the cookie — then it rides the page's requests, still never the
@@ -139,15 +141,18 @@ access, copy the template: `cp caddy/tokens.caddy.example caddy/tokens.caddy`
 ## Grant and revoke access
 
 ```bash
-./scripts/token.sh add juan     # grants access to juan and prints their link
-./scripts/token.sh ls           # who has access
-./scripts/token.sh rm juan      # cuts access (token and cookie)
-./scripts/token.sh regen        # regenerates the matchers from secrets/tokens.txt
+./scripts/token.sh add juan       # grants access (creates credential; no link printed)
+./scripts/token.sh reveal juan    # prints invitation/camera links (sensitive)
+./scripts/token.sh ls             # who has access
+./scripts/token.sh rm juan        # cuts access (token and cookie)
+./scripts/token.sh regen          # regenerates the matchers from secrets/tokens.txt
 ```
 
 **Per-person credentials.** That is the reason for doing it this way instead
 of a single shared password: if someone leaks their link, you cut access for
-that person and do not change the link for everyone else.
+that person and do not change the link for everyone else. Treat revealed links
+as bearer secrets (avoid logs/shell history/screenshots/unencrypted chats) and
+prefer expiring credentials (`add juan 30d`).
 
 `regen` is useful if you edit `secrets/tokens.txt` by hand, or after bringing
 the repo to another machine.
@@ -345,7 +350,7 @@ vlc "http://localhost:8090/cam/<TOKEN>/index.m3u8"
 ```
 
 Segments inherit the prefix on their own. The browser does not need this: it
-uses the cookie, so the token does not appear on every request. `token.sh add`
+uses the cookie, so the token does not appear on every request. `token.sh reveal <name>`
 prints both URLs.
 
 This is the **HLS fallback**, with 1.5s. If you want the stream without delay,
@@ -393,10 +398,14 @@ Measured, not assumed. What follows is verified on this installation.
 **Hardening (in cost/benefit order)**
 
 1. **Expiring tokens** — `name token cookie expires`. Revoked by time alone.
-2. **One device per credential** — limit on simultaneous connections.
-3. **Signed cookie** — the cookie is not the stored value but an HMAC, so a
+   Prefer time-limited credentials and rotate/revoke when no longer needed.
+2. **Credential handling** — treat invitation links and `secrets/tokens.txt` as
+   bearer secrets (restrict host access/backups, avoid logs/shell history/
+   screenshots/unencrypted chats). Use `token.sh reveal <name>` only when needed.
+3. **One device per credential** — limit on simultaneous connections.
+4. **Signed cookie** — the cookie is not the stored value but an HMAC, so a
    dump of `secrets/tokens.txt` is not enough.
-4. **Seamless audio** — `crossfade`, jingles, `request.dynamic` to request
+5. **Seamless audio** — `crossfade`, jingles, `request.dynamic` to request
    tracks by chat.
 
 Ask for any of these and we add it.
@@ -429,7 +438,16 @@ And uncomment `email {$ACME_EMAIL}` in `caddy/Caddyfile` (there the
 
 **Careful with `Secure` on the cookie**: it makes the browser send it only
 over HTTPS. Locally (`http://localhost`) it must be off, which is why
-`.env.example` does not include it. In production it must be on.
+`.env.example` does not include it. In production it must be on. Validate the
+production profile before/after deploy:
+
+```bash
+./scripts/prod-check.sh
+./scripts/token.sh check
+```
+
+`token.sh add`/`regen` also fail fast when HTTPS is configured but `COOKIE_FLAGS`
+lacks `Secure` (override only for intentional exceptions: `ALLOW_INSECURE_COOKIE=1`).
 
 **The record is grey (DNS only), never orange**, for `stream.daza.ar`
 (the tunnel). Cloudflare's CDN rule restricts content not hosted on

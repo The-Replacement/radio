@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # token.sh - manages who can listen to the radio.
 #
-#   ./scripts/token.sh add <name> [expiry]   grants access
+#   ./scripts/token.sh add <name> [expiry]   grants access (does not print links)
+#   ./scripts/token.sh reveal <name>         prints invitation/camera links (sensitive)
 #   ./scripts/token.sh rm  <name>            cuts their access
 #   ./scripts/token.sh ls                    lists who has access
 #   ./scripts/token.sh regen                 regenerates Caddy's matcher
+#   ./scripts/token.sh check                 validates production cookie/transport config
 #
 # The expiry is optional and takes two forms:
 #
@@ -182,17 +184,42 @@ validar_nombre() {
   fi
 }
 
-# Consistency between the site and the cookie. Caddy cannot be restarted here,
-# so this is a loud warning on the operations that do touch .env: https without
-# Secure leaves the cookie travelling over plain HTTP.
+# Consistency between the site and the cookie. Production over HTTPS must set
+# the Secure flag or the browser may send the session cookie over plain HTTP.
+# Fail fast on unsafe production profiles (audit O4/#89). Set
+# ALLOW_INSECURE_COOKIE=1 only for intentional non-production exceptions.
 validar_entorno() {
-  local sitio flags
+  local sitio publico flags
   sitio="$(grep -E '^SITE_ADDRESS=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
+  publico="$(grep -E '^PUBLIC_URL=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
   flags="$(grep -E '^COOKIE_FLAGS=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
-  if [[ "$sitio" == https://* && "$flags" != *Secure* ]]; then
-    echo "WARNING: SITE_ADDRESS uses https but COOKIE_FLAGS has no 'Secure'." >&2
-    echo "       The session cookie will be sent over HTTP. Add '; Secure' to COOKIE_FLAGS." >&2
+  if [[ ( "$sitio" == https://* || "$publico" == https://* ) && "$flags" != *Secure* ]]; then
+    echo "ERROR: HTTPS is configured (SITE_ADDRESS/PUBLIC_URL) but COOKIE_FLAGS has no 'Secure'." >&2
+    echo "       Add '; Secure' to COOKIE_FLAGS for production." >&2
+    echo "       For an intentional exception (not recommended), rerun with ALLOW_INSECURE_COOKIE=1." >&2
+    if [[ "${ALLOW_INSECURE_COOKIE:-0}" != "1" ]]; then
+      exit 1
+    fi
   fi
+}
+
+# Prints invitation URLs for a person. Full credentials are sensitive (audit
+# O2/#87): reveal only on explicit request.
+cmd_reveal() {
+  local nombre="${1:?usage: token.sh reveal <name>}"
+  validar_nombre "$nombre"
+  if ! grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
+    echo "\"$nombre\" was not on the list." >&2
+    exit 1
+  fi
+  local t v
+  t="$(awk -v n="$nombre" '$1==n {print $2}' "$ARCHIVO_TOKENS")"
+  v="$(awk -v n="$nombre" '$1==n {print $4}' "$ARCHIVO_TOKENS")"
+  echo "Credential for \"$nombre\" (sensitive - do not share publicly/log):"
+  [[ -n "$v" ]] && echo "  expires $v"
+  echo
+  echo "  Invitation (browser): $(url_de "$t")"
+  echo "  Camera (VLC/mpv):    $(url_cam_de "$t")"
 }
 
 cmd_add() {
@@ -216,13 +243,12 @@ cmd_add() {
   fi
 
   if grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
-    local t v
-    t="$(awk -v n="$nombre" '$1==n {print $2}' "$ARCHIVO_TOKENS")"
+    local v
     v="$(awk -v n="$nombre" '$1==n {print $4}' "$ARCHIVO_TOKENS")"
-    echo "\"$nombre\" already had access. Its link is still:" >&2
-    url_de "$t"
+    echo "\"$nombre\" already has access." >&2
     [[ -n "$v" ]] && echo "(expires $v)" >&2
-    echo "Camera (VLC/mpv): $(url_cam_de "$t")" >&2
+    echo "Credential links are sensitive and are not printed by default." >&2
+    echo "Run: ./scripts/token.sh reveal \"$nombre\"" >&2
     return 0
   fi
 
@@ -231,19 +257,18 @@ cmd_add() {
   printf '%s %s %s%s\n' "$nombre" "$t" "$(aleatorio)" "${vence:+ $vence}" >> "$ARCHIVO_TOKENS"
   regenerar_matcher
   echo "OK access granted to \"$nombre\""
-  [[ -n "$vence" ]] && echo "   expires $vence (that day included)"
+  if [[ -n "$vence" ]]; then
+    echo "   expires $vence (that day included)"
+  else
+    echo "   no expiry set (long-lived). Prefer an expiry, e.g. ./scripts/token.sh add \"$nombre\" 30d" >&2
+  fi
   echo
-  echo "  Give them this link:"
-  echo "  $(url_de "$t")"
+  echo "  Credential links are sensitive (bearer tokens) and are not printed by default."
+  echo "  To display the invitation and camera URLs now, run:"
+  echo "    ./scripts/token.sh reveal \"$nombre\""
   echo
-  echo "  When they open it in the browser, the token is exchanged for a cookie"
-  echo "  and the page takes it out of the URL. If the browser does not keep the"
-  echo "  cookie, the token keeps travelling on the page's requests, but never"
-  echo "  again in the address."
-  echo
-  echo "  For VLC/mpv, the audio goes with that same link. The camera does not:"
-  echo "  HLS segments do not inherit the query, so the token goes in the path."
-  echo "  $(url_cam_de "$t")"
+  echo "  Treat revealed links as secrets: avoid logs, shell history, screenshots, and unencrypted chats."
+  echo "  Revoke when no longer needed: ./scripts/token.sh rm \"$nombre\""
   echo
   recargar_caddy
 }
@@ -284,15 +309,23 @@ cmd_ls() {
 }
 
 cmd_regen() {
+  validar_entorno
   regenerar_matcher
   echo "OK caddy/tokens.caddy regenerated from secrets/tokens.txt"
   recargar_caddy
 }
 
+cmd_check() {
+  validar_entorno
+  echo "OK production/config checks passed (cookie/transport basics)."
+}
+
 case "${1:-}" in
   add) shift; cmd_add "$@" ;;
+  reveal|show) shift; cmd_reveal "$@" ;;
   rm|del|remove) shift; cmd_rm "$@" ;;
   regen|sync) cmd_regen ;;
+  check|doctor) cmd_check ;;
   ls|list) cmd_ls ;;
   *) sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' | sed '$d'; exit 1 ;;
 esac
