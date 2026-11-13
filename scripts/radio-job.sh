@@ -147,6 +147,7 @@ cmd_gc() {
 
   after=$(df --output=avail -B1 / | tail -1)
   local freed=$((after - before))
+  [ "$freed" -lt 0 ] && freed=0
   log_gc "gc done, freed $(human "$freed"), free now $(human "$after")"
 
   printf 'gc done: freed %s, %s free on /\n' "$(human "$freed")" "$(human "$after")"
