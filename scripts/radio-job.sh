@@ -169,9 +169,9 @@ cmd_verify() {
   icecast_json=$(docker exec radio-caddy wget -qO- http://icecast:8000/status-json.xsl 2>/dev/null)
   title=$(printf '%s' "$icecast_json" | sed -n 's/.*"title":"\([^"]*\)".*/\1/p' | head -1)
   [ -n "$title" ] && source_present=true
-  tx1=$(docker exec radio-icecast cat /sys/class/net/eth0/statistics/tx_bytes 2>/dev/null)
+  tx1=$(docker exec radio-liquidsoap cat /sys/class/net/eth0/statistics/tx_bytes 2>/dev/null)
   sleep 2
-  tx2=$(docker exec radio-icecast cat /sys/class/net/eth0/statistics/tx_bytes 2>/dev/null)
+  tx2=$(docker exec radio-liquidsoap cat /sys/class/net/eth0/statistics/tx_bytes 2>/dev/null)
   if [ -n "${tx1:-}" ] && [ -n "${tx2:-}" ]; then
     case "$tx1$tx2" in ''|*[!0-9]*) ;; *) bytes_rate=$(( (tx2 - tx1) / 2 )) ;; esac
   fi
@@ -233,7 +233,8 @@ cmd_verify() {
   "ts": "$(date -u +%FT%TZ)",
   "host": "$(hostname)",
   "deploy": {"commit": "$deployed", "detached_head": $detached},
-  "stream": {"source": $source_present, "bytes_per_s": $bytes_rate, "title": "$title"},
+  "stream": {"source": $source_present, "bytes_per_s": $bytes_rate,
+             "flowing": $([ "$bytes_rate" -gt 4000 ] && echo true || echo false), "title": "$title"},
   "door": {"status_without_token": "$door_code", "closed": $([ "$door_code" = "404" ] && echo true || echo false)},
   "camera": {"segment_age_s": $cam_age, "fresh": $([ "$cam_age" -ge 0 ] && [ "$cam_age" -lt 15 ] && echo true || echo false)},
   "content": {"tracks": $tracks, "catalog_ok": $catalog_ok, "last_tts_age_s": $last_tts_age},
