@@ -41,5 +41,11 @@ docker compose -f "$ROOT/docker-compose.yml" run --rm mario \
   generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --keep-buckets 1 \
   >/dev/null 2>&1 || true
 
+# Best-effort ownership repair for bind-mounted outputs (#83). Requires scoped
+# passwordless sudo for this script on hosts where root-owned artifacts recur.
+if [ -x "$ROOT/scripts/fix-data-ownership.sh" ]; then
+  sudo -n "$ROOT/scripts/fix-data-ownership.sh" >/dev/null 2>&1 || true
+fi
+
 docker compose -f "$ROOT/docker-compose.yml" restart liquidsoap
 printf '%s' "$sig" > "$MARK"

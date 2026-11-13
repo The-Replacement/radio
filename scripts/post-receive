@@ -82,6 +82,29 @@ while read -r OLD NEW REF; do
   else
     log "mario: sin cambios de código/presets/deps; no se reconstruye"
   fi
+
+  # Rebuild radio-cam si cambió su imagen/entrypoint. No arranca el servicio:
+  # puede no haber dispositivo; el operador decide cuándo levantarlo.
+  if printf '%s\n' "$CAMBIOS" | grep -qE '^(cam/|docker-compose\.yml$)'; then
+    log "cam: cambios detectados, reconstruyendo imagen radio-cam"
+    build_start=$(date +%s)
+    if docker compose -f "$RAIZ/docker-compose.yml" build cam >> "$LOG" 2>&1; then
+      build_dur=$(( $(date +%s) - build_start ))
+      log "cam: build OK en ${build_dur}s"
+    else
+      build_dur=$(( $(date +%s) - build_start ))
+      log "FALLO: cam build falló tras ${build_dur}s; la imagen anterior sigue en pie"
+      exit 1
+    fi
+  else
+    log "cam: sin cambios de imagen; no se reconstruye"
+  fi
+
+  # Best-effort ownership repair for hardened non-root bind mounts (#83).
+  # Effective only when scoped passwordless sudo is wired for this fixed script.
+  if [ -x "$RAIZ/scripts/fix-data-ownership.sh" ]; then
+    sudo -n "$RAIZ/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 || true
+  fi
 done
 log "deploy listo"
 exit 0

@@ -50,6 +50,11 @@ else
   rc=$?
   log "FAIL: mario generate exited $rc"
 fi
+# Best-effort ownership repair for bind-mounted outputs (#83). Requires scoped
+# passwordless sudo for this script on hosts where root-owned artifacts recur.
+if [ -x "$ROOT/scripts/fix-data-ownership.sh" ]; then
+  sudo -n "$ROOT/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 || true
+fi
 dur=$(( $(date +%s) - start ))
 after=$(bucket)
 log "run: before=${before:-<none>} after=${after:-<none>} duration=${dur}s rc=$rc"

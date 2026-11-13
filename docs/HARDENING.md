@@ -56,18 +56,18 @@ these changes, rebuild/run affected services: `docker compose build cam mario`.
 
 ## Ownership migration (required before non-root writer rollout)
 
-Stop affected services to avoid races, then align host ownership/permissions:
+Stop affected services to avoid races if possible, then align host ownership/permissions.
+Use the repo helper for known data paths:
 
 ```bash
-# Example: align data dirs to the operator/service account chosen in .env
-sudo chown -R "$INDIEGEN_UID:$INDIEGEN_GID" data/indiegen
-sudo chown -R "$MARIO_UID:$MARIO_GID" data/host
-sudo chown -R "$CAM_UID:$CAM_GID" data/cam
-sudo chown -R "$CADDY_UID:$CADDY_GID" data/caddy
+# One-time/manual privileged fix (required now if root-owned artifacts exist)
+sudo ./scripts/fix-data-ownership.sh
 
-# Align rw media/meta roots as needed by service roles
-# sudo chown -R "$RADIO_UID:$RADIO_GID" music-audio jingles
-# sudo chown -R "$INDIEGEN_UID:$INDIEGEN_GID" music music-audio data/indiegen
+# Optional explicit chowns (same effect, adjustable per service split)
+# sudo chown -R "$INDIEGEN_UID:$INDIEGEN_GID" data/indiegen
+# sudo chown -R "$MARIO_UID:$MARIO_GID" data/host
+# sudo chown -R "$CAM_UID:$CAM_GID" data/cam
+# sudo chown -R "$CADDY_UID:$CADDY_GID" data/caddy
 
 # Preserve secret restrictions (bearer-equivalent material)
 chmod 600 secrets/tokens.txt caddy/tokens.caddy 2>/dev/null || true
@@ -76,6 +76,32 @@ chmod 600 secrets/tokens.txt caddy/tokens.caddy 2>/dev/null || true
 Adjust ownership to the actual service split you deploy; the key invariant is:
 each container can read/write only the host paths it needs, without creating
 root-owned files.
+
+## Frequent cleanup wiring (recommended)
+
+Root-owned artifacts can recur until every writer path (containers, cron/hooks,
+manual runs) is consistently aligned. To make cleanup automatable:
+
+1. **Script:** `scripts/fix-data-ownership.sh` (idempotent, repo-local, chowns
+   only `data/{indiegen,host,cam,caddy}` using UID/GID vars from `.env`).
+2. **Scoped passwordless sudo (one-time privileged install on host):** allow the
+   deploy user to run only this fixed script. Prefer a root-owned copy/symlink
+   target to avoid privilege escalation via editable repo files. Example
+   `/etc/sudoers.d/radio-deploy` (adjust user/path):
+
+   ```
+   kbdejavu ALL=(root) NOPASSWD: /home/kbdejavu/servers/radio/scripts/fix-data-ownership.sh
+   ```
+
+   Security note: if the deploy user can edit that script path, NOPASSWD on it
+   is effectively root. Safer pattern: install root-owned immutable copy (e.g.
+   `/usr/local/sbin/radio-fix-data-ownership`) and allow only that path.
+3. **Hooks:** `scripts/mario-refresh.sh` and `scripts/restart-on-signal.sh` now
+   attempt `sudo -n ./scripts/fix-data-ownership.sh` (best-effort) to self-heal
+   after runs when sudoers wiring is present. Without wiring, behavior is
+   unchanged except the no-op attempt.
+4. **Verification:** `find data -not -user 1000 -o -not -group 1000` should be
+   empty after cleanup (or limited to intentionally different owners).
 
 ## Rollout plan (next)
 
