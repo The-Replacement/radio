@@ -53,6 +53,7 @@ fi
 # Best-effort ownership repair for bind-mounted outputs (#83). Requires scoped
 # passwordless sudo for this script on hosts where root-owned artifacts recur.
 if [ -x "$ROOT/scripts/fix-data-ownership.sh" ]; then
+  # shellcheck disable=SC2024
   sudo -n "$ROOT/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 || true
 fi
 dur=$(( $(date +%s) - start ))

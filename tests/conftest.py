@@ -3,25 +3,26 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 
-def install_fake_kokoro(monkeypatch: pytest.MonkeyPatch, *, marker: bytes = b"RIFF") -> dict[str, int]:
-    calls = {"n": 0, "creates": 0}
+def install_fake_kokoro(monkeypatch: pytest.MonkeyPatch, *, marker: bytes = b"RIFF") -> dict[str, Any]:
+    calls: dict[str, Any] = {"n": 0, "creates": 0}
 
     class FakeKokoro:
         def __init__(self, model: str, voices: str) -> None:
-            calls["model"] = model  # type: ignore[index]
-            calls["voices"] = voices  # type: ignore[index]
+            calls["model"] = model
+            calls["voices"] = voices
 
-        def create(self, text: str, voice: str, speed: float, lang: str):  # type: ignore[no-untyped-def]
+        def create(self, text: str, voice: str, speed: float, lang: str) -> tuple[list[float], int]:
             calls["n"] += 1
             calls["creates"] += 1
-            calls["text"] = text  # type: ignore[index]
-            calls["voice"] = voice  # type: ignore[index]
-            calls["speed"] = speed  # type: ignore[index]
-            calls["lang"] = lang  # type: ignore[index]
+            calls["text"] = text
+            calls["voice"] = voice
+            calls["speed"] = speed
+            calls["lang"] = lang
             return [0.0, 0.0], 24000
 
     def fake_write(path: str, samples: object, sample_rate: int, format: str = "WAV") -> None:

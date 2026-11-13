@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from mario.config import MarioConfig
 from mario.tracks import load_tracks
 
@@ -73,7 +75,7 @@ def test_load_tracks_from_catalog_without_audio_files(tmp_path: Path) -> None:
     assert t.alias == "Alias7"
 
 
-def test_config_meta_dir_defaults_and_env(monkeypatch: object, tmp_path: Path) -> None:
+def test_config_meta_dir_defaults_and_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("MARIO_META_DIR", raising=False)
     monkeypatch.setenv("MARIO_MUSIC_DIR", str(tmp_path / "lib"))
     cfg = MarioConfig.from_env()

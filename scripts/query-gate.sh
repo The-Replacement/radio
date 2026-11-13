@@ -61,6 +61,7 @@ resumen() {
   exit 1
 }
 
+# shellcheck disable=SC2329  # Invoked via trap on EXIT.
 limpiar() {
   if [ -n "$ORIGEN_PID" ]; then kill "$ORIGEN_PID" 2>/dev/null; fi
   docker rm -f "$NOMBRE" >/dev/null 2>&1
