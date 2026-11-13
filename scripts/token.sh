@@ -40,9 +40,17 @@ ARCHIVO_CADDY="$RAIZ/caddy/tokens.caddy"
 GENERADOR="$RAIZ/scripts/token-matcher.py"
 COMPOSE=(docker compose -f "$RAIZ/docker-compose.yml")
 
-mkdir -p "$RAIZ/secrets"
-touch "$ARCHIVO_TOKENS"
-chmod 600 "$ARCHIVO_TOKENS"
+asegurar_permisos_secretos() {
+  mkdir -p "$RAIZ/secrets"
+  chmod 700 "$RAIZ/secrets" 2>/dev/null || true
+  touch "$ARCHIVO_TOKENS"
+  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
+  if [[ -f "$ARCHIVO_CADDY" ]]; then
+    chmod 600 "$ARCHIVO_CADDY" 2>/dev/null || true
+  fi
+}
+
+asegurar_permisos_secretos
 
 aleatorio() {
   if command -v openssl >/dev/null 2>&1; then
@@ -396,8 +404,84 @@ cmd_prune() {
 }
 
 cmd_check() {
-  validar_entorno
-  echo "OK production/config checks passed (cookie/transport basics)."
+  local fatal=0
+  local warn=0
+
+  echo "Security/lifecycle check (#87):"
+
+  if validar_entorno; then
+    echo "  PASS cookie/transport config basics"
+  else
+    echo "  FAIL cookie/transport config basics"
+    fatal=1
+  fi
+
+  # File and directory permissions (bearer-equivalent artifacts)
+  local dir_mode tok_mode caddy_mode
+  dir_mode="$(stat -c '%a' "$RAIZ/secrets" 2>/dev/null || echo missing)"
+  tok_mode="$(stat -c '%a' "$ARCHIVO_TOKENS" 2>/dev/null || echo missing)"
+  caddy_mode="$(stat -c '%a' "$ARCHIVO_CADDY" 2>/dev/null || echo missing)"
+
+  if [[ "$dir_mode" == "700" ]]; then
+    echo "  PASS secrets/ permissions (700)"
+  else
+    echo "  WARN secrets/ permissions are $dir_mode (expected 700); run token.sh to enforce or: chmod 700 secrets"
+    warn=1
+  fi
+  if [[ "$tok_mode" == "600" ]]; then
+    echo "  PASS secrets/tokens.txt permissions (600)"
+  elif [[ "$tok_mode" == "missing" ]]; then
+    echo "  WARN secrets/tokens.txt missing (no credentials stored)"
+    warn=1
+  else
+    echo "  WARN secrets/tokens.txt permissions are $tok_mode (expected 600); run: chmod 600 secrets/tokens.txt"
+    warn=1
+  fi
+  if [[ "$caddy_mode" == "600" ]]; then
+    echo "  PASS caddy/tokens.caddy permissions (600)"
+  elif [[ "$caddy_mode" == "missing" ]]; then
+    echo "  WARN caddy/tokens.caddy missing; run: ./scripts/token.sh regen"
+    warn=1
+  else
+    echo "  WARN caddy/tokens.caddy permissions are $caddy_mode (expected 600); run: chmod 600 caddy/tokens.caddy"
+    warn=1
+  fi
+
+  # Lifecycle posture from stored credentials
+  local hoy expired_in_storage non_expiring
+  hoy="$(date +%F)"
+  expired_in_storage=0
+  non_expiring=0
+  if [[ -s "$ARCHIVO_TOKENS" ]]; then
+    expired_in_storage="$(awk -v hoy="$hoy" 'NF>=4 && $4 < hoy {c++} END {print c+0}' "$ARCHIVO_TOKENS")"
+    non_expiring="$(awk 'NF>=2 && (NF < 4 || $4 == "") {c++} END {print c+0}' "$ARCHIVO_TOKENS")"
+  fi
+
+  if [[ "$expired_in_storage" -gt 0 ]]; then
+    echo "  WARN $expired_in_storage expired credential(s) still in secrets/tokens.txt (omitted from matcher, but stored); run: ./scripts/token.sh prune"
+    warn=1
+  else
+    echo "  PASS no expired credentials stored in secrets/tokens.txt"
+  fi
+
+  if [[ "$non_expiring" -gt 0 ]]; then
+    echo "  WARN $non_expiring active credential(s) have no expiry (long-lived); prefer expiry and rotation (e.g. ./scripts/token.sh rotate <name> 30d)"
+    warn=1
+  else
+    echo "  PASS all stored credentials have expiry dates"
+  fi
+
+  echo "  INFO secrets/tokens.txt and caddy/tokens.caddy are bearer-equivalent; restrict host access/backups and avoid shell history, logs, screenshots, and unencrypted sharing. Use 'reveal' only when needed."
+
+  if [[ "$fatal" -ne 0 ]]; then
+    echo "FAIL security/lifecycle check found fatal issues." >&2
+    return 1
+  fi
+  if [[ "$warn" -ne 0 ]]; then
+    echo "WARN security/lifecycle check passed fatal checks but found risks requiring attention." >&2
+    return 0
+  fi
+  echo "OK security/lifecycle checks passed."
 }
 
 case "${1:-}" in

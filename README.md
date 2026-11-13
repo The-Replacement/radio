@@ -148,17 +148,37 @@ access, copy the template: `cp caddy/tokens.caddy.example caddy/tokens.caddy`
 ./scripts/token.sh ls                # who has access
 ./scripts/token.sh rm juan           # cuts access (token and cookie)
 ./scripts/token.sh regen             # regenerates the matchers from secrets/tokens.txt
-./scripts/token.sh check             # validates cookie/transport config basics
+./scripts/token.sh check             # validates cookie/transport config and credential posture (perms/lifecycle)
 ```
 
 **Per-person credentials.** That is the reason for doing it this way instead
 of a single shared password: if someone leaks their link, rotate/revoke that
-credential without changing anyone else's. Treat revealed links as bearer
-secrets (avoid logs/shell history/screenshots/unencrypted chats) and prefer
-expiring credentials (`add juan 30d`) with periodic rotation/pruning.
+credential without changing anyone else's.
 
-`regen` is useful if you edit `secrets/tokens.txt` by hand, or after bringing
-the repo to another machine.
+**Secret handling (O2/#87).** Treat revealed links, `secrets/tokens.txt`, and
+generated `caddy/tokens.caddy` as bearer-equivalent secrets: restrict host
+access, keep `secrets/` at `700` and token artifacts at `600`, protect/restrict
+backups, and avoid logs, shell history, screenshots, screen sharing, and
+unencrypted chats. Use `token.sh reveal <name>` only when needed.
+
+**Lifecycle hygiene.** Prefer expiring credentials (`add juan 30d`), rotate on
+suspicion or handoff (`rotate`), revoke when no longer needed (`rm`), and prune
+expired stored credentials (`prune`). `check` reports risky posture (lax
+permissions, expired credentials still stored, and non-expiring active
+credentials). `regen` is useful if you edit `secrets/tokens.txt` by hand, or
+after bringing the repo to another machine.
+
+**Storage/representation evaluation (Caddy compatibility).** The current auth
+path requires raw token and cookie values in storage/matcher generation so Caddy
+CEL expressions and the token->cookie map can match query/path/cookie
+credentials (including player/camera path-token flows). Hashing or encrypting
+tokens such that raw values are unavailable at match time is not directly
+compatible without an auth redesign (for example an external verifier/forward-auth
+service, a different exchange/proxy contract, or signed token validation outside
+the current generated matcher model). This change therefore reduces exposure via
+least-privilege permissions, no-default secret printing, explicit reveal, expiry
+support/rotation/pruning, and operational guidance, while documenting plaintext
+raw-value requirements as a known constraint and future redesign target.
 
 ---
 
