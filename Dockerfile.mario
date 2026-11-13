@@ -30,9 +30,19 @@ COPY src/ /app/src/
 COPY presets/ /app/presets/
 
 # Install runtime dependencies (Kokoro backend).
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev \
+ && groupadd -r -g 10001 mario \
+ && useradd -r -u 10001 -g mario -d /home/mario -m -s /usr/sbin/nologin mario \
+ && mkdir -p /music /data/host /home/mario \
+ && chown -R mario:mario /home/mario /music /data/host \
+ && chmod -R a+rX /app
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV PATH="/app/.venv/bin:$PATH" \
+    HOME=/home/mario
+
+# Runtime user is typically overridden by compose (${MARIO_UID}:${MARIO_GID}) to
+# align bind-mount ownership; keep image non-root by default.
+USER mario
 
 VOLUME ["/music", "/data/host"]
 

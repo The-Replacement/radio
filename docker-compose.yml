@@ -10,6 +10,10 @@ services:
     build: ./icecast
     container_name: radio-icecast
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?missing from .env}
       ICECAST_RELAY_PASSWORD: ${ICECAST_RELAY_PASSWORD:?missing from .env}
@@ -26,8 +30,17 @@ services:
     restart: unless-stopped
     depends_on:
       - icecast
+    # Non-root runtime (#83). Validate pinned image compatibility; ensure
+    # RADIO_UID/GID can read mounted music/host/jingles/config paths.
+    user: "${RADIO_UID:-1000}:${RADIO_GID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?missing from .env}
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp
     volumes:
       - ./liquidsoap/radio.liq:/etc/radio.liq:ro
       # SDD #65 (T0 locked): audio-only scan root. meta_root (catalog/sidecars)
@@ -55,6 +68,10 @@ services:
     image: bluenviron/mediamtx:1.21.2@sha256:c7540465f868a02652118bea5a0daab12a29ac0f6cb8485abd535939ecddf886
     container_name: radio-mediamtx
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     ports:
@@ -75,6 +92,15 @@ services:
     restart: unless-stopped
     depends_on:
       - mediamtx
+    # Non-root runtime aligned to host ownership; video device access requires
+    # host group mapping (VIDEO_GID, often the `video` group GID).
+    user: "${CAM_UID:-1000}:${CAM_GID:-1000}"
+    group_add:
+      - "${VIDEO_GID:-44}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     devices:
       # by-id and NOT /dev/videoN on purpose: the number depends on the order
       # the kernel enumerates cameras. If you reconnect the FaceCam or plug in
@@ -116,6 +142,10 @@ services:
       dockerfile: Dockerfile
     container_name: radio-indiegen
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # Runs as the host user who owns ./music and ./data/indiegen, not as root.
     # By default the container is root, so everything it writes (tracks, json,
     # state.json, runs/, restart-request) ends up root:root and any host tool
@@ -173,6 +203,13 @@ services:
       dockerfile: Dockerfile.mario
     container_name: radio-mario
     restart: "no"
+    # Run as explicit host-aligned UID/GID to avoid root-owned artifacts in
+    # ./data/host (segments/cache). Ensure data/host is writable by MARIO_UID/GID.
+    user: "${MARIO_UID:-1000}:${MARIO_GID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # The host resolves through systemd-resolved's stub (nameserver 127.0.0.53).
     # Docker classifies that as an internal resolver and drops it, leaving the
     # container's /etc/resolv.conf with NO nameservers at all - every lookup
@@ -216,6 +253,16 @@ services:
     restart: unless-stopped
     depends_on:
       - icecast
+    # Non-root runtime (#83) while keeping internal :80/:443 listeners.
+    # NET_BIND_SERVICE is required for privileged ports; data/caddy must be
+    # writable by CADDY_UID/GID and mounted config/content readable.
+    user: "${CADDY_UID:-1000}:${CADDY_GID:-1000}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost}
       COOKIE_FLAGS: ${COOKIE_FLAGS:-HttpOnly; SameSite=Lax; Secure}

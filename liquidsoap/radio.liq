@@ -8,8 +8,9 @@
 # It is intentionally short: every line here is the heart of the project
 # and you want to be able to read it whole.
 
-# The container runs as root; liquidsoap asks for it explicitly.
-settings.init.allow_root := true
+# Run as non-root container user (#83). Root is not required; do not re-enable
+# allow_root unless a verified image/runtime exception is documented.
+# settings.init.allow_root := true
 
 # 3 = info. Raise it to 4 if something does not start.
 settings.log.level := 3

@@ -7,10 +7,18 @@ FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd -r -g 10001 cam \
+ && useradd -r -u 10001 -g cam -d /nonexistent -s /usr/sbin/nologin cam
 
 COPY capture.sh /usr/local/bin/capture.sh
-RUN chmod +x /usr/local/bin/capture.sh
+RUN chmod 0755 /usr/local/bin/capture.sh \
+ && mkdir -p /out \
+ && chown cam:cam /out
+
+# Runtime user is typically overridden by compose (${CAM_UID}:${CAM_GID}) with
+# group_add for the host video device. Keep image runnable as non-root by default.
+USER cam
 
 # Sin HEALTHCHECK: el proceso vive mientras ffmpeg viva. Que ffmpeg
 # reintente es trabajo del script, no de Docker.
