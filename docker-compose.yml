@@ -14,6 +14,17 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Resource caps (#102): measured 2.8 MiB RSS, 0.3 % CPU. The limit is a
+    # containment device, not a budget: a runaway is killed inside this cgroup
+    # instead of taking the host with it. memswap_limit == mem_limit so a
+    # streaming service never pages.
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.5
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     environment:
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?missing from .env}
       ICECAST_RELAY_PASSWORD: ${ICECAST_RELAY_PASSWORD:?missing from .env}
@@ -37,6 +48,18 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Resource caps (#102). Measured 71 MiB, ~8 % of a core while encoding.
+    # cpu_shares is the lever that matters: under contention Liquidsoap has a
+    # real-time deadline and must win against batch work, while cpus caps the
+    # damage a bug can do.
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    cpu_shares: 2048
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     environment:
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?missing from .env}
       HOME: /tmp
@@ -72,6 +95,15 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Resource caps (#102). Measured 13.9 MiB. pids_limit matters here: WebRTC
+    # buffers per viewer, and a viewer storm must not become a thread storm.
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
     ports:
@@ -101,6 +133,18 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Resource caps (#102). The camera encoder is the one service that legitimately
+    # needs cores: x264 at 720p30 is roughly one core, 1080p more. 2.0 is a
+    # ceiling that a preset change cannot exceed silently — if it is hit, the
+    # stream stutters and this is the first place to look.
+    mem_limit: 768m
+    memswap_limit: 768m
+    cpus: 2.0
+    cpu_shares: 1536
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     devices:
       # by-id and NOT /dev/videoN on purpose: the number depends on the order
       # the kernel enumerates cameras. If you reconnect the FaceCam or plug in
@@ -146,6 +190,19 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Resource caps (#102). The generator is a batch job that shares the box with
+    # a real-time encoder: 1.5 cores and low cpu_shares keep it behind Liquidsoap
+    # under contention. 2 GiB is above the 1.5 GB design target on purpose — the
+    # limit is a guard rail, and a kill inside this cgroup is survivable (the
+    # rotation is atomic; a dead cycle leaves the previous library playing).
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: 1.5
+    cpu_shares: 512
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     # Runs as the host user who owns ./music and ./data/indiegen, not as root.
     # By default the container is root, so everything it writes (tracks, json,
     # state.json, runs/, restart-request) ends up root:root and any host tool
@@ -210,6 +267,20 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Resource caps (#102). Mario is the process that took the host down on
+    # 2026-11-13: 67 concurrent instances, each ~1.6 GB virtual / 120-535 MiB
+    # resident. 1.5 GiB is above its measured peak (535 MiB) so a single render
+    # fits comfortably; a runaway instance is killed inside its own cgroup
+    # instead of triggering a global OOM. pids_limit is the second seatbelt:
+    # the OOM dump showed dozens of docker/compose CLIs per render.
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    cpus: 1.5
+    cpu_shares: 512
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     # The host resolves through systemd-resolved's stub (nameserver 127.0.0.53).
     # Docker classifies that as an internal resolver and drops it, leaving the
     # container's /etc/resolv.conf with NO nameservers at all - every lookup
@@ -263,6 +334,15 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+    # Resource caps (#102). Measured 13 MiB. Caddy holds TLS state and file
+    # handles; 256 MiB is generous and still bounded.
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-http://localhost}
       COOKIE_FLAGS: ${COOKIE_FLAGS:-HttpOnly; SameSite=Lax; Secure}
