@@ -43,7 +43,7 @@ fi
 
 start=$(date +%s)
 if docker compose -f "$ROOT/docker-compose.yml" run --rm mario \
-  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --keep-buckets 48 \
+  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --keep-buckets 1 \
   >> "$LOG" 2>&1; then
   rc=0
 else

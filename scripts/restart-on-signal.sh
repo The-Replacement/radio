@@ -35,10 +35,10 @@ fi
 # Pre-render Mario (the host voice) segments BEFORE restarting Liquidsoap, so
 # the new library's transitions find their cached segments on air. Mario runs
 # as a container (`docker compose run --rm mario`), mirroring indiegenerator.
-# A failure here must NOT block the restart: the segments are optional
-# (Liquidsoap skips misses).
+# Keep only the current (new) bucket. A failure here must NOT block the
+# restart: the segments are optional (Liquidsoap skips misses).
 docker compose -f "$ROOT/docker-compose.yml" run --rm mario \
-  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json \
+  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --keep-buckets 1 \
   >/dev/null 2>&1 || true
 
 docker compose -f "$ROOT/docker-compose.yml" restart liquidsoap
