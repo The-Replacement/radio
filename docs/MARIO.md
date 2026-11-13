@@ -229,6 +229,36 @@ Behaviour worth knowing:
   `host_dir.parent`, which is not a mount in the shipped image — the cache
   would die with the container and every run would refetch from cold.
 
+## Weather slot
+
+Off by default. Point `--weather-file` (or `MARIO_WEATHER_FILE`) at a JSON
+snapshot to enable one spoken weather segment per time bucket:
+
+```json
+{
+  "temperature_c": 18.5,
+  "wind_dir_deg": 225.0,
+  "wind_speed_kmh": 12.0,
+  "sky": "partly_cloudy",
+  "observed_at": "2026-11-13T14:00:00Z"
+}
+```
+
+Valid `sky` values: `clear`, `partly_cloudy`, `overcast`, `rain`, `storm`,
+`snow`, `fog`. `observed_at` is optional and does not affect the spoken text
+or cache key (only the spoken fields are hashed).
+
+Behaviour worth knowing:
+
+- **One segment per bucket.** The text is rendered once per time bucket and
+  cached by `(weather_snapshot_hash, bucket)`. Re-running with the same
+  snapshot produces no new renders.
+- **Fallback on missing/invalid snapshot.** If the file is missing or fails
+  validation, a deterministic fallback line is spoken instead.
+- **Playout reads one name:** `weather_<bucket>.wav` (symlink to the
+  hash-derived cache file `weather_{hash[:8]}_<bucket>.wav`).
+- **A sample snapshot** is available at `presets/weather-snapshot.example.json`.
+
 ## Voice / backends
 
 - **Kokoro (default):** 82M TTS via `kokoro-onnx` using local model + voices files. Default voice is Spanish female `ef_dora` (`--voice`, `--model`, `--voices-path`), local/offline.
