@@ -45,4 +45,4 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run shellcheck
-        run: shellcheck scripts/*.sh
+        run: shellcheck -x scripts/**/*.sh

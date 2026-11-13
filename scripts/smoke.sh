@@ -14,13 +14,13 @@
 
 SMOKE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# shellcheck source=scripts/smoke-lib.sh
+# shellcheck source=scripts/smoke-lib.sh disable=SC1091
 source "$SMOKE_DIR/smoke-lib.sh"
-# shellcheck source=scripts/smoke.d/00-frontend-door.sh
+# shellcheck source=scripts/smoke.d/00-frontend-door.sh disable=SC1091
 source "$SMOKE_DIR/smoke.d/00-frontend-door.sh"
-# shellcheck source=scripts/smoke.d/10-no-credential.sh
+# shellcheck source=scripts/smoke.d/10-no-credential.sh disable=SC1091
 source "$SMOKE_DIR/smoke.d/10-no-credential.sh"
-# shellcheck source=scripts/smoke.d/20-auth-and-media.sh
+# shellcheck source=scripts/smoke.d/20-auth-and-media.sh disable=SC1091
 source "$SMOKE_DIR/smoke.d/20-auth-and-media.sh"
 
 smoke_init
