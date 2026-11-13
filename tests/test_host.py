@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
 from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
@@ -106,70 +105,30 @@ def test_load_tracks_from_sidecars(tmp_path: Path) -> None:
     assert seeds == {10, 20}
 
 
-def test_render_noise_scales(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    captured: dict[str, list[str]] = {}
-
-    def fake_run(cmd: list[str], **kwargs: object) -> object:
-        captured["cmd"] = list(cmd)
-        out = Path(cmd[cmd.index("-f") + 1])
-        out.write_bytes(b"RIFF")
-
-        class R:
-            returncode = 0
-            stdout = b""
-            stderr = b""
-
-        return R()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    model = tmp_path / "m.onnx"
-    model.write_bytes(b"x")
-    out = tmp_path / "seg.wav"
-    render_wav("hello", model, out)
-    cmd = captured["cmd"]
-    assert "--noise-scale" in cmd
-    idx = cmd.index("--noise-scale")
-    assert cmd[idx + 1] == "0"
-    assert "--noise-w-scale" in cmd
-    idx2 = cmd.index("--noise-w-scale")
-    assert cmd[idx2 + 1] == "0"
-
-
 def test_staging_name_is_unique_per_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Two runs staging the same target must never share a file.
-
-    A fixed "<target>.wav.tmp" let concurrent runs (hourly cron overlapping a
-    manual run) publish each other's half-written bytes.
-    """
+    """Two runs staging the same target must never share a file."""
     staged: list[Path] = []
+    import mario.render as render_mod
 
-    def fake_run(cmd: list[str], **kwargs: object) -> object:
-        out = Path(cmd[cmd.index("-f") + 1])
-        staged.append(out)
-        out.write_bytes(b"RIFF")
+    def fake_render_kokoro(text: str, model: Path, tmp: Path, *, voices_path: Path | None, voice: str, speed: float, lang: str) -> None:
+        staged.append(tmp)
+        tmp.write_bytes(b"RIFF")
 
-        class R:
-            returncode = 0
-            stdout = b""
-            stderr = b""
-
-        return R()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    model = tmp_path / "m.onnx"
-    model.write_bytes(b"x")
+    monkeypatch.setattr(render_mod, "_render_kokoro", fake_render_kokoro)
+    model = tmp_path / "kokoro.onnx"
+    voices = tmp_path / "voices.bin"
+    model.write_bytes(b"m"); voices.write_bytes(b"v")
     out = tmp_path / "seg.wav"
 
-    render_wav("a", model, out)
-    render_wav("b", model, out)
+    render_wav("a", model, out, voices_path=voices)
+    render_wav("b", model, out, voices_path=voices)
 
     assert len(staged) == 2
     assert staged[0] != staged[1]
     assert staged[0].parent == out.parent
     assert not list(tmp_path.glob("*.tmp"))
-    # Playback runs under a different user; a 0600 segment is unreadable there.
     assert out.stat().st_mode & 0o044 == 0o044
 
 
@@ -188,15 +147,16 @@ def test_cache_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
         return R()
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    model = tmp_path / "m.onnx"
-    model.write_bytes(b"x")
+    from tests.conftest import install_fake_kokoro
+    calls = install_fake_kokoro(monkeypatch)
+    model, voices = tmp_path / "kokoro.onnx", tmp_path / "voices.bin"
+    model.write_bytes(b"m"); voices.write_bytes(b"v")
     host_dir = tmp_path / "host"
     host_dir.mkdir()
-    p1 = generate_segment(1, 2, "2026-11-10T14", "hi", model, host_dir, piper_bin="piper")
+    p1 = generate_segment(1, 2, "2026-11-10T14", "hi", model, host_dir, voices_path=voices)
     assert p1.is_file()
     assert calls["n"] == 1
-    p2 = generate_segment(1, 2, "2026-11-10T14", "hi", model, host_dir, piper_bin="piper")
+    p2 = generate_segment(1, 2, "2026-11-10T14", "hi", model, host_dir, voices_path=voices)
     assert p2 == p1
     assert calls["n"] == 1
 
@@ -228,24 +188,25 @@ def test_kokoro_path_receives_speed(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     voices.write_bytes(b"v")
     out = tmp_path / "seg.wav"
     render_wav(
-        "hello there",
+        "hola",
         model,
         out,
-        backend="kokoro",
         voices_path=voices,
-        voice="am_adam",
+        voice="ef_dora",
         speed=0.88,
-        lang="en-us",
+        lang="es",
     )
     assert out.is_file()
     assert seen["speed"] == 0.88
-    assert seen["voice"] == "am_adam"
-    assert seen["lang"] == "en-us"
+    assert seen["voice"] == "ef_dora"
+    assert seen["lang"] == "es"
 
 
 def test_missing_model_raises(tmp_path: Path) -> None:
+    voices = tmp_path / "voices.bin"
+    voices.write_bytes(b"v")
     with pytest.raises(FileNotFoundError):
-        render_wav("hi", tmp_path / "nope.onnx", tmp_path / "out.wav")
+        render_wav("hi", tmp_path / "nope.onnx", tmp_path / "out.wav", voices_path=voices)
 
 
 def test_no_network_imports() -> None:
@@ -280,27 +241,17 @@ def test_host_determinism(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     music.mkdir()
     _sidecar(music, 1, "motorik", "A")
     _sidecar(music, 2, "kosmische", "B")
-
-    def fake_run(cmd: list[str], **kwargs: object) -> object:
-        out = Path(cmd[cmd.index("-f") + 1])
-        out.write_bytes(b"DETERMINISTIC-WAV-BYTES")
-
-        class R:
-            returncode = 0
-            stdout = b""
-            stderr = b""
-
-        return R()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    model = tmp_path / "m.onnx"
-    model.write_bytes(b"x")
+    from tests.conftest import install_fake_kokoro
+    install_fake_kokoro(monkeypatch, marker=b"DETERMINISTIC-WAV-BYTES")
+    model = tmp_path / "kokoro.onnx"
+    voices = tmp_path / "voices.bin"
+    model.write_bytes(b"m"); voices.write_bytes(b"v")
 
     from mario.config import MarioConfig
     from mario.gen import generate
 
-    cfg1 = MarioConfig(music_dir=music, host_dir=tmp_path / "host1", model=model, time_bucket_hours=1)
-    cfg2 = MarioConfig(music_dir=music, host_dir=tmp_path / "host2", model=model, time_bucket_hours=1)
+    cfg1 = MarioConfig(music_dir=music, host_dir=tmp_path / "host1", model=model, voices_path=voices, time_bucket_hours=1)
+    cfg2 = MarioConfig(music_dir=music, host_dir=tmp_path / "host2", model=model, voices_path=voices, time_bucket_hours=1)
     paths1 = generate(cfg1, time_bucket="2026-11-10T14", force=True)
     paths2 = generate(cfg2, time_bucket="2026-11-10T14", force=True)
 

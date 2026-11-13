@@ -1,8 +1,7 @@
 """Derive deterministic vibe (mood, pacing speed) from track metadata.
 
 The mood/speed model is content-derived so Kokoro can vary delivery per segment
-while remaining fully reproducible. Piper ignores speed and relies on text-only
-pacing.
+while remaining fully reproducible.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from dataclasses import dataclass
 
 from .tracks import TrackMeta
 
-# Speed bounds (Kokoro). Piper has no speed knob.
+# Speed bounds for Kokoro delivery.
 SPEED_MIN = 0.85
 SPEED_MAX = 1.0
 

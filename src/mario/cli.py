@@ -22,10 +22,9 @@ def generate_cmd(
     music_dir: Path | None = typer.Option(None, "--music-dir", help="Radio music/metadata directory."),
     meta_dir: Path | None = typer.Option(None, "--meta-dir", help="Metadata directory (catalog/sidecars). Overrides --music-dir."),
     host_dir: Path | None = typer.Option(None, "--host-dir", help="Output directory for Host segments."),
-    model: Path | None = typer.Option(None, "--model", help="TTS model path (piper .onnx or kokoro .onnx)."),
+    model: Path | None = typer.Option(None, "--model", help="Kokoro model .onnx path."),
     voices_path: Path | None = typer.Option(None, "--voices-path", help="Kokoro voices .bin path."),
-    voice: str | None = typer.Option(None, "--voice", help="Kokoro voice name (e.g. af_sarah)."),
-    backend: str | None = typer.Option(None, "--backend", help="TTS backend: piper or kokoro."),
+    voice: str | None = typer.Option(None, "--voice", help="Kokoro voice name (e.g. ef_dora)."),
     model_lang: str | None = typer.Option(None, "--model-lang", help="Language hint (e.g. es, en-us)."),
     time_bucket: str | None = typer.Option(None, "--time-bucket", help="Override the time bucket (e.g. 2026-11-10T14)."),
     time_bucket_hours: int | None = typer.Option(None, "--time-bucket-hours", help="Bucket width in hours."),
@@ -38,7 +37,6 @@ def generate_cmd(
     rss_timeout_seconds: float | None = typer.Option(None, "--rss-timeout-seconds", help="Feed fetch timeout in seconds."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print planned outputs without rendering."),
     force: bool = typer.Option(False, "--force", help="Re-render even if cached."),
-    piper_bin: str = typer.Option("piper", "--piper-bin", help="Piper executable (piper backend)."),
     keep_buckets: int | None = typer.Option(None, "--keep-buckets", help="Prune host pool to this many recent buckets after generating."),
 ) -> None:
     config = MarioConfig.from_env()
@@ -56,8 +54,6 @@ def generate_cmd(
         config.voices_path = voices_path
     if voice is not None:
         config.voice = voice
-    if backend is not None:
-        config.tts_backend = backend
     if model_lang is not None:
         config.model_lang = model_lang
     if time_bucket_hours is not None:
@@ -81,7 +77,6 @@ def generate_cmd(
         time_bucket=time_bucket,
         dry_run=dry_run,
         force=force,
-        piper_bin=piper_bin,
         keep_buckets=keep_buckets,
     )
     typer.echo(f"mario: {len(paths)} segment(s) {'planned' if dry_run else 'ready'}")

@@ -61,11 +61,49 @@ MARIO_MUSIC_DIR="$ROOT/music" MARIO_HOST_DIR="$ROOT/data/host" \
   >/dev/null 2>&1 || true
 ```
 
-## Voice (Pergolini tribute)
+## Voice
 
-The aspiration is an Argentine (rioplatense) voice. The default model is the
-Castilian Piper voice shipped with the box. Swap it by pointing `MARIO_MODEL`
-(or `--model`) at an Argentine Piper model. Voice cloning is future work.
+Mario's on-air identity keeps the host name **Mario**. The default synthesized
+delivery is a **Spanish female** voice via **Kokoro** (`ef_dora`). Host copy
+remains in rioplatense Spanish (`presets/`); note that Kokoro v1.0's bundled
+Spanish voices are not Argentine-accented.
+
+### Default (reproducible, local/offline)
+
+- **Backend:** Kokoro (kokoro-onnx, local inference)
+- **Voice:** `ef_dora` (`MARIO_VOICE=ef_dora`)
+- **Model files (both required, local):**
+  - `kokoro-v1.0.onnx` (`MARIO_MODEL=/models/kokoro/kokoro-v1.0.onnx`)
+  - `voices-v1.0.bin` (`MARIO_VOICES_PATH=/models/kokoro/voices-v1.0.bin`)
+- **Language:** `MARIO_MODEL_LANG=es` (mapped to Kokoro `es`)
+- **Determinism:** fixed inference parameters/speed and cached outputs by
+  segment key. Byte-identical caching depends on model/runtime/version
+  stability; pin and deploy the same Kokoro model, voices, and dependency set
+  (see `uv.lock`) for reproducible results.
+
+### Provisioning the model
+
+Place `kokoro-v1.0.onnx` and `voices-v1.0.bin` on the host under the directory
+mounted to `/models/kokoro` (default `/home/kbdejavu/Models/kokoro` in
+`docker-compose.yml`). Verify checksums against the exact upstream artifacts you
+fetched and record that revision for reproducible deployments.
+
+### Licensing and source
+
+- **Model/runtime:** Kokoro-82M / kokoro-onnx upstream artifacts and code.
+  Upstreams: https://huggingface.co/hexgrad/Kokoro-82M and
+  https://github.com/thewh1teagle/kokoro-onnx
+- **License:** follow and document the license/terms of the exact Kokoro model,
+  voices, and runtime version you deploy (record upstream revision or file
+  checksums alongside the model files).
+
+### Swapping voices
+
+- **Another Kokoro voice:** set `MARIO_VOICE` and/or `MARIO_MODEL`,
+  `MARIO_VOICES_PATH`, `MARIO_MODEL_LANG` as needed (Kokoro v1.0 includes
+  Spanish female `ef_dora`).
+- Host name remains **Mario** regardless of voice/model choice. Voice cloning is
+  future work.
 
 ## Troubleshooting
 
@@ -90,7 +128,7 @@ produce the same words, byte for byte. Re-listening to a transition re-runs
 the same voice.
 
 Mario is a separate generator, like indiegenerator. It reads a radio music
-library (catalog.json + sidecars) and renders short spoken segments with Piper,
+library (catalog.json + sidecars) and renders short spoken segments with Kokoro,
 cached by `(current_seed, next_seed, time_bucket)`. It never touches the
 stream and never restarts anything.
 
@@ -109,19 +147,16 @@ transitive set.
 ## Run
 
 ```bash
-# Piper (default)
-mario generate --music-dir /music --host-dir /data/host --model /models/piper/es_ES-sharvard-medium.onnx
-
-# Kokoro (requires: pip install 'mario[kokoro]' + local model & voices files)
-mario generate --backend kokoro --music-dir /music --host-dir /data/host \
+# Kokoro (default): Spanish female voice ef_dora
+mario generate --music-dir /music --host-dir /data/host \
   --model /models/kokoro/kokoro-v1.0.onnx \
   --voices-path /models/kokoro/voices-v1.0.bin \
-  --voice af_sarah --model-lang en-us
+  --voice ef_dora --model-lang es
 ```
 
 ## Design notes
 
-- Determinism: Piper uses `--noise-scale 0 --noise-w-scale 0`. Kokoro uses fixed inference parameters; verify hash stability for your setup if byte-identical caching is required.
+- Determinism: fixed Kokoro inference parameters/speed and cached outputs by segment key. Byte-identical caching depends on model/runtime/version stability; pin and deploy the same Kokoro model, voices, and dependency set (`uv.lock`) for reproducible results.
 - Time is a quantized bucket (default 1 hour), included in the cache key.
 - All ordered pairs of the current library are pre-rendered (N*(N-1) segments).
 - Segments live under `./data/host/`, never under `./music/` (so Liquidsoap
@@ -165,13 +200,13 @@ Behaviour worth knowing:
 
 ## Voice / backends
 
-- **Piper (default):** lightweight, deterministic, local `.onnx` voices.
-- **Kokoro:** higher-quality 82M TTS via `kokoro-onnx` (local model + voices). Better prosody; install extra `mario[kokoro]` and supply `--model`, `--voices-path`, `--voice`.
+- **Kokoro (default):** 82M TTS via `kokoro-onnx` using local model + voices files. Default voice is Spanish female `ef_dora` (`--voice`, `--model`, `--voices-path`).
 
 The aspiration is a voice inspired by Mario Pergolini: Argentine (rioplatense),
-energetic, ironic, distinctive. Swapping to another voice is a matter of
-pointing `--model`/`--voice` at different local assets. Voice cloning or a
-true Argentine/Stern-like timbre requires a cloning-capable backend (future work).
+energetic, ironic, distinctive. Swapping to another Kokoro voice is a matter of
+pointing `--voice`/`--model`/`--voices-path` at different local assets. Voice
+cloning or a true Argentine/Stern-like timbre requires a cloning-capable backend
+(future work).
 
 ## License
 

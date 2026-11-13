@@ -59,7 +59,6 @@ def generate(
     time_bucket: str | None = None,
     dry_run: bool = False,
     force: bool = False,
-    piper_bin: str = "piper",
     feed_fetcher: FeedFetcher | None = None,
     keep_buckets: int | None = None,
 ) -> list[Path]:
@@ -67,7 +66,7 @@ def generate(
     tracks = load_tracks(config.metadata_dir)
     bucket = time_bucket if time_bucket is not None else bucket_for_now(config.time_bucket_hours)
     # Map config model_lang (e.g. "es", "en") to kokoro lang tags.
-    kokoro_lang = "en-us"
+    kokoro_lang = "es"
     if config.model_lang.startswith("en-gb") or config.model_lang == "b":
         kokoro_lang = "en-gb"
     elif config.model_lang.startswith("en"):
@@ -95,9 +94,7 @@ def generate(
                 text,
                 config.model,
                 config.host_dir,
-                piper_bin=piper_bin,
                 force=force,
-                backend=config.tts_backend,
                 voices_path=config.voices_path,
                 voice=config.voice,
                 speed=vibe.speed,
@@ -125,9 +122,7 @@ def generate(
                 liner.text,
                 config.model,
                 config.host_dir,
-                piper_bin=piper_bin,
                 force=force,
-                backend=config.tts_backend,
                 voices_path=config.voices_path,
                 voice=config.voice,
                 speed=config.tts_speed,
@@ -150,9 +145,7 @@ def generate(
                 weather_text,
                 config.model,
                 config.host_dir,
-                piper_bin=piper_bin,
                 force=force,
-                backend=config.tts_backend,
                 voices_path=config.voices_path,
                 voice=config.voice,
                 speed=config.tts_speed,
@@ -237,9 +230,7 @@ def generate(
                         fallback_text,
                         config.model,
                         config.host_dir,
-                        piper_bin=piper_bin,
                         force=force,
-                        backend=config.tts_backend,
                         voices_path=config.voices_path,
                         voice=config.voice,
                         speed=config.tts_speed,
@@ -261,9 +252,7 @@ def generate(
                         rss_text,
                         config.model,
                         config.host_dir,
-                        piper_bin=piper_bin,
                         force=force,
-                        backend=config.tts_backend,
                         voices_path=config.voices_path,
                         voice=config.voice,
                         speed=config.tts_speed,

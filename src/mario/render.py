@@ -1,15 +1,12 @@
 """Render a Host segment and publish it atomically.
 
-Backends:
-- piper (default): subprocess, deterministic with --noise-scale 0/--noise-w-scale 0.
-- kokoro: kokoro-onnx Python API (local model+voices files).
+Kokoro backend only (kokoro-onnx, local model + voices files).
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import tempfile
 from pathlib import Path
 
@@ -51,31 +48,6 @@ def _fsync_publish(tmp: Path, output_path: Path) -> None:
             os.close(dir_fd)
 
 
-def _render_piper(text: str, model: Path, tmp: Path, *, piper_bin: str = "piper") -> None:
-    model = Path(model)
-    if not model.is_file():
-        raise FileNotFoundError(f"Piper model not found: {model}")
-    cmd = [
-        piper_bin,
-        "-m", str(model),
-        "-f", str(tmp),
-        "--noise-scale", "0",
-        "--noise-w-scale", "0",
-    ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            input=text.encode("utf-8"),
-            capture_output=True,
-            check=False,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"piper binary not found: {piper_bin}") from exc
-    if proc.returncode != 0:
-        tmp.unlink(missing_ok=True)
-        raise RuntimeError(f"piper failed ({proc.returncode}): {proc.stderr.decode('utf-8', 'replace')}")
-
-
 def _render_kokoro(
     text: str,
     model: Path,
@@ -95,8 +67,8 @@ def _render_kokoro(
     if not voices_path.is_file():
         raise FileNotFoundError(f"Kokoro voices file not found: {voices_path}")
     try:
-        import soundfile as sf  # type: ignore
-        from kokoro_onnx import Kokoro  # type: ignore
+        import soundfile as sf  # type: ignore[import-not-found,import-untyped,unused-ignore]
+        from kokoro_onnx import Kokoro  # type: ignore[import-not-found,import-untyped,unused-ignore]
     except Exception as exc:  # pragma: no cover - import error path
         raise RuntimeError(
             "kokoro backend requires kokoro-onnx and soundfile to be installed"
@@ -111,14 +83,12 @@ def render_wav(
     model: Path,
     output_path: Path,
     *,
-    piper_bin: str = "piper",
-    backend: str = "piper",
     voices_path: Path | None = None,
-    voice: str = "af_sarah",
+    voice: str = "ef_dora",
     speed: float = 1.0,
-    lang: str = "en-us",
+    lang: str = "es",
 ) -> None:
-    """Render `text` to a WAV at output_path. Raises on failure."""
+    """Render `text` to a WAV at output_path using Kokoro. Raises on failure."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     # Staging name is unique per run. A fixed "<target>.wav.tmp" makes two
@@ -136,20 +106,15 @@ def render_wav(
     # different user, so restore the 0644 the backends used to produce.
     os.chmod(tmp, 0o644)
     try:
-        if backend == "piper":
-            _render_piper(text, model, tmp, piper_bin=piper_bin)
-        elif backend == "kokoro":
-            _render_kokoro(
-                text,
-                model,
-                tmp,
-                voices_path=voices_path,
-                voice=voice,
-                speed=speed,
-                lang=lang,
-            )
-        else:
-            raise ValueError(f"unknown tts backend: {backend}")
+        _render_kokoro(
+            text,
+            model,
+            tmp,
+            voices_path=voices_path,
+            voice=voice,
+            speed=speed,
+            lang=lang,
+        )
         _fsync_publish(tmp, output_path)
     except Exception:
         tmp.unlink(missing_ok=True)
@@ -164,13 +129,11 @@ def generate_segment(
     model: Path,
     host_dir: Path,
     *,
-    piper_bin: str = "piper",
     force: bool = False,
-    backend: str = "piper",
     voices_path: Path | None = None,
-    voice: str = "af_sarah",
+    voice: str = "ef_dora",
     speed: float = 1.0,
-    lang: str = "en-us",
+    lang: str = "es",
 ) -> Path:
     """Render (if missing) the cached transition segment. Returns its path."""
     host_dir = Path(host_dir)
@@ -183,8 +146,6 @@ def generate_segment(
         text,
         model,
         target,
-        piper_bin=piper_bin,
-        backend=backend,
         voices_path=voices_path,
         voice=voice,
         speed=speed,
@@ -201,13 +162,11 @@ def generate_liner_segment(
     model: Path,
     host_dir: Path,
     *,
-    piper_bin: str = "piper",
     force: bool = False,
-    backend: str = "piper",
     voices_path: Path | None = None,
-    voice: str = "af_sarah",
+    voice: str = "ef_dora",
     speed: float = 1.0,
-    lang: str = "en-us",
+    lang: str = "es",
 ) -> Path:
     """Render (if missing) a cached liner segment keyed by (ident_id, seed, time_bucket)."""
     host_dir = Path(host_dir)
@@ -219,8 +178,6 @@ def generate_liner_segment(
             text,
             model,
             target,
-            piper_bin=piper_bin,
-            backend=backend,
             voices_path=voices_path,
             voice=voice,
             speed=speed,
@@ -250,13 +207,11 @@ def generate_weather_segment(
     model: Path,
     host_dir: Path,
     *,
-    piper_bin: str = "piper",
     force: bool = False,
-    backend: str = "piper",
     voices_path: Path | None = None,
-    voice: str = "af_sarah",
+    voice: str = "ef_dora",
     speed: float = 1.0,
-    lang: str = "en-us",
+    lang: str = "es",
 ) -> Path:
     """Render (if missing) a cached weather segment keyed by (weather_hash, time_bucket)."""
     host_dir = Path(host_dir)
@@ -268,8 +223,6 @@ def generate_weather_segment(
             text,
             model,
             target,
-            piper_bin=piper_bin,
-            backend=backend,
             voices_path=voices_path,
             voice=voice,
             speed=speed,
@@ -311,13 +264,11 @@ def generate_rss_segment(
     model: Path,
     host_dir: Path,
     *,
-    piper_bin: str = "piper",
     force: bool = False,
-    backend: str = "piper",
     voices_path: Path | None = None,
-    voice: str = "af_sarah",
+    voice: str = "ef_dora",
     speed: float = 1.0,
-    lang: str = "en-us",
+    lang: str = "es",
     stable_alias: bool = False,
 ) -> Path:
     """Render (if missing) a cached RSS segment keyed by (cache_key, time_bucket)."""
@@ -330,8 +281,6 @@ def generate_rss_segment(
             text,
             model,
             target,
-            piper_bin=piper_bin,
-            backend=backend,
             voices_path=voices_path,
             voice=voice,
             speed=speed,
@@ -356,13 +305,11 @@ def generate_rss_fallback_segment(
     model: Path,
     host_dir: Path,
     *,
-    piper_bin: str = "piper",
     force: bool = False,
-    backend: str = "piper",
     voices_path: Path | None = None,
-    voice: str = "af_sarah",
+    voice: str = "ef_dora",
     speed: float = 1.0,
-    lang: str = "en-us",
+    lang: str = "es",
     stable_alias: bool = False,
 ) -> Path:
     """Render (if missing) the per-feed fallback segment and drop any stale item alias."""
@@ -374,8 +321,6 @@ def generate_rss_fallback_segment(
             text,
             model,
             target,
-            piper_bin=piper_bin,
-            backend=backend,
             voices_path=voices_path,
             voice=voice,
             speed=speed,

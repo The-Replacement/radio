@@ -196,10 +196,9 @@ services:
       # it dies with the container and every run refetches from cold.
       MARIO_RSS_FEEDS_FILE: /etc/mario/feeds.yaml
       MARIO_RSS_CACHE_DIR: /data/host/rss-cache
-      MARIO_TTS_BACKEND: ${MARIO_TTS_BACKEND:-piper}
-      MARIO_MODEL: ${MARIO_MODEL:-/models/piper/es_ES-sharvard-medium.onnx}
+      MARIO_MODEL: ${MARIO_MODEL:-/models/kokoro/kokoro-v1.0.onnx}
       MARIO_VOICES_PATH: ${MARIO_VOICES_PATH:-/models/kokoro/voices-v1.0.bin}
-      MARIO_VOICE: ${MARIO_VOICE:-am_adam}
+      MARIO_VOICE: ${MARIO_VOICE:-ef_dora}
       MARIO_TIME_BUCKET_HOURS: ${MARIO_TIME_BUCKET_HOURS:-1}
       MARIO_MODEL_LANG: ${MARIO_MODEL_LANG:-es}
       MARIO_TEMPLATE_VERSION: ${MARIO_TEMPLATE_VERSION:-mario/2}
@@ -208,7 +207,6 @@ services:
       - ./data/host:/data/host
       - ./config/feeds.yaml:/etc/mario/feeds.yaml:ro
       - /home/kbdejavu/Models/kokoro:/models/kokoro:ro
-      - /home/kbdejavu/Models/piper:/models/piper:ro
     networks:
       - radio
 

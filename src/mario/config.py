@@ -20,13 +20,14 @@ class MarioConfig(BaseModel):
     music_dir: Path = Field(default=Path("/music"))
     meta_dir: Path | None = Field(default=None)
     host_dir: Path = Field(default=Path("/data/host"))
-    model: Path = Field(default=Path("/models/piper/es_ES-sharvard-medium.onnx"))
+    # Default: Kokoro Spanish female voice (ef_dora). See docs/MARIO.md for
+    # backend/model source, licensing notes, and how to swap voices.
+    model: Path = Field(default=Path("/models/kokoro/kokoro-v1.0.onnx"))
     time_bucket_hours: int = Field(default=1, ge=1)
     model_lang: str = Field(default="es")
     template_version: str = Field(default="mario/2")
-    tts_backend: str = Field(default="piper")
-    voices_path: Path | None = Field(default=None)
-    voice: str = Field(default="af_sarah")
+    voices_path: Path | None = Field(default=Path("/models/kokoro/voices-v1.0.bin"))
+    voice: str = Field(default="ef_dora")
     tts_speed: float = Field(default=1.0, gt=0)
     liners_preset: Path | None = Field(default=None)
     weather_file: Path | None = Field(default=None)
@@ -64,13 +65,12 @@ class MarioConfig(BaseModel):
             music_dir=music,
             meta_dir=meta,
             host_dir=Path(os.environ.get("MARIO_HOST_DIR", "/data/host")),
-            model=Path(os.environ.get("MARIO_MODEL", "/models/piper/es_ES-sharvard-medium.onnx")),
+            model=Path(os.environ.get("MARIO_MODEL", "/models/kokoro/kokoro-v1.0.onnx")),
             time_bucket_hours=int(os.environ.get("MARIO_TIME_BUCKET_HOURS", "1")),
             model_lang=os.environ.get("MARIO_MODEL_LANG", "es"),
             template_version=os.environ.get("MARIO_TEMPLATE_VERSION", "mario/2"),
-            tts_backend=os.environ.get("MARIO_TTS_BACKEND", "piper"),
-            voices_path=Path(voices) if voices else None,
-            voice=os.environ.get("MARIO_VOICE", "af_sarah"),
+            voices_path=Path(voices) if voices else Path("/models/kokoro/voices-v1.0.bin"),
+            voice=os.environ.get("MARIO_VOICE", "ef_dora"),
             tts_speed=float(os.environ.get("MARIO_TTS_SPEED", "1.0")),
             liners_preset=Path(liners) if liners else None,
             weather_file=Path(weather) if weather else None,

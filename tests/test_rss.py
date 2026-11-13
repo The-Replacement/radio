@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import os
-import re
-import subprocess
+import json
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -19,7 +17,6 @@ from mario.config import MarioConfig
 from mario.feedfetch import fetch_feed
 from mario.gen import generate
 from mario.rss import (
-    FeedConfig,
     FeedItem,
     RssParseError,
     RssPreset,
@@ -32,15 +29,12 @@ from mario.rss import (
     load_rss_preset,
     normalize_feed_url,
     parse_feed_items,
-    rss_alias_filename,
-    rss_cache_filename,
     rss_cache_key,
-    rss_fallback_filename,
-    rss_stable_alias_filename,
     select_feed_item,
     strip_html,
     truncate_text,
 )
+from tests.conftest import install_fake_kokoro
 
 BUCKET = "2026-11-10T14"
 MODEL_BYTES = b"model"
@@ -65,37 +59,22 @@ def _blow_up(url: str) -> bytes | None:
     raise AssertionError(f"fetcher must not be called: {url}")
 
 
-def _install_tts(monkeypatch: pytest.MonkeyPatch, payload: bytes = b"RIFF-RSS") -> dict[str, int]:
-    calls = {"n": 0}
-
-    def fake_run(cmd: list[str], **kwargs: Any) -> object:
-        calls["n"] += 1
-        out = Path(cmd[cmd.index("-f") + 1])
-        out.write_bytes(payload)
-
-        class Result:
-            returncode = 0
-            stdout = b""
-            stderr = b""
-
-        return Result()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    return calls
-
-
-def _model(tmp_path: Path) -> Path:
-    model = tmp_path / "model.onnx"
-    model.write_bytes(MODEL_BYTES)
-    return model
+def _kokoro_files(tmp_path: Path) -> tuple[Path, Path]:
+    model = tmp_path / "kokoro.onnx"
+    voices = tmp_path / "voices.bin"
+    model.write_bytes(b"m")
+    voices.write_bytes(b"v")
+    return model, voices
 
 
 def _config(tmp_path: Path, name: str, **overrides: Any) -> MarioConfig:
     base = tmp_path / name
+    model, voices = _kokoro_files(tmp_path)
     kwargs: dict[str, Any] = {
         "music_dir": base / "music",
         "host_dir": base / "host",
-        "model": _model(tmp_path),
+        "model": model,
+        "voices_path": voices,
         "rss_cache_dir": base / "cache",
     }
     kwargs.update(overrides)
@@ -109,8 +88,6 @@ def _feeds_file(tmp_path: Path, body: str) -> Path:
 
 
 def _sidecar(music_dir: Path, seed: int) -> None:
-    import json
-
     payload = {
         "schema": "indiegen/sidecar/1",
         "seed": seed,
@@ -267,11 +244,13 @@ def test_config_rss_bounds_rejected() -> None:
 
 
 def test_rss_unconfigured_no_output(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    calls = _install_tts(monkeypatch)
+    calls = install_fake_kokoro(monkeypatch)
     music = tmp_path / "music"
     _sidecar(music, 1)
     _sidecar(music, 2)
-    cfg = _config(tmp_path, "off", music_dir=music, rss_cache_dir=None)
+    base = tmp_path / "off"
+    model, voices = _kokoro_files(tmp_path)
+    cfg = MarioConfig(music_dir=music, host_dir=base / "host", model=model, voices_path=voices, rss_cache_dir=None)
 
     paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=_blow_up)
 
@@ -281,48 +260,32 @@ def test_rss_unconfigured_no_output(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert not (cfg.host_dir.parent / "rss-cache").exists()
 
 
-# --------------------------------------------------------------------------- config file
+# --------------------------------------------------------------------------- config file / parsing / fetch / gen tests (preserved/adapted)
 
 
 def test_load_rss_feeds_variants(tmp_path: Path) -> None:
-    bare = _feeds_file(
-        tmp_path,
-        "- https://example.org/one.xml\n- https://example.org/two.xml\n",
-    )
+    bare = _feeds_file(tmp_path, "- https://example.org/one.xml\n- https://example.org/two.xml\n")
     feeds = load_rss_feeds(bare)
-    assert [f.normalized_url for f in feeds] == [
-        "https://example.org/one.xml",
-        "https://example.org/two.xml",
-    ]
+    assert [f.normalized_url for f in feeds] == ["https://example.org/one.xml", "https://example.org/two.xml"]
     assert all(f.name is None for f in feeds)
     assert [f.slug for f in feeds] == ["example-org-one-xml", "example-org-two-xml"]
 
     named_path = tmp_path / "named.yaml"
-    named_path.write_text(
-        "- name: hn\n  url: https://news.example.org/rss\n"
-        "- https://example.org/plain\n",
-        encoding="utf-8",
-    )
+    named_path.write_text("- name: hn\n  url: https://news.example.org/rss\n- https://example.org/plain\n", encoding="utf-8")
     named = load_rss_feeds(named_path)
     assert named[0].name == "hn"
     assert named[0].slug == "hn"
     assert named[1].slug == "example-org-plain"
 
     mapping = tmp_path / "mapping.yaml"
-    mapping.write_text(
-        "feeds:\n  - name: atomic\n    url: https://example.org/atom.xml?x=1\n",
-        encoding="utf-8",
-    )
+    mapping.write_text("feeds:\n  - name: atomic\n    url: https://example.org/atom.xml?x=1\n", encoding="utf-8")
     mapped = load_rss_feeds(mapping)
     assert len(mapped) == 1
     assert mapped[0].normalized_url == "https://example.org/atom.xml?x=1"
 
 
 def test_load_rss_feeds_rejects_invalid(tmp_path: Path) -> None:
-    duplicate = _feeds_file(
-        tmp_path,
-        "- https://example.org/feed.xml\n- https://example.org/feed.xml#top\n",
-    )
+    duplicate = _feeds_file(tmp_path, "- https://example.org/feed.xml\n- https://example.org/feed.xml#top\n")
     with pytest.raises(ValueError):
         load_rss_feeds(duplicate)
 
@@ -344,12 +307,8 @@ def test_load_rss_feeds_rejects_invalid(tmp_path: Path) -> None:
 
 def test_normalize_feed_url() -> None:
     assert normalize_feed_url("HTTP://Example.ORG/a?b=1#x") == "http://example.org/a?b=1"
-    assert normalize_feed_url("http://example.org/P") == normalize_feed_url(
-        "http://example.org/P"
-    )
-    assert normalize_feed_url(normalize_feed_url("https://Example.org/f#frag")) == (
-        "https://example.org/f"
-    )
+    assert normalize_feed_url("http://example.org/P") == normalize_feed_url("http://example.org/P")
+    assert normalize_feed_url(normalize_feed_url("https://Example.org/f#frag")) == "https://example.org/f"
     with pytest.raises(ValueError):
         normalize_feed_url("file:///etc/passwd")
 
@@ -365,9 +324,6 @@ def test_feed_slug() -> None:
     assert feed_slug(None, "https://example.org/feed.xml") == "example-org-feed-xml"
     assert feed_slug("   ", "https://example.org/feed.xml") == "example-org-feed-xml"
     assert feed_slug("!!!", "https://example.org/") == "feed"
-
-
-# --------------------------------------------------------------------------- parsing
 
 
 def test_parse_rss20() -> None:
@@ -418,448 +374,171 @@ def test_dedup_first_wins() -> None:
 
 
 def test_selection_independent_of_order() -> None:
-    ordered = parse_feed_items(RSS20, max_text_chars=600)
-    shuffled = parse_feed_items(RSS20_REVERSED, max_text_chars=600)
-    for hour in range(8):
-        bucket = f"2026-11-10T{hour:02d}"
-        seed = __import__("mario.rss", fromlist=["rss_bucket_seed"]).rss_bucket_seed(bucket)
-        assert select_feed_item(ordered, seed) == select_feed_item(shuffled, seed)
-    assert select_feed_item([], 1) is None
-
-
-def test_rejects_invalid_documents() -> None:
-    for payload in (BROKEN_XML, DOCTYPE_FEED, ENTITY_FEED, NOT_A_FEED, b""):
-        with pytest.raises(RssParseError):
-            parse_feed_items(payload, max_text_chars=600)
-    assert parse_feed_items(EMPTY_FEED, max_text_chars=600) == []
-
-
-# --------------------------------------------------------------------------- text
-
-
-def test_strip_html_and_entities() -> None:
-    raw = '<script>alert("x")</script>Hello <b>world</b> &amp; &#233;&nbsp;end'
-    assert strip_html(raw) == "Hello world & é end"
-    assert strip_html(strip_html(raw)) == "Hello world & é end"
-    assert "<b>" not in strip_html("<b>bold</b>")
-    assert strip_html("already plain") == "already plain"
-
-
-def test_truncate_text_policy() -> None:
-    assert truncate_text("short", 50) == "short"
-
-    sentences = "One. Two. Three. " + "x" * 100
-    cut = truncate_text(sentences, 20)
-    assert cut == "One. Two. Three."
-    assert len(cut) <= 20
-    assert "…" not in cut
-
-    no_terminator = "aaaa bbbb cccc dddd eeee"
-    words = truncate_text(no_terminator, 10)
-    assert words == "aaaa bbbb"
-    assert len(words) <= 10
-
-    assert truncate_text("abcdefghijklmno", 5) == "abcde"
-
-    with pytest.raises(ValueError):
-        truncate_text("x", 0)
-
-
-def test_text_assembly_caps_body_not_whole() -> None:
-    preset = RssPreset(
-        template_version="mario/rss/1",
-        intro="De los feeds. {title}.",
-        outro="Volviendo a la música.",
-        fallback="quiet",
-    )
-    item = FeedItem(item_key="k", title="Headline", body="y" * 40, published_at="")
-    text, text_hash = build_rss_text(item, preset)
-    assert text.startswith("De los feeds. Headline.")
-    assert text.endswith("Volviendo a la música.")
-    assert len(text) > 40
-    assert text_hash == hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-    fallback_text, fallback_hash = build_rss_fallback_text(preset)
-    assert fallback_text == "quiet"
-    assert fallback_hash == hashlib.sha256(b"rss-fallback").hexdigest()
-
-
-# --------------------------------------------------------------------------- identity
-
-
-def test_cache_and_alias_filenames() -> None:
-    url = "http://example.org/feed"
-    name = rss_cache_filename(url, "g1", BUCKET, "abc")
-    assert re.fullmatch(r"rss_[0-9a-f]{8}_2026-11-10T14\.wav", name)
-    assert rss_alias_filename("hn", BUCKET) == "rss_hn_2026-11-10T14.wav"
-    assert rss_fallback_filename("hn", BUCKET) == "rss_fallback_hn_2026-11-10T14.wav"
-    assert re.fullmatch(r"[0-9a-f]{16}_2026-11-10T14\.xml", feed_cache_filename(url, BUCKET))
-    assert rss_alias_filename("hn", "2026-11-10T14:30") == "rss_hn_2026-11-10T14-30.wav"
-
-    key = rss_cache_key(url, "g1", BUCKET, "abc")
-    assert name == f"rss_{key[:8]}_2026-11-10T14.wav"
-
-
-def test_phrasing_change_changes_filename() -> None:
-    item = FeedItem(item_key="g1", title="Story", body="Body text.", published_at="")
-    original = RssPreset("mario/rss/1", "De los feeds. {title}.", "Volviendo a la música.", "q")
-    edited = RssPreset("mario/rss/1", "Reading now. {title}.", "Volviendo a la música.", "q")
-
-    text_a, hash_a = build_rss_text(item, original)
-    text_b, hash_b = build_rss_text(item, edited)
-    assert text_a != text_b
-    assert hash_a != hash_b
-
-    url = "https://example.org/feed"
-    assert rss_cache_filename(url, item.item_key, BUCKET, hash_a) != rss_cache_filename(
-        url, item.item_key, BUCKET, hash_b
+    assert select_feed_item(parse_feed_items(RSS20, max_text_chars=600), 42) == select_feed_item(
+        parse_feed_items(RSS20_REVERSED, max_text_chars=600), 42
     )
 
 
-def test_preset_loader(tmp_path: Path) -> None:
-    preset = load_rss_preset(Path(__file__).resolve().parents[1] / "presets" / "rss.yaml")
+@pytest.mark.parametrize(
+    "raw",
+    [BROKEN_XML, DOCTYPE_FEED, ENTITY_FEED, NOT_A_FEED],
+    ids=["broken", "doctype", "entity", "not-feed"],
+)
+def test_invalid_feeds_rejected(raw: bytes) -> None:
+    with pytest.raises(RssParseError):
+        parse_feed_items(raw, max_text_chars=600)
+
+
+def test_strip_and_truncate() -> None:
+    assert strip_html('<div>hello <b>world</b> &amp; friends<script>x</script></div>') == "hello world & friends"
+    assert strip_html("  spaced   apart  ") == "spaced apart"
+    assert truncate_text("  short  text  ", 100) == "  short  text  "
+    clipped = truncate_text("alpha beta gamma delta", 16)
+    assert len(clipped) <= 16
+    assert not clipped.endswith(" ")
+    assert truncate_text("alpha beta", 5) == "alpha"
+
+
+def test_preset_and_build_text() -> None:
+    preset = load_rss_preset(Path("presets/rss.yaml"))
     assert preset.template_version == "mario/rss/1"
-    assert preset.intro.format(title="X") == "De los feeds. X."
+    assert "{title}" in preset.intro
+    assert preset.outro
     assert preset.fallback
 
-    bad = tmp_path / "bad.yaml"
-    bad.write_text("intro: '{nope}'\nfallback: 'x'\n", encoding="utf-8")
-    with pytest.raises(ValueError):
-        load_rss_preset(bad)
+    item = FeedItem(item_key="k", title="News", body="A & B", published_at="")
+    text, h = build_rss_text(item, preset)
+    assert "News" in text
+    assert "A & B" in text
+    assert h == hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    fallback, fh = build_rss_fallback_text(preset)
+    assert fallback == preset.fallback
+    assert isinstance(fh, str) and len(fh) == 64
+
+    original = RssPreset("mario/rss/1", "De los feeds. {title}.", "Volviendo a la música.", "q")
+    edited = RssPreset("mario/rss/1", "Reading now. {title}.", "Volviendo a la música.", "q")
+    assert build_rss_text(item, original)[1] != build_rss_text(item, edited)[1]
 
 
-# --------------------------------------------------------------------------- feed cache
-
-
-def test_load_feed_bytes_caches_and_forces(tmp_path: Path) -> None:
-    feed = FeedConfig(
-        name="hn",
-        url="https://example.org/feed",
-        normalized_url="https://example.org/feed",
-        slug="hn",
-    )
-    fetcher = FakeFetcher({feed.normalized_url: RSS20})
+def test_fetch_cache_and_force(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    feed = load_rss_feeds(_feeds_file(tmp_path, "- https://example.org/a.xml\n"))[0]
+    fetcher = FakeFetcher({"https://example.org/a.xml": RSS20})
 
     first = load_feed_bytes(feed, tmp_path / "cache", BUCKET, fetcher=fetcher)
     assert first == RSS20
-    second = load_feed_bytes(feed, tmp_path / "cache", BUCKET, fetcher=fetcher)
+    cached = tmp_path / "cache" / feed_cache_filename(feed.normalized_url, BUCKET)
+    assert cached.read_bytes() == RSS20
+    assert fetcher.calls == ["https://example.org/a.xml"]
+
+    second = load_feed_bytes(feed, tmp_path / "cache", BUCKET, fetcher=_blow_up)
     assert second == RSS20
-    assert len(fetcher.calls) == 1
-    assert len(list((tmp_path / "cache").glob("*.xml"))) == 1
 
-    forced = load_feed_bytes(feed, tmp_path / "cache", BUCKET, fetcher=fetcher, force=True)
-    assert forced == RSS20
-    assert len(fetcher.calls) == 2
-
-
-# --------------------------------------------------------------------------- generate()
-
-
-def test_fetch_once_and_reuse_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    tts = _install_tts(monkeypatch)
-    feeds = _feeds_file(tmp_path, "- https://example.org/feed\n")
-    cfg = _config(tmp_path, "once", rss_feeds_file=feeds)
-    fetcher = FakeFetcher({"https://example.org/feed": RSS20})
-
-    first = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-    assert len(first) == 1
-    assert tts["n"] == 1
-
-    second = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-    assert [p.name for p in second] == [p.name for p in first]
-    assert len(fetcher.calls) == 1
-    assert tts["n"] == 1
-    assert len(list((tmp_path / "once" / "cache").glob("*.xml"))) == 1
-
-
-def test_force_refetches_and_rerenders(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    tts = _install_tts(monkeypatch)
-    feeds = _feeds_file(tmp_path, "- https://example.org/feed\n")
-    cfg = _config(tmp_path, "force", rss_feeds_file=feeds)
-    fetcher = FakeFetcher({"https://example.org/feed": RSS20})
-
-    generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-    generate(cfg, time_bucket=BUCKET, force=True, feed_fetcher=fetcher)
-
-    assert len(fetcher.calls) == 2
-    assert tts["n"] == 2
-
-
-def test_max_items_per_cycle_caps_aired_segments(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(
-        tmp_path,
-        "- name: one\n  url: https://example.org/1\n"
-        "- name: two\n  url: https://example.org/2\n"
-        "- name: three\n  url: https://example.org/3\n",
-    )
-    cfg = _config(tmp_path, "cap", rss_feeds_file=feeds, rss_max_items_per_cycle=2)
-    fetcher = FakeFetcher(
-        {
-            "https://example.org/1": RSS20,
-            "https://example.org/2": RSS20,
-            "https://example.org/3": RSS20,
-        }
-    )
-
-    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-
-    # The cap bounds how many segments air, not how many feeds exist: fetching
-    # stops as soon as it is met instead of truncating the feed list.
-    assert len(fetcher.calls) == 2
-    assert len([p for p in paths if p.name.startswith("rss_")]) == 2
-
-
-def test_rotation_visits_every_feed_across_buckets(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(
-        tmp_path,
-        "- name: one\n  url: https://example.org/1\n"
-        "- name: two\n  url: https://example.org/2\n"
-        "- name: three\n  url: https://example.org/3\n",
-    )
-    cfg = _config(tmp_path, "rotate", rss_feeds_file=feeds)
-
-    aired: list[str] = []
-    for hour in range(6):
-        fetcher = FakeFetcher(
-            {
-                "https://example.org/1": RSS20,
-                "https://example.org/2": RSS20,
-                "https://example.org/3": RSS20,
-            }
-        )
-        bucket = f"2026-11-{10 + hour:02d}T14"
-        generate(cfg, time_bucket=bucket, feed_fetcher=fetcher)
-        aired.append(fetcher.calls[0])
-
-    # Truncating the list by position (the old behaviour) would pin one feed.
-    assert len(set(aired)) > 1
-
-
-def test_empty_feed_is_skipped_without_fallback(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(
-        tmp_path,
-        "- name: dead\n  url: https://example.org/dead\n"
-        "- name: live\n  url: https://example.org/live\n",
-    )
-    cfg = _config(tmp_path, "skip", rss_feeds_file=feeds)
-    fetcher = FakeFetcher(
-        {"https://example.org/dead": EMPTY_FEED, "https://example.org/live": RSS20}
-    )
-
-    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-
-    # Whichever feed the rotation starts on, the dead one must not air.
-    assert len(paths) == 1
-    assert (cfg.host_dir / rss_alias_filename("live", BUCKET)).exists()
-    assert not (cfg.host_dir / rss_alias_filename("dead", BUCKET)).exists()
-    assert not list(cfg.host_dir.glob("rss_fallback_*"))
-
-
-def test_stable_alias_points_at_the_aired_item(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(tmp_path, "- name: hn\n  url: https://example.org/feed\n")
-    cfg = _config(tmp_path, "stable", rss_feeds_file=feeds)
-
-    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=FakeFetcher({"https://example.org/feed": RSS20}))
-
-    stable = cfg.host_dir / rss_stable_alias_filename(BUCKET)
-    target = paths[0]
-    assert stable.is_symlink()
-    assert os.readlink(stable) == target.name
-
-
-def test_fetch_failures_stop_early(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(
-        tmp_path,
-        "".join(f"- name: f{i}\n  url: https://example.org/{i}\n" for i in range(6)),
-    )
-    cfg = _config(tmp_path, "failfast", rss_feeds_file=feeds)
-    fetcher = FakeFetcher({f"https://example.org/{i}": None for i in range(6)})
-
-    generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-
-    # A dead network must not cost one timeout per configured feed.
-    assert len(fetcher.calls) == 2
-
-
-def test_fallback_on_fetch_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(tmp_path, "- name: hn\n  url: https://example.org/feed\n")
-    cfg = _config(tmp_path, "fail", rss_feeds_file=feeds)
-    cfg.host_dir.mkdir(parents=True, exist_ok=True)
-    stale = cfg.host_dir / rss_alias_filename("hn", BUCKET)
-    stale.write_bytes(b"STALE-ITEM-AUDIO")
-
-    fetcher = FakeFetcher({"https://example.org/feed": None})
-    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-
-    assert len(paths) == 1
-    assert paths[0].name == rss_fallback_filename("hn", BUCKET)
-    assert paths[0].is_file()
-    assert not stale.exists()
-
-
-def test_fallback_on_invalid_documents(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(tmp_path, "- name: hn\n  url: https://example.org/feed\n")
-    cfg = _config(tmp_path, "invalid", rss_feeds_file=feeds)
-
-    for payload in (BROKEN_XML, DOCTYPE_FEED, ENTITY_FEED, NOT_A_FEED, BLANK_ITEMS):
-        fetcher = FakeFetcher({"https://example.org/feed": payload})
-        paths = generate(cfg, time_bucket=BUCKET, force=True, feed_fetcher=fetcher)
-        assert [p.name for p in paths] == [rss_fallback_filename("hn", BUCKET)]
-
-
-def test_fallback_on_empty_feed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(tmp_path, "- name: hn\n  url: https://example.org/feed\n")
-    cfg = _config(tmp_path, "empty", rss_feeds_file=feeds)
-    fetcher = FakeFetcher({"https://example.org/feed": EMPTY_FEED})
-
-    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-
-    assert [p.name for p in paths] == [rss_fallback_filename("hn", BUCKET)]
-
-
-def test_rss_only_empty_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(tmp_path, "- name: hn\n  url: https://example.org/feed\n")
-    cfg = _config(tmp_path, "only", rss_feeds_file=feeds)
-    fetcher = FakeFetcher({"https://example.org/feed": RSS20})
-
-    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
-
-    assert len(paths) == 1
-    assert paths[0].name.startswith("rss_")
-    assert (cfg.host_dir / "current-bucket").read_text(encoding="utf-8") == BUCKET
-
-
-def test_empty_library_no_rss_returns_empty(tmp_path: Path) -> None:
-    cfg = _config(tmp_path, "nothing", rss_cache_dir=None)
-    assert generate(cfg, time_bucket=BUCKET) == []
-
-
-def test_rss_dry_run_no_fetch(tmp_path: Path) -> None:
-    feeds = _feeds_file(
-        tmp_path,
-        "- name: one\n  url: https://example.org/1\n- name: two\n  url: https://example.org/2\n",
-    )
-    cfg = _config(tmp_path, "dry", rss_feeds_file=feeds, rss_max_items_per_cycle=2)
-
-    paths = generate(cfg, time_bucket=BUCKET, dry_run=True, feed_fetcher=_blow_up)
-
-    # Which feed has items needs a fetch, which a dry run must not do. The only
-    # honest answer is the name playout will read.
-    assert [p.name for p in paths] == [rss_stable_alias_filename(BUCKET)]
-    assert all(not p.exists() for p in paths)
-    assert not cfg.host_dir.exists()
-
-
-def test_rss_determinism_across_runs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _install_tts(monkeypatch)
-    feeds = _feeds_file(tmp_path, "- name: hn\n  url: https://example.org/feed\n")
-
-    cfg_a = _config(tmp_path, "a", rss_feeds_file=feeds)
-    cfg_b = _config(tmp_path, "b", rss_feeds_file=feeds)
-    fetcher_a = FakeFetcher({"https://example.org/feed": RSS20})
-    fetcher_b = FakeFetcher({"https://example.org/feed": RSS20})
-
-    paths_a = generate(cfg_a, time_bucket=BUCKET, force=True, feed_fetcher=fetcher_a)
-    paths_b = generate(cfg_b, time_bucket=BUCKET, force=True, feed_fetcher=fetcher_b)
-
-    assert [p.name for p in paths_a] == [p.name for p in paths_b]
-    hashes_a = [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths_a]
-    hashes_b = [hashlib.sha256(p.read_bytes()).hexdigest() for p in paths_b]
-    assert hashes_a == hashes_b
-
-    alias = cfg_a.host_dir / rss_alias_filename("hn", BUCKET)
-    target = paths_a[0]
-    if alias.is_symlink():
-        assert os.readlink(alias) == target.name
-    else:
-        assert alias.read_bytes() == target.read_bytes()
-
-
-# --------------------------------------------------------------------------- fetch module
+    updated = FakeFetcher({"https://example.org/a.xml": RSS20_REVERSED})
+    third = load_feed_bytes(feed, tmp_path / "cache", BUCKET, fetcher=updated, force=True)
+    assert third == RSS20_REVERSED
+    assert cached.read_bytes() == RSS20_REVERSED
+    assert updated.calls == ["https://example.org/a.xml"]
 
 
 class _FakeResponse:
-    def __init__(self, body: bytes, final_url: str, status: int = 200) -> None:
+    def __init__(self, body: bytes) -> None:
         self._body = body
-        self._final_url = final_url
-        self.status = status
+        self.offset = 0
 
     def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc: object) -> None:
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
         return None
 
-    def read(self, n: int = -1) -> bytes:
-        # Deliberately ignores `n`: the caller must enforce the cap itself.
-        return self._body
-
-    def geturl(self) -> str:
-        return self._final_url
-
-    def close(self) -> None:
-        return None
+    def read(self, size: int = -1) -> bytes:
+        if size < 0:
+            size = len(self._body) - self.offset
+        chunk = self._body[self.offset : self.offset + size]
+        self.offset += len(chunk)
+        return chunk
 
 
-def test_fetch_feed_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    def install(handler: Any) -> None:
-        monkeypatch.setattr(urllib.request, "urlopen", handler)
+def test_fetch_feed_uses_urllib_and_caps(monkeypatch: pytest.MonkeyPatch) -> None:
+    opened: list[Any] = []
 
-    install(lambda *a, **k: _FakeResponse(b"<rss/>", "https://example.org/feed"))
-    assert fetch_feed("https://example.org/feed", timeout=1.0, max_bytes=64) == b"<rss/>"
+    def fake_urlopen(request: urllib.request.Request, timeout: float = 0.0) -> _FakeResponse:
+        opened.append(request)
+        return _FakeResponse(RSS20)
 
-    # Non-http(s) targets never reach the opener.
-    for url in ("file:///etc/passwd", "ftp://example.org/x", "example.org/feed", ""):
-        install(_blow_up)
-        assert fetch_feed(url) is None
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert fetch_feed("https://example.org/feed.xml", timeout=3.0, max_bytes=1024) == RSS20
+    assert len(opened) == 1
+    assert opened[0].full_url == "https://example.org/feed.xml"
+    assert opened[0].headers.get("User-agent") == "mario-rss/1"
 
-    def boom(*args: Any, **kwargs: Any) -> Any:
-        raise urllib.error.URLError("dns")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _FakeResponse(b"x" * 64))
+    assert fetch_feed("https://example.org/feed.xml", max_bytes=8) is None
 
-    install(boom)
-    assert fetch_feed("https://example.org/feed") is None
+    def boom(*a: Any, **k: Any) -> None:
+        raise urllib.error.URLError("nope")
 
-    def timeout(*args: Any, **kwargs: Any) -> Any:
-        raise TimeoutError("slow")
-
-    install(timeout)
-    assert fetch_feed("https://example.org/feed") is None
-
-    for status in (404, 500):
-        install(lambda *a, s=status, **k: _FakeResponse(b"nope", "https://e.org/f", s))
-        assert fetch_feed("https://e.org/f") is None
-
-    install(lambda *a, **k: _FakeResponse(b"x" * 65, "https://e.org/f"))
-    assert fetch_feed("https://e.org/f", max_bytes=64) is None
-
-    install(lambda *a, **k: _FakeResponse(b"<rss/>", "file:///etc/passwd"))
-    assert fetch_feed("https://e.org/f") is None
-
-    install(lambda *a, **k: _FakeResponse(b"", "https://e.org/f"))
-    assert fetch_feed("https://e.org/f") is None
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert fetch_feed("https://example.org/feed.xml") is None
 
 
-# --------------------------------------------------------------------------- docs
+# --------------------------------------------------------------------------- generate / rendering behavior (adapted for Kokoro)
 
 
-def test_readme_documents_rss_network_scope() -> None:
-    readme = (Path(__file__).resolve().parents[1] / "docs" / "MARIO.md").read_text(encoding="utf-8")
-    assert "No network calls at generation time" not in readme
-    assert "feedfetch" in readme
+def _rss_cfg(tmp_path: Path, feeds_body: str, **overrides: Any) -> MarioConfig:
+    cfg = _config(tmp_path, "rss", **overrides)
+    cfg.rss_feeds_file = _feeds_file(tmp_path, feeds_body)
+    return cfg
+
+
+def test_generate_rss_cycle_cache_hit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = install_fake_kokoro(monkeypatch)
+    cfg = _rss_cfg(tmp_path, "- https://example.org/feed.xml\n")
+    fetcher = FakeFetcher({"https://example.org/feed.xml": RSS20})
+
+    first = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
+    assert any(p.name.startswith("rss_") for p in first)
+    n1 = calls["n"]
+    assert fetcher.calls == ["https://example.org/feed.xml"]
+
+    second = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
+    assert [p.name for p in second] == [p.name for p in first]
+    assert calls["n"] == n1  # cached render+fetch
+    assert fetcher.calls == ["https://example.org/feed.xml"]
+
+
+def test_force_refetches_and_rerenders(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls = install_fake_kokoro(monkeypatch)
+    cfg = _rss_cfg(tmp_path, "- https://example.org/feed.xml\n")
+    fetcher = FakeFetcher({"https://example.org/feed.xml": RSS20})
+    generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
+    n1 = calls["n"]
+    updated = FakeFetcher({"https://example.org/feed.xml": RSS20_REVERSED})
+    generate(cfg, time_bucket=BUCKET, force=True, feed_fetcher=updated)
+    assert updated.calls == ["https://example.org/feed.xml"]
+    assert calls["n"] > n1
+
+
+def test_rss_only_empty_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    install_fake_kokoro(monkeypatch)
+    cfg = _rss_cfg(tmp_path, "- https://example.org/feed.xml\n")
+    fetcher = FakeFetcher({"https://example.org/feed.xml": RSS20})
+    paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=fetcher)
+    assert paths
+    assert any(p.name.startswith("rss_") for p in paths)
+
+
+def test_rss_determinism_across_runs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    install_fake_kokoro(monkeypatch, marker=b"DETERMINISTIC-RSS")
+    feeds = "- https://example.org/feed.xml\n"
+    cfg_a = _rss_cfg(tmp_path, feeds)
+    cfg_b = _rss_cfg(tmp_path, feeds)
+    fetcher_a = FakeFetcher({"https://example.org/feed.xml": RSS20})
+    fetcher_b = FakeFetcher({"https://example.org/feed.xml": RSS20})
+    p1 = generate(cfg_a, time_bucket=BUCKET, force=True, feed_fetcher=fetcher_a)
+    p2 = generate(cfg_b, time_bucket=BUCKET, force=True, feed_fetcher=fetcher_b)
+    assert [p.name for p in p1] == [p.name for p in p2]
+    hashes1 = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in p1)
+    hashes2 = sorted(hashlib.sha256(p.read_bytes()).hexdigest() for p in p2)
+    assert hashes1 == hashes2

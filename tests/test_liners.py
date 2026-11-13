@@ -54,32 +54,22 @@ def test_liner_cache_filename_includes_ident_seed_bucket() -> None:
 
 
 def test_generate_renders_liners_for_tracks(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    import subprocess
-
     music = tmp_path / "music"
     music.mkdir()
     _sidecar(music, 1, "motorik", "A")
     _sidecar(music, 2, "kosmische", "B")
 
-    def fake_run(cmd: list[str], **kwargs: object) -> object:
-        out = Path(cmd[cmd.index("-f") + 1])
-        out.write_bytes(b"RIFF-LINER")
-
-        class R:
-            returncode = 0
-            stdout = b""
-            stderr = b""
-
-        return R()
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    model = tmp_path / "m.onnx"
-    model.write_bytes(b"x")
+    from tests.conftest import install_fake_kokoro
+    install_fake_kokoro(monkeypatch, marker=b"RIFF-LINER")
+    model = tmp_path / "kokoro.onnx"
+    voices = tmp_path / "voices.bin"
+    model.write_bytes(b"m"); voices.write_bytes(b"v")
 
     cfg = MarioConfig(
         music_dir=music,
         host_dir=tmp_path / "host",
         model=model,
+        voices_path=voices,
         liners_preset=Path("presets/liners.yaml"),
     )
     paths = generate(cfg, time_bucket="2026-11-10T14", force=True)
