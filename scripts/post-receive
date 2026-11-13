@@ -40,6 +40,14 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"
 while read -r OLD NEW REF; do
   [ "$REF" = "refs/heads/master" ] || continue
   log "push recibido ${OLD}..${NEW}"
+  # A detached HEAD cannot be moved by receive.denyCurrentBranch=updateInstead:
+  # the push updates the ref, the worktree stays where it was, and this hook
+  # then rebuilds images from STALE code while logging success. That happened on
+  # 2026-11-13 and went unnoticed for hours. Fail loudly instead (#107).
+  if ! git symbolic-ref -q HEAD >/dev/null 2>&1; then
+    log "FAIL: HEAD is detached; updateInstead cannot move the worktree. Deploy did nothing."
+    exit 1
+  fi
   # La caja no puede fetch (no tiene credenciales de GitHub), así que su
   # refs/remotes/origin/master queda congelado y `git status` mentía
   # "ahead N". El push ES la sincronización: apuntar el ref al commit que
