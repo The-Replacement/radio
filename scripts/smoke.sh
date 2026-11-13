@@ -104,7 +104,7 @@ else
   grep -qE '^HTTP/[0-9.]+ 302' <<<"$CABECERAS" \
     && pasa "and redirects to the player (302)" \
     || falla "it did not redirect with 302"
-  grep -qiE '^location: https://radio\.daza\.ar' <<<"$CABECERAS" \
+  grep -qiF "location: $FRONTEND/" <<<"$CABECERAS" \
     && pasa "the redirect points at the frontend" \
     || falla "the redirect does not point at the frontend"
   # The 302 does NOT clean the URL: it keeps the ?t= on purpose, it is the
