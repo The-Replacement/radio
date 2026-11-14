@@ -23,6 +23,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SIGNAL="$ROOT/data/indiegen/restart-request"
 MARK="$ROOT/data/indiegen/.last-restart"
 LOCK="/tmp/restart-on-signal.lock"
+# The hourly refresh (scripts/mario-refresh.sh) renders the same image and holds
+# this lock for the whole render. Sharing it keeps two renders from running at
+# once: same segments, twice the CPU.
+RENDER_LOCK="/tmp/mario-refresh.lock"
 LOG="$ROOT/data/restart-on-signal.log"
 # A render takes ~35 min on this box; a hung one must not wedge the pipeline.
 RENDER_TIMEOUT=900
@@ -57,22 +61,38 @@ fi
 # Keep only the current (new) bucket. A failure here must NOT block the
 # restart: the segments are optional (Liquidsoap skips misses).
 start=$(date +%s)
-# A run killed mid-render leaves the named one-off behind (SIGKILL to the
-# compose client does not stop the container); the next `--name` would then
-# fail. We hold the lock, so any leftover with that name is ours to reap.
-docker rm -f mario-render >/dev/null 2>&1 || true
-timeout "$RENDER_TIMEOUT" docker compose -f "$ROOT/docker-compose.yml" run --rm \
-  --name mario-render mario \
-  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --keep-buckets 1 \
-  >/dev/null 2>&1
-rc=$?
-if [ "$rc" -eq 0 ]; then
-  log "render ok: signal $sig duration=$(( $(date +%s) - start ))s"
+# Two reasons to skip the render, both logged: the hourly refresh is already
+# rendering (same lock), or the box's own gate says not now (hot, memory
+# pressure, stream sick). Skipping is safe by design — the segments are
+# optional and Liquidsoap skips misses — while the restart below is not.
+render_skip=""
+exec 8>"$RENDER_LOCK"
+if ! flock -n 8; then
+  render_skip="hourly refresh is rendering ($RENDER_LOCK held)"
+elif ! gate=$("$ROOT/scripts/radio-job.sh" preflight 2>&1); then
+  render_skip="gate closed: ${gate#gate closed: }"
+fi
+
+if [ -n "$render_skip" ]; then
+  log "skip render: $render_skip; signal $sig"
 else
-  # 124 = timeout. `timeout` kills the compose client, not the container: reap
-  # the one-off by name or it keeps rendering (and burning CPU) forever.
-  [ "$rc" -eq 124 ] && docker kill mario-render >/dev/null 2>&1
-  log "WARN render rc=$rc: signal $sig duration=$(( $(date +%s) - start ))s; continuing to restart"
+  # A run killed mid-render leaves the named one-off behind (SIGKILL to the
+  # compose client does not stop the container); the next `--name` would then
+  # fail. We hold the lock, so any leftover with that name is ours to reap.
+  docker rm -f mario-render >/dev/null 2>&1 || true
+  timeout "$RENDER_TIMEOUT" docker compose -f "$ROOT/docker-compose.yml" run --rm \
+    --name mario-render mario \
+    generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --keep-buckets 1 \
+    >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    log "render ok: signal $sig duration=$(( $(date +%s) - start ))s"
+  else
+    # 124 = timeout. `timeout` kills the compose client, not the container: reap
+    # the one-off by name or it keeps rendering (and burning CPU) forever.
+    [ "$rc" -eq 124 ] && docker kill mario-render >/dev/null 2>&1
+    log "WARN render rc=$rc: signal $sig duration=$(( $(date +%s) - start ))s; continuing to restart"
+  fi
 fi
 
 # Best-effort ownership repair for bind-mounted outputs (#83). Requires scoped

@@ -38,6 +38,11 @@ SHADOW="${RADIO_JOB_SHADOW:-0}"
 # point where a real-time encoder starts missing deadlines.
 TEMP_MAX_C=78
 PSI_MEM_MAX=10
+# CPU stall share (avg60) at which adding another heavy job stops being free.
+# The stampede of 2026-11-14 ran at load 98 on 8 cores and this gate knew nothing
+# about it: temperature stayed under the limit and memory was untouched. 25 is a
+# first cut — the job log records every verdict, so it can be re-tuned on data.
+PSI_CPU_MAX=25
 STATUS_MAX_AGE_S=600
 
 # Retention bounds. One place, so a policy change is not a code change.
@@ -238,6 +243,14 @@ cmd_verify() {
     uncapped=$(docker inspect $ids --format '{{if eq .HostConfig.Memory 0}}{{.Name}}{{end}}' 2>/dev/null | grep -c . )
   fi
 
+  # Concurrent one-off renders. The 2026-11-14 stampede showed up nowhere except
+  # as heat: the cron handler spawned ~30 `compose run mario` containers and
+  # nothing in status.json said so. Two or more is always a bug, never normal.
+  local mario_oneoffs=0
+  mario_oneoffs=$(docker ps -q --filter 'name=radio-mario-run-' 2>/dev/null | grep -c . || true)
+  local cpu_pressure
+  cpu_pressure=$(awk '/^some/ {print $3}' /proc/pressure/cpu 2>/dev/null | sed 's/avg60=//')
+
   # --- jobs
   local last_gc=""
   [ -f "$GC_LOG" ] && last_gc=$(grep 'gc done' "$GC_LOG" 2>/dev/null | tail -1 | cut -d' ' -f1)
@@ -260,6 +273,8 @@ cmd_verify() {
   "resources": {"pkg_c": $pkg_c, "mem_available_mb": $mem_avail_mb,
                 "mem_pressure_some": "${mem_pressure:-0}", "disk_free_gb": $disk_free_gb,
                 "below_floor": $disk_below_floor,
+                "cpu_pressure_some": "${cpu_pressure:-0}",
+                "mario_oneoffs": $mario_oneoffs,
                 "uncapped_containers": $uncapped},
   "jobs": {"last_gc": "${last_gc:-never}"}
 }
@@ -307,7 +322,8 @@ cam = f"segment age {c['segment_age_s']}s" if c['segment_age_s'] >= 0 else "no s
 print(f"  {mark(c['fresh'])} camera   {cam}")
 print(f"  {mark(ct['catalog_ok'] and ct['tracks'] > 0)} content  {ct['tracks']} tracks, catalog_ok={ct['catalog_ok']}, last TTS {ct['last_tts_age_s']}s ago")
 print(f"  {mark(r['uncapped_containers'] == 0)} caps     {r['uncapped_containers']} uncapped container(s)")
-print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free  PSI {r['mem_pressure_some']}")
+print(f"  {mark(r.get('mario_oneoffs', 0) < 2)} renders  {r.get('mario_oneoffs', 0)} mario one-off(s) running")
+print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free  PSI {r['mem_pressure_some']}/{r.get('cpu_pressure_some', '?')} (mem/cpu)")
 print(f"  last gc  {data['jobs']['last_gc']}")
 PY
 }
@@ -327,17 +343,22 @@ preflight() {
     cmd_verify >/dev/null 2>&1 || { GATE_REASON="status unavailable"; return 1; }
   fi
 
-  if ! GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" <<'PYGATE'
+  if ! GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" "$PSI_CPU_MAX" <<'PYGATE'
 import json
 import sys
 
-status, tmax, psimax = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
+status, tmax, psimax, cpumax = (sys.argv[1], int(sys.argv[2]),
+                                float(sys.argv[3]), float(sys.argv[4]))
 d = json.load(open(status))
 r = d["resources"]
 if r["pkg_c"] >= tmax:
     print(f"hot: {r['pkg_c']}C >= {tmax}C")
 elif float(r["mem_pressure_some"]) > psimax:
     print(f"memory pressure: {r['mem_pressure_some']} > {psimax}")
+elif int(r.get("mario_oneoffs", 0)) >= 2:
+    print(f"{r['mario_oneoffs']} mario renders already running")
+elif float(r.get("cpu_pressure_some", 0)) > cpumax:
+    print(f"cpu pressure: {r.get('cpu_pressure_some')} > {cpumax}")
 elif r.get("below_floor"):
     print(f"disk below floor: {r['disk_free_gb']} GB free")
 elif not d["stream"]["flowing"]:

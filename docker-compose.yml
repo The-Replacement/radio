@@ -269,13 +269,22 @@ services:
       - ALL
     # Resource caps (#102). Mario is the process that took the host down on
     # 2026-11-13: 67 concurrent instances, each ~1.6 GB virtual / 120-535 MiB
-    # resident. 1.5 GiB is above its measured peak (535 MiB) so a single render
-    # fits comfortably; a runaway instance is killed inside its own cgroup
-    # instead of triggering a global OOM. pids_limit is the second seatbelt:
-    # the OOM dump showed dozens of docker/compose CLIs per render.
+    # resident. 1.5 GiB is above its measured peak so a single render fits
+    # comfortably; a runaway instance is killed inside its own cgroup instead of
+    # triggering a global OOM. pids_limit is the second seatbelt: the OOM dump
+    # showed dozens of docker/compose CLIs per render.
+    #
+    # cpus: measured 2026-11-14 on the same 102-segment bucket — 1.5 cpus gives
+    # 22.5 s/segment, 4 cpus gives 3.0 s/segment (102 segments: 35 min vs 6 min)
+    # and *less* total CPU (1224 vs 3200 CPU-s: oversubscribed threads throttle
+    # every 100 ms period). Peak RSS at 4 cpus was 648 MiB, so the memory cap is
+    # unchanged. The 1.5 was a seatbelt for the stampede, not a capacity figure;
+    # flock in scripts/restart-on-signal.sh removed the stampede, so the seatbelt
+    # only taxed the legitimate hourly render. CPU shares stay low: a render may
+    # burst to 4 of 8 cores but yields to Liquidsoap under contention.
     mem_limit: 1536m
     memswap_limit: 1536m
-    cpus: 1.5
+    cpus: 4
     cpu_shares: 512
     pids_limit: 128
     logging:
