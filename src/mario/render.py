@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -293,11 +294,46 @@ def generate_weather_segment(
     # one bucket the hash changes as the weather moves, so "publish only if the
     # alias does not exist" froze the segment for the whole bucket. Same reason
     # the per-bucket playout name is republished unconditionally.
+    bucket_alias = host_dir / weather_alias_filename(bucket)
+    previous = bucket_alias.resolve() if bucket_alias.is_symlink() else None
     _publish_playout_alias(host_dir, weather_alias_filename(bucket), target, force=force)
     _publish_playout_alias(
         host_dir, weather_playout_alias_filename(), target, force=force
     )
+    _drop_superseded(host_dir, previous, _content_files_for("weather", bucket), keep=target)
     return target
+
+
+def _content_files_for(prefix: str, bucket: str) -> re.Pattern[str]:
+    """Match exactly the content-addressed files this bucket owns for a family."""
+    return re.compile(rf"^{prefix}_[0-9a-f]{{8}}_{re.escape(sanitize_bucket(bucket))}\.wav$")
+
+
+def _drop_superseded(
+    host_dir: Path, previous: Path | None, pattern: re.Pattern[str], *, keep: Path
+) -> None:
+    """Unlink the content file an alias just stopped pointing at.
+
+    Every republish leaves the previous reading behind: nothing references it
+    (both aliases move in the same call, and the per-slug RSS alias too), and
+    bucket retention only sweeps it when the bucket flips, which is up to six
+    hours later. Deleting it keeps each family at one file per bucket.
+
+    Safe while Liquidsoap is decoding: an open file keeps its inode on POSIX, so
+    the reader finishes the segment it started.
+    """
+    if previous is None or previous.parent != host_dir:
+        return
+    # A cache hit republishes the alias it already pointed at: deleting it would
+    # remove the segment that was just reused.
+    if previous == keep:
+        return
+    if not pattern.match(previous.name):
+        return
+    try:
+        previous.unlink()
+    except OSError as exc:
+        logger.warning("could not remove superseded segment %s (%s)", previous.name, exc)
 
 
 def _publish_playout_alias(
@@ -366,6 +402,8 @@ def generate_rss_segment(
     # Per-feed alias: kept for debugging and for the dry-run contract.
     # It must always point at the item selected for this bucket, so a stale
     # alias is replaced even when the target file is already cached.
+    bucket_alias = host_dir / rss_stable_alias_filename(bucket)
+    previous = bucket_alias.resolve() if bucket_alias.is_symlink() else None
     _publish_playout_alias(host_dir, rss_alias_filename(slug, bucket), target, force=force)
     if stable_alias:
         # The per-bucket name is what playout reads: it cannot know the slug.
@@ -375,6 +413,7 @@ def generate_rss_segment(
         # And the bucket-less name, so a 30-minute refresh can land inside a
         # 6-hour bucket without waiting for the bucket to flip.
         _publish_playout_alias(host_dir, rss_playout_alias_filename(), target, force=force)
+    _drop_superseded(host_dir, previous, _content_files_for("rss", bucket), keep=target)
     return target
 
 

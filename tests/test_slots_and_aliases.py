@@ -151,3 +151,79 @@ def test_single_slot_run_does_not_move_the_marker(tmp_path: Path) -> None:
     )
     assert (host / "current-bucket").read_text(encoding="utf-8") == "2026-11-14T12"
     assert bucket_for_now(6).count("-") == 2  # sanity: buckets stay bucket-shaped
+
+
+def test_republish_drops_the_superseded_content_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kokoro_env: tuple[Path, Path]
+) -> None:
+    """Otherwise every changed reading lingers until the bucket flips (up to 6 h).
+
+    Nothing references the old file: both aliases move in the same call, and the
+    reader keeps its inode open if it was mid-segment.
+    """
+    install_fake_kokoro(monkeypatch)
+    model, voices = kokoro_env
+    bucket = "2026-11-14T12"
+    first = generate_weather_segment(
+        "11111111", bucket, "18 grados", model, tmp_path, voices_path=voices
+    )
+    second = generate_weather_segment(
+        "22222222", bucket, "19 grados", model, tmp_path, voices_path=voices
+    )
+
+    assert not first.exists(), "the superseded content file must be gone"
+    assert second.exists()
+    # Content files only: the alias is weather_<bucket>.wav and starts with digits.
+    content_glob = "weather_" + "[0-9a-f]" * 8 + "_*.wav"
+    remaining = sorted(p.name for p in tmp_path.glob(content_glob))
+    assert remaining == [second.name]
+    assert (tmp_path / "weather.wav").resolve() == second
+    assert (tmp_path / f"weather_{bucket}.wav").resolve() == second
+
+
+def test_republish_never_touches_another_bucket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kokoro_env: tuple[Path, Path]
+) -> None:
+    install_fake_kokoro(monkeypatch)
+    model, voices = kokoro_env
+    other = generate_weather_segment(
+        "33333333", "2026-11-14T06", "12 grados", model, tmp_path, voices_path=voices
+    )
+    generate_weather_segment(
+        "44444444", "2026-11-14T12", "19 grados", model, tmp_path, voices_path=voices
+    )
+    assert other.exists(), "retention is prune's job, not the publisher's"
+
+
+def test_cache_hit_does_not_delete_the_segment_it_reused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kokoro_env: tuple[Path, Path]
+) -> None:
+    """previous == target when the reading has not changed: keep the file."""
+    install_fake_kokoro(monkeypatch)
+    model, voices = kokoro_env
+    bucket = "2026-11-14T12"
+    first = generate_weather_segment(
+        "aaaaaaaa", bucket, "18 grados", model, tmp_path, voices_path=voices
+    )
+    again = generate_weather_segment(
+        "aaaaaaaa", bucket, "18 grados", model, tmp_path, voices_path=voices
+    )
+    assert first == again
+    assert again.exists(), "a cache hit must not unlink its own content file"
+    assert (tmp_path / "weather.wav").resolve() == again
+
+
+def test_slot_runner_pins_the_unsafe_flags() -> None:
+    """Both slot commands must carry --no-marker and --keep-buckets.
+
+    --no-marker: a 30-minute news bucket in current-bucket would break every
+    transition lookup. --keep-buckets: retention must not depend on the hourly
+    full render existing.
+    """
+    script = Path(__file__).resolve().parents[1] / "scripts" / "mario-slot.sh"
+    text = script.read_text(encoding="utf-8")
+    slot_args = [line for line in text.splitlines() if "--slots" in line]
+    assert slot_args, "the slot command lines must be discoverable"
+    for line in slot_args:
+        assert "--no-marker" in line
+        assert "--keep-buckets 1" in line
