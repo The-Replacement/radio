@@ -171,6 +171,16 @@ Argentine/rioplatense.
   check `docker compose logs liquidsoap` for `/host` read errors.
 - Wrong/missing seed: the COMMENT tag (`seed=...`) must be present; fallback is
   the `_s{seed}` filename suffix. Both come from indiegenerator.
+- `note: ownership repair skipped (no passwordless sudo for this script)` in
+  `data/mario-refresh.log` / `data/restart-on-signal.log`: the #83 repair needs a
+  scoped sudoers entry. Either add it, or expect `data/host` to keep whatever
+  ownership the containers wrote:
+
+  ```
+  # /etc/sudoers.d/radio-ownership
+  kbdejavu ALL=(root) NOPASSWD: /home/kbdejavu/servers/radio/scripts/fix-data-ownership.sh
+  ```
+
 - The meteorologist or the newsreader went quiet: `scripts/radio-job.sh status`
   prints `weather refreshed Ns ago` and `news refreshed Ns ago` (limits 1500 s and
   3900 s). An age of `-1` means the alias is missing or dangling — a publish

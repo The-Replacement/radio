@@ -66,9 +66,17 @@ if [ "$rc" -ne 0 ]; then
 fi
 # Best-effort ownership repair for bind-mounted outputs (#83). Requires scoped
 # passwordless sudo for this script on hosts where root-owned artifacts recur.
+# The repair needs passwordless sudo scoped to that one script (#83). When it is
+# not wired, `sudo -n` fails with "interactive authentication is required" and
+# the `|| true` turned that into silence: the mitigation looked alive for days
+# while never running once. Probe first and say so.
 if [ -x "$ROOT/scripts/fix-data-ownership.sh" ]; then
-  # shellcheck disable=SC2024
-  sudo -n "$ROOT/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 || true
+  if sudo -n true 2>/dev/null; then
+    sudo -n "$ROOT/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 \
+      || log "WARN ownership repair failed"
+  else
+    log "note: ownership repair skipped (no passwordless sudo for this script)"
+  fi
 fi
 dur=$(( $(date +%s) - start ))
 after=$(bucket)
