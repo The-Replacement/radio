@@ -700,7 +700,7 @@ def _check_containers(
                 Check(f"container:{service}", UNKNOWN, "the manifest names no container")
             )
             continue
-        res = runner(["docker", "inspect", "--format", "{{.Image}}", container])
+        res = runner(["docker", "inspect", "--format", "{{.Image}}|{{.State.Running}}", container])
         if res.returncode != 0:
             checks.append(
                 Check(
@@ -710,7 +710,20 @@ def _check_containers(
                 )
             )
             continue
-        running = res.text.strip()
+        running, _, state = res.text.strip().partition("|")
+        if state.strip().lower() != "true":
+            # A stopped container keeps the image it was created from. Some
+            # services are one-off jobs (mario) or optional (cam): comparing
+            # them would call a healthy deploy a mismatch. There is nothing
+            # running to disagree with the manifest.
+            checks.append(
+                Check(
+                    f"container:{service}",
+                    NOTE,
+                    f"{container} exists but is not running; nothing to verify",
+                )
+            )
+            continue
         recorded_id = str(recorded.get("image_id") or "")
         if running == recorded_id:
             checks.append(Check(f"container:{service}", PASS, f"{container} runs {running[:19]}"))

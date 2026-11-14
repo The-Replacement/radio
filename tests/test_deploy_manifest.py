@@ -301,8 +301,8 @@ def _verifying_runner() -> FakeRunner:
     runner.on("ls-remote", stdout=f"{SOURCE_SHA}\trefs/heads/master".encode())
     runner.on("{{json .}} radio-mario", stdout=_image_inspect(MARIO_IMAGE_ID, SOURCE_SHA))
     runner.on("{{json .}} radio-cam", stdout=_image_inspect(CAM_IMAGE_ID, SOURCE_SHA))
-    runner.on("inspect --format {{.Image}} radio-mario", stdout=MARIO_IMAGE_ID.encode())
-    runner.on("inspect --format {{.Image}} radio-cam", stdout=CAM_IMAGE_ID.encode())
+    runner.on("inspect --format {{.Image}}|{{.State.Running}} radio-mario", stdout=f"{MARIO_IMAGE_ID}|true".encode())
+    runner.on("inspect --format {{.Image}}|{{.State.Running}} radio-cam", stdout=f"{CAM_IMAGE_ID}|true".encode())
     return runner
 
 
@@ -379,8 +379,8 @@ def test_verify_reports_a_mismatch_when_a_running_container_is_on_another_image(
     _manifest_with(root)
     runner = _verifying_runner()
     runner.responses.insert(
-        0, ("inspect --format {{.Image}} radio-mario", deploy_manifest.CommandResult(
-            0, CAM_IMAGE_ID.encode(), b""
+        0, ("inspect --format {{.Image}}|{{.State.Running}} radio-mario", deploy_manifest.CommandResult(
+            0, f"{CAM_IMAGE_ID}|true".encode(), b""
         ))
     )
 
@@ -389,6 +389,24 @@ def test_verify_reports_a_mismatch_when_a_running_container_is_on_another_image(
     assert _check(checks, "container:mario").status == "FAIL"
     _, code = deploy_manifest.verdict(checks)
     assert code == 1
+
+
+def test_verify_does_not_fail_a_stopped_one_off_container(tmp_path: Path) -> None:
+    """mario and cam run on demand; a stopped container is not drift."""
+    root = _make_root(tmp_path)
+    _manifest_with(root)
+    runner = _verifying_runner()
+    runner.responses.insert(
+        0, ("inspect --format {{.Image}}|{{.State.Running}} radio-mario", deploy_manifest.CommandResult(
+            0, f"{CAM_IMAGE_ID}|false".encode(), b""
+        ))
+    )
+
+    checks = deploy_manifest.verify(root, runner)
+
+    assert _check(checks, "container:mario").status == "NOTE"
+    assert not [c for c in checks if c.status == "FAIL"
+                and c.name.startswith("container:")]
 
 
 def test_verify_reports_a_mismatch_when_a_rebuilt_image_carries_another_revision(
@@ -535,8 +553,8 @@ def test_verify_says_unverified_when_the_box_cannot_be_inspected(tmp_path: Path)
     for pattern in (
         "{{json .}} radio-mario",
         "{{json .}} radio-cam",
-        "inspect --format {{.Image}} radio-mario",
-        "inspect --format {{.Image}} radio-cam",
+        "inspect --format {{.Image}}|{{.State.Running}} radio-mario",
+        "inspect --format {{.Image}}|{{.State.Running}} radio-cam",
     ):
         runner.responses.insert(
             0, (pattern, deploy_manifest.CommandResult(1, b"", b"no docker daemon"))
