@@ -57,3 +57,6 @@ opencode.template.json
 # Audio scan root (split layout, #65): runtime audio files, not tracked
 music-audio/*.flac
 music-audio/.tmp/
+
+# Wrangler state (Pages deploys run from CI; this is local cache)
+.wrangler/
