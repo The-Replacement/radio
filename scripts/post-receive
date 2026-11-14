@@ -1,34 +1,34 @@
 #!/bin/sh
-# post-receive — corre EN el box que sirve la radio, después de cada push.
+# post-receive — runs ON the box that serves the radio, after every push.
 #
-# git actualiza el working tree solo (con receive.denyCurrentBranch=
-# updateInstead en este repo, el push fast-forwardea el árbol local), así
-# que acá NO hay fetch, ni pull, ni credenciales: el push es la
-# sincronización. El proceso acaba con la working tree en el commit
-# empujado y este hook decide qué, en caliente, cambia de verdad.
+# git updates the working tree by itself (this repo uses
+# receive.denyCurrentBranch=updateInstead, so the push fast-forwards the
+# local tree). There is therefore NO fetch, NO pull and NO credentials here:
+# the push IS the synchronization. The process ends with the working tree at
+# the pushed commit, and this hook decides what actually changes, live.
 #
-# Qué toca, y qué NUNCA toca:
-#   - caddy/Caddyfile o caddy/tokens.caddy cambiaron -> `caddy reload`
-#     adentro del contenedor: reload graceful, sin cortar a los oyentes.
-#   - src/, presets/, pyproject.toml, uv.lock, Dockerfile.mario o
-#     docker-compose.yml cambiaron -> `docker compose build mario`: reconstruye
-#     la imagen radio-mario. No corta el stream (es una imagen, no un restart
-#     de Liquidsoap); el próximo ciclo horario (mario-refresh.sh) la usa.
-#   - todo lo demás: sólo se registra. web/ la despliega Pages; cam,
-#     liquidsoap y mediamtx NO se reinician por un push — reiniciar
-#     Liquidsoap corta el stream, y eso es una decisión humana.
+# What it touches, and what it NEVER touches:
+#   - caddy/Caddyfile or caddy/tokens.caddy changed -> `caddy reload` inside
+#     the container: graceful reload, listeners are not cut.
+#   - src/, presets/, pyproject.toml, uv.lock, Dockerfile.mario or
+#     docker-compose.yml changed -> `docker compose build mario`: rebuilds the
+#     radio-mario image. It does not cut the stream (it is an image, not a
+#     Liquidsoap restart); the next hourly cycle (mario-refresh.sh) uses it.
+#   - everything else: only logged. web/ is deployed by Pages; cam, liquidsoap
+#     and mediamtx are NOT restarted by a push — restarting Liquidsoap cuts
+#     the stream, and that is a human decision.
 #
-# Registra todo en data/deploy.log (gitignored). Si el reload o el build
-# fallan, abre un reclamo en el log y sale 1 — el push llega igual (ya estaba
-# escrito) y la config/imagen anterior siguen en pie.
+# Everything is recorded in data/deploy.log (gitignored). If the reload or the
+# build fails, it writes a complaint to the log and exits 1 — the push still
+# lands (it was already written) and the previous config/image keep serving.
 set -u
 
-# Bajo un receive hook, el cwd ES el git dir (no el worktree): con
-# --show-toplevel la resolución da .git y el hook escribe/recarga en
-# el lugar equivocado. El .. del git dir es el worktree en un clone normal.
+# Under a receive hook the cwd IS the git dir (not the worktree): with
+# --show-toplevel the resolution lands on .git and the hook writes/reloads in
+# the wrong place. The .. of the git dir is the worktree in a normal clone.
 RAIZ="$(cd "$(git rev-parse --git-dir)/.." && pwd)"
-# Layouts raros (bare, worktrees ligados): cae al toplevel, y si éste
-# devuelve el git dir, se queda con pwd como último recurso.
+# Odd layouts (bare, linked worktrees): fall back to the toplevel, and if that
+# returns the git dir, keep pwd as the last resort.
 [ -f "$RAIZ/docker-compose.yml" ] || {
   ALT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$ALT" ] && [ -f "$ALT/docker-compose.yml" ] && RAIZ="$ALT"
@@ -39,7 +39,7 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"
 
 while read -r OLD NEW REF; do
   [ "$REF" = "refs/heads/master" ] || continue
-  log "push recibido ${OLD}..${NEW}"
+  log "push received ${OLD}..${NEW}"
   # A detached HEAD cannot be moved by receive.denyCurrentBranch=updateInstead:
   # the push updates the ref, the worktree stays where it was, and this hook
   # then rebuilds images from STALE code while logging success. That happened on
@@ -48,64 +48,60 @@ while read -r OLD NEW REF; do
     log "FAIL: HEAD is detached; updateInstead cannot move the worktree. Deploy did nothing."
     exit 1
   fi
-  # La caja no puede fetch (no tiene credenciales de GitHub), así que su
-  # refs/remotes/origin/master queda congelado y `git status` mentía
-  # "ahead N". El push ES la sincronización: apuntar el ref al commit que
-  # acaba de llegar deja el status honesto ("up to date").
-  git update-ref refs/remotes/origin/master "$NEW" 2>/dev/null || true
-  # Si el diff falla, no hay cambios que leer: eso NO es verde, es
-  # falsa alarma — el reload no puede depender de una comparación
-  # que no se hizo. Se frena ruidoso.
-  CAMBIOS="$(git diff --name-only "$OLD" "$NEW")" || {
-    log "FALLO: no pude comparar $OLD..$NEW — no se tocó nada"
+  # Remote-tracking refs must come from GitHub fetches, never from a deploy push.
+  # If the diff fails there is nothing to read: that is not green, it is a
+  # false alarm — the reload cannot depend on a comparison that never
+  # happened. Stop loudly.
+  CHANGES="$(git diff --name-only "$OLD" "$NEW")" || {
+    log "FAIL: could not compare $OLD..$NEW — nothing was touched"
     exit 1
   }
-  if [ -n "$CAMBIOS" ]; then
-    printf '%s\n' "$CAMBIOS" | sed 's/^/         /' >> "$LOG"
+  if [ -n "$CHANGES" ]; then
+    printf '%s\n' "$CHANGES" | sed 's/^/         /' >> "$LOG"
   fi
-  if printf '%s\n' "$CAMBIOS" | grep -qE '^caddy/(Caddyfile|tokens\.caddy)$'; then
+  if printf '%s\n' "$CHANGES" | grep -qE '^caddy/(Caddyfile|tokens\.caddy)$'; then
     if docker compose -f "$RAIZ/docker-compose.yml" exec -T caddy \
          caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-      log "caddy recargó en caliente (Caddyfile/tokens.caddy) — oyentes intactos"
+      log "caddy reloaded live (Caddyfile/tokens.caddy) — listeners intact"
     else
-      log "FALLO: caddy reload no cuajó; la config anterior sigue sirviendo"
+      log "FAIL: caddy reload did not take; the previous config keeps serving"
       exit 1
     fi
   else
-    log "sin cambios de Caddyfile/tokens.caddy: nada que recargar"
+    log "no Caddyfile/tokens.caddy changes: nothing to reload"
   fi
 
-  # Rebuild radio-mario si el push tocó código, presets o dependencias.
-  if printf '%s\n' "$CAMBIOS" | grep -qE '^(src/|presets/|pyproject\.toml$|uv\.lock$|Dockerfile\.mario$|docker-compose\.yml$)'; then
-    log "mario: cambios detectados, reconstruyendo imagen radio-mario"
+  # Rebuild radio-mario if the push touched code, presets or dependencies.
+  if printf '%s\n' "$CHANGES" | grep -qE '^(src/|presets/|pyproject\.toml$|uv\.lock$|Dockerfile\.mario$|docker-compose\.yml$)'; then
+    log "mario: changes detected, rebuilding the radio-mario image"
     build_start=$(date +%s)
     if docker compose -f "$RAIZ/docker-compose.yml" build mario >> "$LOG" 2>&1; then
       build_dur=$(( $(date +%s) - build_start ))
-      log "mario: build OK en ${build_dur}s — próximo ciclo horario usa el código nuevo"
+      log "mario: build OK in ${build_dur}s — the next hourly cycle uses the new code"
     else
       build_dur=$(( $(date +%s) - build_start ))
-      log "FALLO: mario build falló tras ${build_dur}s; la imagen anterior sigue en pie"
+      log "FAIL: mario build failed after ${build_dur}s; the previous image is still in place"
       exit 1
     fi
   else
-    log "mario: sin cambios de código/presets/deps; no se reconstruye"
+    log "mario: no code/preset/dependency changes; not rebuilding"
   fi
 
-  # Rebuild radio-cam si cambió su imagen/entrypoint. No arranca el servicio:
-  # puede no haber dispositivo; el operador decide cuándo levantarlo.
-  if printf '%s\n' "$CAMBIOS" | grep -qE '^(cam/|docker-compose\.yml$)'; then
-    log "cam: cambios detectados, reconstruyendo imagen radio-cam"
+  # Rebuild radio-cam if its image or entrypoint changed. It does not start the
+  # service: there may be no device, and the operator decides when to bring it up.
+  if printf '%s\n' "$CHANGES" | grep -qE '^(cam/|docker-compose\.yml$)'; then
+    log "cam: changes detected, rebuilding the radio-cam image"
     build_start=$(date +%s)
     if docker compose -f "$RAIZ/docker-compose.yml" build cam >> "$LOG" 2>&1; then
       build_dur=$(( $(date +%s) - build_start ))
-      log "cam: build OK en ${build_dur}s"
+      log "cam: build OK in ${build_dur}s"
     else
       build_dur=$(( $(date +%s) - build_start ))
-      log "FALLO: cam build falló tras ${build_dur}s; la imagen anterior sigue en pie"
+      log "FAIL: cam build failed after ${build_dur}s; the previous image is still in place"
       exit 1
     fi
   else
-    log "cam: sin cambios de imagen; no se reconstruye"
+    log "cam: no image changes; not rebuilding"
   fi
 
   # Best-effort ownership repair for hardened non-root bind mounts (#83).
@@ -119,5 +115,5 @@ while read -r OLD NEW REF; do
     fi
   fi
 done
-log "deploy listo"
+log "deploy ready"
 exit 0
