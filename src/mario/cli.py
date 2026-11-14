@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from .config import MarioConfig
+from .gen import SLOT_NAMES, select_slots
 from .gen import generate as run_generate
 from .openmeteo import DEFAULT_LAT, DEFAULT_LON, fetch_snapshot, write_snapshot
 
@@ -65,6 +66,12 @@ def generate_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="Print planned outputs without rendering."),
     force: bool = typer.Option(False, "--force", help="Re-render even if cached."),
     keep_buckets: int | None = typer.Option(None, "--keep-buckets", help="Prune host pool to this many recent buckets after generating."),
+    slots: str | None = typer.Option(
+        None,
+        "--slots",
+        help="Comma-separated subset of slots to render: transitions,liners,weather,rss. "
+        "Default: all four. Lets weather/news refresh on their own cadence inside a bucket.",
+    ),
 ) -> None:
     config = MarioConfig.from_env()
 
@@ -96,12 +103,25 @@ def generate_cmd(
         if value is not None:
             setattr(config, field, value)
 
+    if slots:
+        selected = select_slots(slots)
+        if selected is None:
+            typer.echo(
+                f"mario: unknown slot in --slots {slots!r}; "
+                f"choose from {', '.join(SLOT_NAMES)}",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+    else:
+        selected = None
+
     paths = run_generate(
         config,
         time_bucket=time_bucket,
         dry_run=dry_run,
         force=force,
         keep_buckets=keep_buckets,
+        slots=selected,
     )
     typer.echo(f"mario: {len(paths)} segment(s) {'planned' if dry_run else 'ready'}")
     for p in paths:

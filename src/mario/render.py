@@ -16,10 +16,15 @@ from .rss import (
     rss_alias_filename,
     rss_cache_filename_from_key,
     rss_fallback_filename,
+    rss_playout_alias_filename,
     rss_stable_alias_filename,
 )
 from .timebucket import sanitize_bucket
-from .weather import weather_alias_filename, weather_cache_filename
+from .weather import (
+    weather_alias_filename,
+    weather_cache_filename,
+    weather_playout_alias_filename,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -284,32 +289,46 @@ def generate_weather_segment(
             lang=lang,
             backend=backend,
         )
-    alias = host_dir / weather_alias_filename(bucket)
-    if force or not alias.exists():
-        try:
-            if alias.is_symlink() or alias.exists():
-                alias.unlink()
-            os.symlink(target.name, alias)
-        except OSError:
-            if force or not (alias.is_file() and alias.stat().st_size > 0):
-                alias.write_bytes(target.read_bytes())
+    # The alias must always point at the reading selected for this run: within
+    # one bucket the hash changes as the weather moves, so "publish only if the
+    # alias does not exist" froze the segment for the whole bucket. Same reason
+    # the per-bucket playout name is republished unconditionally.
+    _publish_playout_alias(host_dir, weather_alias_filename(bucket), target, force=force)
+    _publish_playout_alias(
+        host_dir, weather_playout_alias_filename(), target, force=force
+    )
     return target
 
 
 def _publish_playout_alias(
     host_dir: Path, alias_name: str, target: Path, *, force: bool
 ) -> None:
-    """Point a stable playout name at target (symlink, copy when unsupported)."""
+    """Point a stable playout name at target (symlink, copy when unsupported).
+
+    Atomic on purpose: Liquidsoap resolves this name between tracks, so it must
+    never observe a window with no file (unlink-then-symlink) or a half-written
+    copy. Weather now republishes every 10 minutes, which makes that window a
+    certainty rather than a rare race.
+    """
     alias = host_dir / alias_name
     if not force and alias.is_symlink() and os.readlink(alias) == target.name:
         return
+    tmp = host_dir / (alias_name + ".tmp")
     try:
-        if alias.is_symlink() or alias.exists():
-            alias.unlink()
-        os.symlink(target.name, alias)
+        if tmp.is_symlink() or tmp.exists():
+            tmp.unlink()
+        os.symlink(target.name, tmp)
+        os.replace(tmp, alias)
+        return
     except OSError:
-        # Fallback: hard copy if symlinks are unsupported.
-        alias.write_bytes(target.read_bytes())
+        # Fallback: copy when symlinks are unsupported (some bind mounts).
+        try:
+            if tmp.exists():
+                tmp.unlink()
+            tmp.write_bytes(target.read_bytes())
+            os.replace(tmp, alias)
+        except OSError:
+            pass
 
 
 def generate_rss_segment(
@@ -353,6 +372,9 @@ def generate_rss_segment(
         _publish_playout_alias(
             host_dir, rss_stable_alias_filename(bucket), target, force=force
         )
+        # And the bucket-less name, so a 30-minute refresh can land inside a
+        # 6-hour bucket without waiting for the bucket to flip.
+        _publish_playout_alias(host_dir, rss_playout_alias_filename(), target, force=force)
     return target
 
 

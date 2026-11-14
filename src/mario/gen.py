@@ -260,6 +260,31 @@ DEFAULT_SLOTS: list[SlotGenerator] = [
     RssGenerator(),
 ]
 
+SLOT_NAMES: tuple[str, ...] = ("transitions", "liners", "weather", "rss")
+
+_SLOT_BY_NAME: dict[str, SlotGenerator] = {
+    "transitions": TransitionGenerator(),
+    "liners": LinerGenerator(),
+    "weather": WeatherGenerator(),
+    "rss": RssGenerator(),
+}
+
+
+def select_slots(spec: str) -> list[SlotGenerator] | None:
+    """Map a comma-separated slot list to generators, in DEFAULT_SLOTS order.
+
+    Returns ``None`` when the spec is empty or names an unknown slot, so the
+    caller can fail loudly instead of silently rendering everything (which is
+    what a typo would otherwise cost: the full O(n^2) render).
+
+    Order follows DEFAULT_SLOTS, never the request order, so a partial run
+    cannot reorder the slot dependencies.
+    """
+    wanted = {part.strip().lower() for part in spec.split(",") if part.strip()}
+    if not wanted or wanted - set(SLOT_NAMES):
+        return None
+    return [slot for name, slot in _SLOT_BY_NAME.items() if name in wanted]
+
 
 def _emit_transitions(ctx: _GenerationContext, sink: _SegmentSink) -> None:
     # Transition segments (per ordered pair, excluding self).

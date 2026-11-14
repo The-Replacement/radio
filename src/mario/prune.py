@@ -20,7 +20,17 @@ from pathlib import Path
 
 _BUCKET_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:T\d{2})?")
 
-_PROTECTED_NAMES = {"current-bucket", "current-bucket.tmp", "weather.json"}
+_PROTECTED_NAMES = {
+    "current-bucket",
+    "current-bucket.tmp",
+    "weather.json",
+    # Bucket-less playout aliases: they are what Liquidsoap reads, so pruning
+    # them would silence weather/news even though the bucket files still exist.
+    "weather.wav",
+    "rss.wav",
+    "weather.wav.tmp",
+    "rss.wav.tmp",
+}
 
 
 def parse_bucket(name: str) -> str | None:

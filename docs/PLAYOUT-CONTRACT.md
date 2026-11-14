@@ -24,9 +24,10 @@ Mario writes all segments here. Liquidsoap reads from `/host`.
 
 ### Weather segment
 - **Cache filename:** `weather_{hash[:8]}_{bucket}.wav`
-- **Playout alias:** `weather_{bucket}.wav` (symlink or copy to cache file)
-- **Producer:** `weather.weather_cache_filename()` + `weather.weather_alias_filename()` → `generate_weather_segment()`
-- **Consumer:** Liquidsoap `weather_path = "/host/weather_#{bucket}.wav"`
+- **Playout aliases:** `weather.wav` (bucket-less, preferred) and `weather_{bucket}.wav` (fallback)
+- **Producer:** `weather.weather_cache_filename()` + `weather_alias_filename()` + `weather_playout_alias_filename()` → `generate_weather_segment()`, republished atomically on every render
+- **Consumer:** Liquidsoap prefers `/host/weather.wav`, falls back to `/host/weather_#{bucket}.wav`
+- **Cadence:** the snapshot is refreshed and the segment re-rendered every 10 minutes (`scripts/mario-slot.sh weather`), which is why playout cannot key on the bucket alone: the bucket may be 6 hours wide while the reading changes every 10 minutes.
 
 ### RSS/news segment
 - **Cache filename:** `rss_{cache_key[:8]}_{bucket}.wav`
@@ -82,5 +83,8 @@ The following invariants must hold:
 6. `liner_cache_filename("station", 100, "2026-11-13T14")` == `"liner_station_100_2026-11-13T14.wav"`
 7. Liquidsoap globs `liner_*_{seed}_{bucket}.wav` — matches cache filename pattern.
 8. Liquidsoap reads `/host/rss_{bucket}.wav` — matches `rss_stable_alias_filename`.
-9. Liquidsoap reads `/host/weather_{bucket}.wav` — matches `weather_alias_filename`.
+9. Liquidsoap reads `/host/weather.wav` first (matches `weather_playout_alias_filename`) and falls back to `/host/weather_{bucket}.wav` (matches `weather_alias_filename`).
+9b. Liquidsoap reads `/host/rss.wav` first (matches `rss_playout_alias_filename`) and falls back to `/host/rss_{bucket}.wav` (matches `rss_stable_alias_filename`).
+9c. Publish is atomic (temp symlink + rename): playout must never resolve a missing alias mid-swap.
+9d. `weather.wav` / `rss.wav` are in `prune._PROTECTED_NAMES`: pruning them would silence the segment while its content files still exist.
 10. Liquidsoap reads `/host/{es}_{ss}_{bucket}.wav` — matches `cache_filename`.

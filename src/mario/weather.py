@@ -188,3 +188,13 @@ def weather_cache_filename(hash_hex: str, bucket: str) -> str:
 
 def weather_alias_filename(bucket: str) -> str:
     return f"weather_{sanitize_bucket(bucket)}.wav"
+
+
+def weather_playout_alias_filename() -> str:
+    """Bucket-less name Liquidsoap reads, so the refresh cadence is free.
+
+    The bucket-scoped names stay (retention keys on them, and they are the
+    documented contract); this one is what playout prefers, which is what makes
+    a 10-minute refresh possible inside a 6-hour bucket.
+    """
+    return "weather.wav"

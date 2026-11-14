@@ -374,6 +374,16 @@ def rss_stable_alias_filename(bucket: str) -> str:
     return f"rss_{sanitize_bucket(bucket)}.wav"
 
 
+def rss_playout_alias_filename() -> str:
+    """Bucket-less name Liquidsoap prefers, so the refresh cadence is free.
+
+    Same reasoning as weather.wav: the bucket-scoped name stays for retention
+    and for the documented contract, this one is what playout reads so news can
+    be refreshed every 30 minutes inside a 6-hour bucket.
+    """
+    return "rss.wav"
+
+
 def rss_fallback_filename(slug: str, bucket: str) -> str:
     """Stable per-feed playout name for the fallback segment."""
     return f"rss_fallback_{slug}_{sanitize_bucket(bucket)}.wav"

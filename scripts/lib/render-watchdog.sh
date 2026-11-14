@@ -39,9 +39,14 @@ render_with_watchdog() {
   # every future run skips until it dies.
   local out="/dev/null"
   [ -n "${RENDER_OUTPUT_LOG:-}" ] && out="$RENDER_OUTPUT_LOG"
+  # Optional entrypoint override, so a caller can run two mario commands in one
+  # container (e.g. fetch the weather snapshot, then render the weather slot)
+  # instead of paying container startup twice per interval.
+  local extra=()
+  [ -n "${RENDER_ENTRYPOINT:-}" ] && extra=(--entrypoint "$RENDER_ENTRYPOINT")
   # shellcheck disable=SC2086
   timeout "$hard_max" docker compose -f "$compose" run --rm --name mario-render \
-    mario "$@" >>"$out" 2>&1 8>&- 9>&- &
+    "${extra[@]}" mario "$@" >>"$out" 2>&1 8>&- 9>&- &
   pid=$!
 
   last=$(date +%s)

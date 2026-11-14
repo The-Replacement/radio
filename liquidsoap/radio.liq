@@ -144,7 +144,13 @@ def host_transition(ending, starting) =
 
     if bucket != "" and rss_turn and list.length(spacers()) < 2 then
       try
-        rss_path = "/host/rss_#{bucket}.wav"
+        # Prefer the bucket-less name: news is refreshed every 30 min, so the
+        # bucket-scoped file can be up to 30 min stale inside a 6-hour bucket.
+        # The bucket name stays as the fallback so an older host dir still airs.
+        rss_path = "/host/rss.wav"
+        if not file.exists(rss_path) then
+          rss_path = "/host/rss_#{bucket}.wav"
+        end
         if file.exists(rss_path) then
           spacers := list.append(spacers(), [single(rss_path)])
         end
@@ -156,7 +162,11 @@ def host_transition(ending, starting) =
     # Weather (meteorologist): one segment per bucket when available.
     if bucket != "" and list.length(spacers()) < 2 then
       try
-        weather_path = "/host/weather_#{bucket}.wav"
+        # Same reasoning as news, at 10 minutes instead of 30.
+        weather_path = "/host/weather.wav"
+        if not file.exists(weather_path) then
+          weather_path = "/host/weather_#{bucket}.wav"
+        end
         if file.exists(weather_path) then
           spacers := list.append(spacers(), [single(weather_path)])
         end
