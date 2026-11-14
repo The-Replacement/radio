@@ -28,10 +28,22 @@ LOCK="/tmp/restart-on-signal.lock"
 # once: same segments, twice the CPU.
 RENDER_LOCK="/tmp/mario-refresh.lock"
 LOG="$ROOT/data/restart-on-signal.log"
-# A render takes ~35 min on this box; a hung one must not wedge the pipeline.
-RENDER_TIMEOUT=900
+HOST_DIR="$ROOT/data/host"
+# A hung render must not wedge the pipeline, but a *slow* one is not a hang.
+# The old absolute timeout was silently coupled to the cpus cap in
+# docker-compose.yml: 900 s was sized for a ~360 s render at 4 cpus, and under
+# the previous 1.5-cpu cap the same render took ~2100 s, so every rotation was
+# killed at 900 s (rc=124 in this log, 2026-11-14T10:45) and the new library
+# went on air without its transition segments. Watch progress instead: a render
+# that still writes segments is working no matter what the cap is.
+RENDER_STALL_SECONDS="${MARIO_RENDER_STALL_SECONDS:-240}"
+# Backstop against a bug in the watchdog, not a cap-coupled limit.
+RENDER_HARD_MAX="${MARIO_RENDER_HARD_MAX:-14400}"
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$LOG"; }
+
+# shellcheck source=scripts/lib/render-watchdog.sh
+. "$ROOT/scripts/lib/render-watchdog.sh"
 
 [ -f "$SIGNAL" ] || exit 0
 
@@ -60,7 +72,6 @@ fi
 # as a container (`docker compose run --rm mario`), mirroring indiegenerator.
 # Keep only the current (new) bucket. A failure here must NOT block the
 # restart: the segments are optional (Liquidsoap skips misses).
-start=$(date +%s)
 # Two reasons to skip the render, both logged: the hourly refresh is already
 # rendering (same lock), or the box's own gate says not now (hot, memory
 # pressure, stream sick). Skipping is safe by design — the segments are
@@ -79,19 +90,16 @@ else
   # A run killed mid-render leaves the named one-off behind (SIGKILL to the
   # compose client does not stop the container); the next `--name` would then
   # fail. We hold the lock, so any leftover with that name is ours to reap.
-  docker rm -f mario-render >/dev/null 2>&1 || true
-  timeout "$RENDER_TIMEOUT" docker compose -f "$ROOT/docker-compose.yml" run --rm \
-    --name mario-render mario \
-    generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --keep-buckets 1 \
-    >/dev/null 2>&1
+  verdict=$(render_with_watchdog "$ROOT/docker-compose.yml" "$HOST_DIR" \
+    "$RENDER_HARD_MAX" "$RENDER_STALL_SECONDS" \
+    generate --music-dir /music --host-dir /data/host \
+    --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json \
+    --keep-buckets 1)
   rc=$?
   if [ "$rc" -eq 0 ]; then
-    log "render ok: signal $sig duration=$(( $(date +%s) - start ))s"
+    log "render ok: signal $sig $verdict"
   else
-    # 124 = timeout. `timeout` kills the compose client, not the container: reap
-    # the one-off by name or it keeps rendering (and burning CPU) forever.
-    [ "$rc" -eq 124 ] && docker kill mario-render >/dev/null 2>&1
-    log "WARN render rc=$rc: signal $sig duration=$(( $(date +%s) - start ))s; continuing to restart"
+    log "WARN render failed: signal $sig $verdict; continuing to restart"
   fi
 fi
 

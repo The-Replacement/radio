@@ -18,6 +18,14 @@ fi
 
 log() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$LOG"; }
 
+# A hung render must not hold this lock forever, and a slow one is not a hang
+# (the render time depends on the cpus cap and on the library size). Shared with
+# scripts/restart-on-signal.sh.
+RENDER_STALL_SECONDS="${MARIO_RENDER_STALL_SECONDS:-240}"
+RENDER_HARD_MAX="${MARIO_RENDER_HARD_MAX:-14400}"
+# shellcheck source=scripts/lib/render-watchdog.sh
+. "$ROOT/scripts/lib/render-watchdog.sh"
+
 bucket() { tr -d '[:space:]' < "$ROOT/data/host/current-bucket" 2>/dev/null; }
 bucket_age() {
   # Seconds since the marker was written; -1 if it is missing.
@@ -42,13 +50,19 @@ if [ "$age" -ge 0 ] && [ "$age" -gt 4500 ]; then
 fi
 
 start=$(date +%s)
-if docker compose -f "$ROOT/docker-compose.yml" run --rm mario \
-  generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --keep-buckets 1 \
-  >> "$LOG" 2>&1; then
-  rc=0
-else
-  rc=$?
-  log "FAIL: mario generate exited $rc"
+# Same guard as the rotation handler: a hung render must not hold this lock
+# forever (every later hour would log "skip: lock held" and the host voice would
+# freeze at the last bucket, silently). See scripts/lib/render-watchdog.sh.
+# RENDER_OUTPUT_LOG keeps the segment list in this log, as it was before.
+RENDER_OUTPUT_LOG="$LOG"
+verdict=$(render_with_watchdog "$ROOT/docker-compose.yml" "$ROOT/data/host" \
+  "$RENDER_HARD_MAX" "$RENDER_STALL_SECONDS" \
+  generate --music-dir /music --host-dir /data/host \
+  --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json \
+  --keep-buckets 1)
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  log "WARN: mario generate exited $rc ($verdict)"
 fi
 # Best-effort ownership repair for bind-mounted outputs (#83). Requires scoped
 # passwordless sudo for this script on hosts where root-owned artifacts recur.
