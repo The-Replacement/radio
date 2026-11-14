@@ -227,3 +227,28 @@ def test_slot_runner_pins_the_unsafe_flags() -> None:
     for line in slot_args:
         assert "--no-marker" in line
         assert "--keep-buckets 1" in line
+
+
+def test_prune_never_deletes_an_alias_target(tmp_path: Path) -> None:
+    """weather.wav is bucket-less, so its target can be in a dropped bucket.
+
+    Deleting it leaves a dangling alias: playout falls back to the bucket name
+    (so air survives), but the segment stops refreshing until the next slot run.
+    Observed on 2026-11-14 when the marker and the wall clock disagreed.
+    """
+    from mario.prune import prune_host_dir
+
+    old = tmp_path / "weather_aaaa0000_2026-11-14T12.wav"
+    newer = tmp_path / "weather_bbbb1111_2026-11-14T18.wav"
+    stale = tmp_path / "100_200_2026-11-14T12.wav"
+    for path in (old, newer, stale):
+        path.write_bytes(b"x")
+    (tmp_path / "weather.wav").symlink_to(old.name)
+    (tmp_path / "current-bucket").write_text("2026-11-14T18", encoding="utf-8")
+
+    removed = prune_host_dir(tmp_path, 1)
+
+    assert old.exists(), "the alias target must survive"
+    assert not stale.exists(), "the rest of the old bucket still goes"
+    assert (tmp_path / "weather.wav").exists()
+    assert removed == [stale]

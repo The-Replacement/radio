@@ -76,6 +76,20 @@ def prune_host_dir(
     kept = set(ordered[-keep_buckets:])
     cutoff = ordered[-keep_buckets]  # oldest bucket still kept
 
+    # Never delete the target of a playout alias. weather.wav / rss.wav are
+    # bucket-less, so their target can belong to a bucket the window is about to
+    # drop: pruning it would leave a dangling alias and the station silent on
+    # that segment until the next slot run (observed 2026-11-14 when the marker
+    # and the wall-clock bucket disagreed for one hour).
+    alias_targets: set[Path] = set()
+    for alias_name in ("weather.wav", "rss.wav"):
+        alias = host_dir / alias_name
+        if alias.is_symlink():
+            try:
+                alias_targets.add(alias.resolve())
+            except OSError:
+                continue
+
     # Never delete the bucket named by the current-bucket marker, even if the
     # window math would otherwise drop it (defensive: a tiny keep_buckets on a
     # large pool).
@@ -95,6 +109,11 @@ def prune_host_dir(
             continue
         if bucket in kept:
             continue
+        try:
+            if p.resolve() in alias_targets:
+                continue
+        except OSError:
+            pass
         # Safety: never delete anything not strictly older than the cutoff.
         if bucket >= cutoff:
             continue
