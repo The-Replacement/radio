@@ -8,6 +8,7 @@ import typer
 
 from .config import MarioConfig
 from .gen import generate as run_generate
+from .openmeteo import DEFAULT_LAT, DEFAULT_LON, fetch_snapshot, write_snapshot
 
 app = typer.Typer(help="Mario — the host voice for the radio.")
 
@@ -15,6 +16,32 @@ app = typer.Typer(help="Mario — the host voice for the radio.")
 @app.callback()
 def _root() -> None:
     """Mario — the host voice for the radio."""
+
+
+@app.command("weather-fetch")
+def weather_fetch_cmd(
+    lat: float = typer.Option(DEFAULT_LAT, "--lat", help="Latitude to fetch."),
+    lon: float = typer.Option(DEFAULT_LON, "--lon", help="Longitude to fetch."),
+    out: Path = typer.Option(
+        Path("/data/host/weather.json"), "--out", help="Snapshot path mario generate reads."
+    ),
+    timeout: float = typer.Option(10.0, "--timeout", help="HTTP timeout in seconds."),
+) -> None:
+    """Fetch current weather from Open-Meteo and write the snapshot atomically.
+
+    On any failure the previous snapshot is left untouched and the exit code is
+    non-zero, so cron logs a real failure instead of a silent no-op.
+    """
+    snapshot = fetch_snapshot(lat=lat, lon=lon, timeout=timeout)
+    if snapshot is None:
+        typer.echo("mario: weather fetch failed; previous snapshot left untouched", err=True)
+        raise typer.Exit(code=1)
+    write_snapshot(snapshot, out)
+    typer.echo(
+        f"mario: weather {snapshot.temperature_c}C "
+        f"{snapshot.sky} wind {snapshot.wind_speed_kmh}km/h "
+        f"from {snapshot.wind_dir_deg}deg -> {out}"
+    )
 
 
 @app.command("generate")

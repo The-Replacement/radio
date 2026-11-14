@@ -108,6 +108,17 @@ def _coerce_snapshot(data: dict[str, Any]) -> WeatherSnapshot | None:
     )
 
 
+def snapshot_from_mapping(data: dict[str, Any]) -> WeatherSnapshot | None:
+    """Validate an already-parsed snapshot mapping. Returns ``None`` if invalid.
+
+    The single validation path: file loading and the Open-Meteo producer both
+    go through ``_coerce_snapshot`` so they cannot drift apart.
+    """
+    if not isinstance(data, dict):
+        return None
+    return _coerce_snapshot(data)
+
+
 def load_weather_snapshot(path: Path) -> WeatherSnapshot | None:
     """Load and validate a local weather snapshot JSON. Returns None on any failure."""
     try:
