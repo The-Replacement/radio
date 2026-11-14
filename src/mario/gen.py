@@ -406,6 +406,7 @@ def generate(
     keep_buckets: int | None = None,
     backend: RenderBackend | None = None,
     slots: list[SlotGenerator] | None = None,
+    write_marker: bool = True,
     track_loader: Callable[[Path], list[Any]] | None = None,
     bucket_provider: Callable[[], str] | None = None,
     pruner: Callable[[Path, int], Any] | None = None,
@@ -443,7 +444,11 @@ def generate(
     if not out:
         return []
 
-    if not ctx.dry_run:
+    # A single-slot run (weather, news) must not move the marker: playout builds
+    # every transition and liner path from it, and a slot run may be using a
+    # different bucket width (news rotates on 30 minutes) than the families that
+    # the marker describes.
+    if not ctx.dry_run and write_marker:
         _write_bucket_marker(ctx.config.host_dir, ctx.bucket)
     if not ctx.dry_run and ctx.keep_buckets is not None:
         pruner(ctx.config.host_dir, ctx.keep_buckets)

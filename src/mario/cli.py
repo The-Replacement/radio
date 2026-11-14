@@ -63,6 +63,12 @@ def generate_cmd(
     rss_max_items_per_cycle: int | None = typer.Option(None, "--rss-max-items-per-cycle", help="Max feeds read per cycle."),
     rss_max_text_chars: int | None = typer.Option(None, "--rss-max-text-chars", help="Max spoken characters per feed item."),
     rss_timeout_seconds: float | None = typer.Option(None, "--rss-timeout-seconds", help="Feed fetch timeout in seconds."),
+    no_marker: bool = typer.Option(
+        False,
+        "--no-marker",
+        help="Do not rewrite <host-dir>/current-bucket. Required for single-slot runs, "
+        "which may use a different bucket width than the families playout resolves.",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print planned outputs without rendering."),
     force: bool = typer.Option(False, "--force", help="Re-render even if cached."),
     keep_buckets: int | None = typer.Option(None, "--keep-buckets", help="Prune host pool to this many recent buckets after generating."),
@@ -122,6 +128,7 @@ def generate_cmd(
         force=force,
         keep_buckets=keep_buckets,
         slots=selected,
+        write_marker=not no_marker,
     )
     typer.echo(f"mario: {len(paths)} segment(s) {'planned' if dry_run else 'ready'}")
     for p in paths:

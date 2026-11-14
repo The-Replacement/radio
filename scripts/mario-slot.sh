@@ -58,11 +58,18 @@ fi
 RENDER_OUTPUT_LOG="$LOG"
 if [ "$SLOT" = "weather" ]; then
   RENDER_ENTRYPOINT=sh
-  SLOT_ARGS=(-c "mario weather-fetch --out /data/host/weather.json || echo WEATHER_FETCH_FAILED >&2; exec mario generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --slots weather")
+  SLOT_ARGS=(-c "mario weather-fetch --out /data/host/weather.json || echo WEATHER_FETCH_FAILED >&2; exec mario generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --slots weather --no-marker")
 else
+  # News rotates over the feeds by bucket seed, so a 30-minute cadence needs a
+  # 30-minute bucket or the same headline repeats until the 6-hour bucket flips.
+  # --no-marker keeps that narrow bucket out of current-bucket, which playout
+  # uses to build every transition and liner path.
+  half=$(date -u +%H)
+  [ "$(date -u +%M)" -ge 30 ] && half="$half-30" || half="$half-00"
+  RSS_BUCKET="$(date -u +%Y-%m-%d)T${half}"
   SLOT_ARGS=(generate --music-dir /music --host-dir /data/host
     --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json
-    --slots "$SLOT")
+    --slots rss --time-bucket "$RSS_BUCKET" --no-marker)
 fi
 
 verdict=$(render_with_watchdog "$ROOT/docker-compose.yml" "$ROOT/data/host" \

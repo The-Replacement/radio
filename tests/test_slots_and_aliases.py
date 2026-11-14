@@ -120,3 +120,34 @@ def test_prune_protects_the_bucket_less_playout_names() -> None:
     # files still exist on disk.
     assert "weather.wav" in _PROTECTED_NAMES
     assert "rss.wav" in _PROTECTED_NAMES
+
+
+def test_single_slot_run_does_not_move_the_marker(tmp_path: Path) -> None:
+    """Playout builds every transition path from current-bucket.
+
+    A news run uses a 30-minute bucket so the feed rotation changes; if that run
+    also wrote the marker, every transition and liner lookup would target
+    names that do not exist and the station would fall back to bare crossfades.
+    """
+    from mario.config import MarioConfig
+    from mario.gen import generate, select_slots
+    from mario.timebucket import bucket_for_now
+
+    host = tmp_path / "host"
+    host.mkdir()
+    (host / "current-bucket").write_text("2026-11-14T12", encoding="utf-8")
+
+    config = MarioConfig(host_dir=host, music_dir=tmp_path, model=tmp_path / "m.onnx")
+    slots = select_slots("rss")
+    assert slots is not None
+
+    generate(
+        config,
+        dry_run=True,
+        time_bucket="2026-11-14T12-30",
+        slots=slots,
+        write_marker=False,
+        track_loader=lambda _p: [],
+    )
+    assert (host / "current-bucket").read_text(encoding="utf-8") == "2026-11-14T12"
+    assert bucket_for_now(6).count("-") == 2  # sanity: buckets stay bucket-shaped
