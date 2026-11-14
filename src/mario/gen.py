@@ -98,7 +98,15 @@ class _SegmentSink:
         self.out.append(path)
         return path
 
-    def transition(self, current_seed: int, next_seed: int, text: str, speed: float) -> Path:
+    def transition(
+        self,
+        current_seed: int,
+        next_seed: int,
+        text: str,
+        speed: float,
+        *,
+        template_version: str = "",
+    ) -> Path:
         if self.dry_run:
             return self.record(self.host_dir / f"{current_seed}_{next_seed}_{self.bucket}.wav")
         return self.record(
@@ -110,11 +118,14 @@ class _SegmentSink:
                 self.ctx.config.model,
                 self.host_dir,
                 speed=speed,
+                template_version=template_version or self.ctx.config.template_version,
                 **self._tts_kwargs,
             )
         )
 
-    def liner(self, ident_id: str, seed: int, text: str) -> Path:
+    def liner(
+        self, ident_id: str, seed: int, text: str, *, template_version: str = ""
+    ) -> Path:
         if self.dry_run:
             return self.record(
                 self.host_dir / liner_cache_filename(ident_id, seed, self.bucket)
@@ -128,11 +139,12 @@ class _SegmentSink:
                 self.ctx.config.model,
                 self.host_dir,
                 speed=self.ctx.config.tts_speed,
+                template_version=template_version or self.ctx.config.template_version,
                 **self._tts_kwargs,
             )
         )
 
-    def weather(self, weather_hash: str, text: str) -> Path:
+    def weather(self, weather_hash: str, text: str, *, template_version: str = "") -> Path:
         if self.dry_run:
             return self.record(
                 self.host_dir / weather_cache_filename(weather_hash, self.bucket)
@@ -145,6 +157,7 @@ class _SegmentSink:
                 self.ctx.config.model,
                 self.host_dir,
                 speed=self.ctx.config.tts_speed,
+                template_version=template_version or self.ctx.config.template_version,
                 **self._tts_kwargs,
             )
         )
@@ -152,7 +165,15 @@ class _SegmentSink:
     def rss_stable_alias(self) -> Path:
         return self.record(self.host_dir / rss_stable_alias_filename(self.bucket))
 
-    def rss(self, cache_key: str, slug: str, text: str, *, stable_alias: bool) -> Path:
+    def rss(
+        self,
+        cache_key: str,
+        slug: str,
+        text: str,
+        *,
+        stable_alias: bool,
+        template_version: str = "",
+    ) -> Path:
         return self.record(
             generate_rss_segment(
                 cache_key,
@@ -163,11 +184,14 @@ class _SegmentSink:
                 self.host_dir,
                 speed=self.ctx.config.tts_speed,
                 stable_alias=stable_alias,
+                template_version=template_version,
                 **self._tts_kwargs,
             )
         )
 
-    def rss_fallback(self, slug: str, text: str, *, stable_alias: bool) -> Path:
+    def rss_fallback(
+        self, slug: str, text: str, *, stable_alias: bool, template_version: str = ""
+    ) -> Path:
         return self.record(
             generate_rss_fallback_segment(
                 slug,
@@ -177,6 +201,7 @@ class _SegmentSink:
                 self.host_dir,
                 speed=self.ctx.config.tts_speed,
                 stable_alias=stable_alias,
+                template_version=template_version,
                 **self._tts_kwargs,
             )
         )
@@ -294,7 +319,13 @@ def _emit_transitions(ctx: _GenerationContext, sink: _SegmentSink) -> None:
                 continue
             text = build_text(current, nxt, ctx.bucket, ctx.config.template_version)
             vibe = vibe_for(current, nxt, ctx.bucket)
-            sink.transition(current.seed, nxt.seed, text, vibe.speed)
+            sink.transition(
+                current.seed,
+                nxt.seed,
+                text,
+                vibe.speed,
+                template_version=ctx.config.template_version,
+            )
 
 
 def _emit_liners(ctx: _GenerationContext, sink: _SegmentSink) -> None:
@@ -307,7 +338,12 @@ def _emit_liners(ctx: _GenerationContext, sink: _SegmentSink) -> None:
     pool = load_liners(liners_preset)
     for track in ctx.tracks:
         liner = select_liner(pool, track.seed)
-        sink.liner(liner.ident_id, track.seed, liner.text)
+        sink.liner(
+            liner.ident_id,
+            track.seed,
+            liner.text,
+            template_version=pool.template_version,
+        )
 
 
 def _emit_weather(ctx: _GenerationContext, sink: _SegmentSink) -> None:
@@ -318,7 +354,9 @@ def _emit_weather(ctx: _GenerationContext, sink: _SegmentSink) -> None:
     weather_preset = load_weather_preset(weather_preset_path)
     snapshot = load_weather_snapshot(ctx.config.weather_file)
     weather_text, weather_hash = build_weather_text(snapshot, weather_preset)
-    sink.weather(weather_hash, weather_text)
+    sink.weather(
+        weather_hash, weather_text, template_version=weather_preset.template_version
+    )
 
 
 def _rss_fetcher(ctx: _GenerationContext) -> FeedFetcher:
@@ -387,13 +425,24 @@ def _emit_rss(ctx: _GenerationContext, sink: _SegmentSink) -> None:
         # Every candidate failed this cycle: publish one fallback so the
         # news slot says something rather than going quiet.
         fallback_text, _fallback_hash = build_rss_fallback_text(rss_preset)
-        sink.rss_fallback(ordered[0].slug, fallback_text, stable_alias=True)
+        sink.rss_fallback(
+            ordered[0].slug,
+            fallback_text,
+            stable_alias=True,
+            template_version=rss_preset.template_version,
+        )
         return
 
     for index, (feed, item) in enumerate(airing):
         rss_text, text_hash = build_rss_text(item, rss_preset)
         cache_key = rss_cache_key(feed.normalized_url, item.item_key, ctx.bucket, text_hash)
-        sink.rss(cache_key, feed.slug, rss_text, stable_alias=index == 0)
+        sink.rss(
+            cache_key,
+            feed.slug,
+            rss_text,
+            stable_alias=index == 0,
+            template_version=rss_preset.template_version,
+        )
 
 
 def generate(

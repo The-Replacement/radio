@@ -5,6 +5,8 @@ Kokoro backend only (kokoro-onnx, local model + voices files).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
@@ -177,6 +179,84 @@ def render_wav(
     )
 
 
+def render_identity(
+    *, text: str, template_version: str, voice: str, speed: float, lang: str
+) -> str:
+    """Digest of everything that decides how the WAV should sound.
+
+    The filename stays exactly what the playout contract says it is; the
+    identity lives in a sidecar next to it. The skip rule used to be "the file
+    exists", so editing the phrase constants in text.py — or bumping
+    MARIO_TEMPLATE_VERSION, which the docs promised would invalidate the cache —
+    shipped stale audio and said nothing (issue #109).
+    """
+    blob = json.dumps(
+        [template_version, voice, round(float(speed), 4), lang, text],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _identity_path(target: Path) -> Path:
+    return target.with_name(target.name + ".meta.json")
+
+
+def _stamp_identity(target: Path, identity: str) -> None:
+    path = _identity_path(target)
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps({"identity": identity}) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        logger.warning("could not stamp identity for %s (%s)", target.name, exc)
+
+
+def _render_if_stale(
+    target: Path,
+    *,
+    text: str,
+    template_version: str,
+    model: Path,
+    force: bool,
+    voices_path: Path | None,
+    voice: str,
+    speed: float,
+    lang: str,
+    backend: RenderBackend | None,
+) -> Path:
+    """Render ``target`` unless the audio on disk already matches this identity."""
+    identity = render_identity(
+        text=text,
+        template_version=template_version,
+        voice=voice,
+        speed=speed,
+        lang=lang,
+    )
+    if not force and target.is_file() and target.stat().st_size > 0:
+        try:
+            stamped = json.loads(_identity_path(target).read_text(encoding="utf-8"))
+            if stamped.get("identity") == identity:
+                return target
+        except (OSError, ValueError):
+            pass
+        # No sidecar or a different identity: what is on disk does not match what
+        # this code would render now, so re-render it. One pass over the legacy
+        # pool, then every later run is a real cache hit again.
+    render_wav(
+        text,
+        model,
+        target,
+        voices_path=voices_path,
+        voice=voice,
+        speed=speed,
+        lang=lang,
+        backend=backend,
+    )
+    _stamp_identity(target, identity)
+    return target
+
+
 def generate_segment(
     current_seed: int,
     next_seed: int,
@@ -186,6 +266,7 @@ def generate_segment(
     host_dir: Path,
     *,
     force: bool = False,
+    template_version: str = "",
     voices_path: Path | None = None,
     voice: str = "ef_dora",
     speed: float = 1.0,
@@ -197,19 +278,18 @@ def generate_segment(
     host_dir.mkdir(parents=True, exist_ok=True)
     name = cache_filename(current_seed, next_seed, bucket)
     target = host_dir / name
-    if target.is_file() and target.stat().st_size > 0 and not force:
-        return target
-    render_wav(
-        text,
-        model,
+    return _render_if_stale(
         target,
+        text=text,
+        template_version=template_version,
+        model=model,
+        force=force,
         voices_path=voices_path,
         voice=voice,
         speed=speed,
         lang=lang,
         backend=backend,
     )
-    return target
 
 
 def generate_liner_segment(
@@ -221,6 +301,7 @@ def generate_liner_segment(
     host_dir: Path,
     *,
     force: bool = False,
+    template_version: str = "",
     voices_path: Path | None = None,
     voice: str = "ef_dora",
     speed: float = 1.0,
@@ -232,17 +313,18 @@ def generate_liner_segment(
     host_dir.mkdir(parents=True, exist_ok=True)
     name = liner_cache_filename(ident_id, seed, bucket)
     target = host_dir / name
-    if not (target.is_file() and target.stat().st_size > 0 and not force):
-        render_wav(
-            text,
-            model,
-            target,
-            voices_path=voices_path,
-            voice=voice,
-            speed=speed,
-            lang=lang,
-            backend=backend,
-        )
+    target = _render_if_stale(
+        target,
+        text=text,
+        template_version=template_version,
+        model=model,
+        force=force,
+        voices_path=voices_path,
+        voice=voice,
+        speed=speed,
+        lang=lang,
+        backend=backend,
+    )
     # Stable alias for playout systems: deterministic selection by seed means
     # this file is the liner for (seed, bucket).
     from .timebucket import sanitize_bucket
@@ -268,6 +350,7 @@ def generate_weather_segment(
     host_dir: Path,
     *,
     force: bool = False,
+    template_version: str = "",
     voices_path: Path | None = None,
     voice: str = "ef_dora",
     speed: float = 1.0,
@@ -279,17 +362,18 @@ def generate_weather_segment(
     host_dir.mkdir(parents=True, exist_ok=True)
     name = weather_cache_filename(hash_hex, bucket)
     target = host_dir / name
-    if not (target.is_file() and target.stat().st_size > 0 and not force):
-        render_wav(
-            text,
-            model,
-            target,
-            voices_path=voices_path,
-            voice=voice,
-            speed=speed,
-            lang=lang,
-            backend=backend,
-        )
+    target = _render_if_stale(
+        target,
+        text=text,
+        template_version=template_version,
+        model=model,
+        force=force,
+        voices_path=voices_path,
+        voice=voice,
+        speed=speed,
+        lang=lang,
+        backend=backend,
+    )
     # The alias must always point at the reading selected for this run: within
     # one bucket the hash changes as the weather moves, so "publish only if the
     # alias does not exist" froze the segment for the whole bucket. Same reason
@@ -330,10 +414,11 @@ def _drop_superseded(
         return
     if not pattern.match(previous.name):
         return
-    try:
-        previous.unlink()
-    except OSError as exc:
-        logger.warning("could not remove superseded segment %s (%s)", previous.name, exc)
+    for path in (previous, _identity_path(previous)):
+        try:
+            path.unlink()
+        except OSError as exc:
+            logger.warning("could not remove superseded %s (%s)", path.name, exc)
 
 
 def _publish_playout_alias(
@@ -376,6 +461,7 @@ def generate_rss_segment(
     host_dir: Path,
     *,
     force: bool = False,
+    template_version: str = "",
     voices_path: Path | None = None,
     voice: str = "ef_dora",
     speed: float = 1.0,
@@ -388,17 +474,18 @@ def generate_rss_segment(
     host_dir.mkdir(parents=True, exist_ok=True)
     name = rss_cache_filename_from_key(cache_key, bucket)
     target = host_dir / name
-    if not (target.is_file() and target.stat().st_size > 0 and not force):
-        render_wav(
-            text,
-            model,
-            target,
-            voices_path=voices_path,
-            voice=voice,
-            speed=speed,
-            lang=lang,
-            backend=backend,
-        )
+    target = _render_if_stale(
+        target,
+        text=text,
+        template_version=template_version,
+        model=model,
+        force=force,
+        voices_path=voices_path,
+        voice=voice,
+        speed=speed,
+        lang=lang,
+        backend=backend,
+    )
     # Per-feed alias: kept for debugging and for the dry-run contract.
     # It must always point at the item selected for this bucket, so a stale
     # alias is replaced even when the target file is already cached.
@@ -425,6 +512,7 @@ def generate_rss_fallback_segment(
     host_dir: Path,
     *,
     force: bool = False,
+    template_version: str = "",
     voices_path: Path | None = None,
     voice: str = "ef_dora",
     speed: float = 1.0,
@@ -436,17 +524,18 @@ def generate_rss_fallback_segment(
     host_dir = Path(host_dir)
     host_dir.mkdir(parents=True, exist_ok=True)
     target = host_dir / rss_fallback_filename(slug, bucket)
-    if not (target.is_file() and target.stat().st_size > 0 and not force):
-        render_wav(
-            text,
-            model,
-            target,
-            voices_path=voices_path,
-            voice=voice,
-            speed=speed,
-            lang=lang,
-            backend=backend,
-        )
+    target = _render_if_stale(
+        target,
+        text=text,
+        template_version=template_version,
+        model=model,
+        force=force,
+        voices_path=voices_path,
+        voice=voice,
+        speed=speed,
+        lang=lang,
+        backend=backend,
+    )
     # The fallback file already carries the stable name; make sure a previously
     # published item cannot keep playing instead of it.
     alias = host_dir / rss_alias_filename(slug, bucket)
