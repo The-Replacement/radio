@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Refresh ONE mario slot on its own cadence, independent of the time bucket.
 #
-#   */10 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh weather
-#   2,32 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh rss
+#   3,13,23,33,43,53 * * * * .../scripts/mario-slot.sh weather
+#   7,37 * * * * .../scripts/mario-slot.sh rss
 #
-# The news job is offset on purpose: */30 collides with the weather tick and one
-# of the two always loses the render lock.
+# Offsets are deliberate: the hourly job starts at :00 and a bucket flip keeps it
+# rendering for ~6.5 min, so a slot run at :00 would only lose the render lock.
 #
 # Why separate from mario-refresh.sh: transitions are O(n^2) per track pair and
 # must NOT run every 10 minutes, while weather and news go stale if they wait
@@ -80,6 +80,14 @@ verdict=$(render_with_watchdog "$ROOT/docker-compose.yml" "$ROOT/data/host" \
 rc=$?
 
 if [ "$rc" -eq 0 ]; then
+  # The alias mtime is what radio-job's freshness check reads, and a republish
+  # is skipped when the content did not change (same hash -> same target). Touch
+  # it so the age means "last successful refresh", not "last time the weather
+  # moved": a stable reading for 25 minutes is healthy, not stale.
+  alias="$ROOT/data/host/${SLOT}.wav"
+  if [ -L "$alias" ] || [ -e "$alias" ]; then
+    touch -h "$alias" 2>/dev/null || true
+  fi
   log "ok $SLOT: $verdict"
 else
   log "WARN $SLOT: $verdict"

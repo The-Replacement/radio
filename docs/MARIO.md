@@ -56,13 +56,16 @@ Cron on the box:
 
 ```
 0 * * * *    /home/kbdejavu/servers/radio/scripts/radio-job.sh tts
-*/10 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh weather
-2,32 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh rss
+3,13,23,33,43,53 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh weather
+7,37 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh rss
 * * * * *    /home/kbdejavu/servers/radio/scripts/restart-on-signal.sh
 ```
 
-The news job is offset to :02/:32 on purpose: `*/30` would collide with the
-weather tick, and one of the two would always lose the render lock.
+Both are offset off the hour on purpose: the hourly job starts at :00 and a
+bucket flip keeps it rendering for ~6.5 min, so a slot run at :00 would just
+lose the render lock. The offsets also keep the two slots apart from each other.
+A skipped tick is not an emergency: the freshness limits (1500 s weather,
+3900 s news) tolerate a couple of misses before `radio-job.sh status` complains.
 
 Every path shares three guards, so they cannot pile up (that is not theoretical —
 on 2026-11-14 a missing one produced 30 concurrent renders and load 98):
