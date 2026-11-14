@@ -23,19 +23,19 @@ import sys
 from datetime import date, datetime, timedelta
 
 
-def fin_de_dia(iso: str) -> int:
+def end_of_day(iso: str) -> int:
     """Unix time of the start of the next day.
 
     That is: the token is valid for the WHOLE given day. It is calculated in the
     local time of whoever runs the generator (the timestamp is absolute, so the
     container's timezone does not matter afterwards).
     """
-    d = date.fromisoformat(iso)
-    siguiente = datetime.combine(d + timedelta(days=1), datetime.min.time())
-    return int(siguiente.astimezone().timestamp())
+    day = date.fromisoformat(iso)
+    next_day = datetime.combine(day + timedelta(days=1), datetime.min.time())
+    return int(next_day.astimezone().timestamp())
 
 
-def clausula(campo: str, valor: str, vence: str) -> str:
+def clause(field: str, value: str, expires: str) -> str:
     """One CEL condition: the credential matches AND (when applicable) has not
     expired.
 
@@ -43,106 +43,97 @@ def clausula(campo: str, valor: str, vence: str) -> str:
     write `{{` so that `{time.now.unix}` comes out and not `{{time.now.unix}}`,
     which does not compile in CEL.
     """
-    if not vence:
-        return f"({campo} == {json.dumps(valor)})"
-    return (
-        f"({campo} == {json.dumps(valor)}"
-        f" && int({{time.now.unix}}) < {fin_de_dia(vence)})"
-    )
+    if not expires:
+        return f"({field} == {json.dumps(value)})"
+    return f"({field} == {json.dumps(value)} && int({{time.now.unix}}) < {end_of_day(expires)})"
 
 
-def o(xs: list[str]) -> str:
-    return " || ".join(xs) if xs else "false"
+def any_of(clauses: list[str]) -> str:
+    return " || ".join(clauses) if clauses else "false"
 
 
 def main() -> int:
     if len(sys.argv) != 3:
         print("usage: token-matcher.py <tokens.txt> <tokens.caddy>", file=sys.stderr)
         return 2
-    entrada, salida = sys.argv[1], sys.argv[2]
+    source_path, target_path = sys.argv[1], sys.argv[2]
 
-    filas: list[list[str]] = []
-    migrado = False
-    with open(entrada, encoding="utf-8") as fh:
-        for nro, linea in enumerate(fh, start=1):
-            linea = linea.strip()
-            if not linea or linea.startswith("#"):
+    rows: list[list[str]] = []
+    migrated = False
+    with open(source_path, encoding="utf-8") as fh:
+        for number, line in enumerate(fh, start=1):
+            line = line.strip()
+            if not line or line.startswith("#"):
                 continue
-            partes = linea.split()
-            if len(partes) < 2:
+            parts = line.split()
+            if len(parts) < 2:
                 print(
-                    f"tokens.txt line {nro}: expected 'name token ...'",
+                    f"tokens.txt line {number}: expected 'name token ...'",
                     file=sys.stderr,
                 )
                 return 1
-            nombre, token = partes[0], partes[1]
-            if len(partes) >= 3:
-                cookie = partes[2]
+            name, token = parts[0], parts[1]
+            if len(parts) >= 3:
+                cookie = parts[2]
             else:
-                cookie = secrets.token_hex(32)  # formato viejo de 2 campos
-                migrado = True
-            vence = partes[3] if len(partes) >= 4 else ""
+                cookie = secrets.token_hex(32)  # legacy two-column format
+                migrated = True
+            expires = parts[3] if len(parts) >= 4 else ""
             # Validated BEFORE any write: a badly formed expiry aborts cleanly
             # and does not leave tokens.txt half-written.
-            if vence:
+            if expires:
                 try:
-                    date.fromisoformat(vence)
+                    date.fromisoformat(expires)
                 except ValueError:
                     print(
-                        f"tokens.txt line {nro}: invalid expiry: {vence!r}"
-                        " (use YYYY-MM-DD)",
+                        f"tokens.txt line {number}: invalid expiry: {expires!r} (use YYYY-MM-DD)",
                         file=sys.stderr,
                     )
                     return 1
-            filas.append([nombre, token, cookie, vence])
+            rows.append([name, token, cookie, expires])
 
-    if migrado:
+    if migrated:
         # Atomic write: tmp + os.replace. If the process dies halfway,
         # tokens.txt is not left truncated. Keep credentials file restrictive.
-        tmp = entrada + ".tmp"
+        tmp = source_path + ".tmp"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.writelines(
-                " ".join(x for x in (n, t, c, v) if x) + "\n" for n, t, c, v in filas
-            )
+            fh.writelines(" ".join(x for x in (n, t, c, v) if x) + "\n" for n, t, c, v in rows)
             fh.flush()
             os.fsync(fh.fileno())
-        os.replace(tmp, entrada)
+        os.replace(tmp, source_path)
         try:
-            os.chmod(entrada, 0o600)
+            os.chmod(source_path, 0o600)
         except OSError:
             pass
 
-    hoy = date.today()
-    vigentes: list[list[str]] = []
-    vencidos: list[str] = []
-    for fila in filas:
-        if fila[3] and date.fromisoformat(fila[3]) < hoy:
-            vencidos.append(fila[0])
+    today = date.today()
+    active: list[list[str]] = []
+    expired: list[str] = []
+    for row in rows:
+        if row[3] and date.fromisoformat(row[3]) < today:
+            expired.append(row[0])
         else:
-            vigentes.append(fila)
+            active.append(row)
 
-    tk = [clausula("{http.request.uri.query.t}", f[1], f[3]) for f in vigentes]
-    ck = [clausula("{http.request.cookie.radio}", f[2], f[3]) for f in vigentes]
+    token_clauses = [clause("{http.request.uri.query.t}", r[1], r[3]) for r in active]
+    cookie_clauses = [clause("{http.request.cookie.radio}", r[2], r[3]) for r in active]
 
-    lineas = [
+    lines = [
         "# GENERATED BY scripts/token.sh - DO NOT EDIT BY HAND.",
         "# Defines the @gate matcher, the bridge and the @canje matcher.",
         "#",
-        f"# {len(vigentes)} credential(s) in force.",
+        f"# {len(active)} credential(s) in force.",
     ]
-    if vencidos:
-        lineas.append(
-            f"# {len(vencidos)} expired, omitted from the matcher:"
-            f" {', '.join(vencidos)}"
-        )
+    if expired:
+        lines.append(f"# {len(expired)} expired, omitted from the matcher: {', '.join(expired)}")
 
     # The bridge: URL token -> that person's cookieid.
     #
     # Only the ones in force. If a token expired, it is neither in the map nor in
     # @canje: the link does not exchange and the token does not open the gate
     # either.
-    puente = [f"\t{json.dumps(f[1])} {json.dumps(f[2])}" for f in vigentes]
+    bridge = [f"\t{json.dumps(r[1])} {json.dumps(r[2])}" for r in active]
 
     # @cam_ok: the token travelling in the PATH, for players.
     #
@@ -154,13 +145,13 @@ def main() -> int:
     # {re.cam.1} is captured by the Caddyfile's @cam_path matcher, which is
     # evaluated BEFORE. If this condition were evaluated first, it would compare
     # against "".
-    cam = [clausula("{re.cam.1}", f[1], f[3]) for f in vigentes]
+    cam_clauses = [clause("{re.cam.1}", r[1], r[3]) for r in active]
 
-    lineas += [
+    lines += [
         "",
         "# @gate: token (players) or cookie (browser), and also in force.",
         "@gate {",
-        f"\texpression `{o(tk + ck)}`",
+        f"\texpression `{any_of(token_clauses + cookie_clauses)}`",
         "}",
         "",
         "# The token -> cookieid bridge, which @canje uses to set the cookie.",
@@ -171,7 +162,7 @@ def main() -> int:
         "# never match: EVERY later request would give 404. The exchange cannot",
         "# copy, it has to translate.",
         "map {http.request.uri.query.t} {radio_cookie} {",
-        *puente,
+        *bridge,
         "}",
         "",
         "# @canje: the link with ?t=... sets the cookie and the URL stays clean.",
@@ -184,7 +175,7 @@ def main() -> int:
         "# broken session.",
         "@canje {",
         "\tpath /",
-        "\texpression `(" + '{radio_cookie} != ""' + f" && ({o(tk)}))`",
+        "\texpression `(" + '{radio_cookie} != ""' + f" && ({any_of(token_clauses)}))`",
         "}",
         "",
         "# @cam_ok: token in the PATH (/cam/<token>/index.m3u8), for VLC/mpv.",
@@ -197,21 +188,21 @@ def main() -> int:
         "# evaluated BEFORE this matcher. The handle nesting is not decoration:",
         "# it forces the order.",
         "@cam_ok {",
-        f"\texpression `{o(cam)}`",
+        f"\texpression `{any_of(cam_clauses)}`",
         "}",
     ]
 
     # Generated matcher contains bearer credentials (query token, cookie id, bridge).
     # Write atomically with restrictive permissions to reduce leakage surface (#87).
-    tmp = salida + ".tmp"
+    tmp = target_path + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lineas) + "\n")
+        fh.write("\n".join(lines) + "\n")
         fh.flush()
         os.fsync(fh.fileno())
-    os.replace(tmp, salida)
+    os.replace(tmp, target_path)
     try:
-        os.chmod(salida, 0o600)
+        os.chmod(target_path, 0o600)
     except OSError:
         pass
     return 0
