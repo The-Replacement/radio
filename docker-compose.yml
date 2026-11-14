@@ -119,7 +119,14 @@ services:
   # The camera. It talks to nobody: it writes HLS segments in ./data/cam and
   # pushes RTSP to mediamtx. Caddy serves the files; WebRTC goes separately.
   cam:
-    build: ./cam
+    build:
+      context: ./cam
+      # The revision the image is built from. The receive hook sets VCS_REF to
+      # the pushed SHA; without it the image carries an empty revision and the
+      # manifest says so.
+      args:
+        VCS_REF: "${VCS_REF:-}"
+        OCI_SOURCE: "${OCI_SOURCE:-https://github.com/The-Replacement/radio}"
     container_name: radio-cam
     restart: unless-stopped
     depends_on:
@@ -258,6 +265,12 @@ services:
     build:
       context: ./
       dockerfile: Dockerfile.mario
+      # The revision the image is built from. The receive hook sets VCS_REF to
+      # the pushed SHA; without it the image carries an empty revision and the
+      # manifest says so.
+      args:
+        VCS_REF: "${VCS_REF:-}"
+        OCI_SOURCE: "${OCI_SOURCE:-https://github.com/The-Replacement/radio}"
     container_name: radio-mario
     restart: "no"
     # Run as explicit host-aligned UID/GID to avoid root-owned artifacts in
