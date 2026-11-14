@@ -69,6 +69,23 @@ docker compose logs -f indiegen
 docker compose stop indiegen
 ```
 
+### The library rotation does not drive the host voice
+
+Mario's segments have their own cadences and are **not** tied to an indiegen
+cycle (see `docs/MARIO.md`, "Cadence and scheduling"):
+
+| Family | Refreshed |
+|---|---|
+| weather | every 10 min (`mario-slot.sh weather`, fetches Open-Meteo itself) |
+| news | every 30 min (`mario-slot.sh rss`) |
+| transitions, liners | per 6 h bucket, and on every rotation |
+
+A rotation therefore costs one *extra* pre-render (the rotation handler, which
+also restarts Liquidsoap so deleted tracks stop playing); it does not reset the
+weather/news schedule. Only transitions depend on the library's tracks, so a
+rotation landing mid-bucket leaves at most a few minutes with missing transition
+segments, which Liquidsoap covers with its crossfade.
+
 ### Split layout (SDD #65, T0 locked — rollout gated)
 
 Target state (coordinated with indiegenerator): **separate audio scan root from metadata root** to eliminate non-audio decode noise structurally while preserving contracts.

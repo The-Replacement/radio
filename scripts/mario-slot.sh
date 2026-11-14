@@ -2,7 +2,10 @@
 # Refresh ONE mario slot on its own cadence, independent of the time bucket.
 #
 #   */10 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh weather
-#   */30 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh rss
+#   2,32 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh rss
+#
+# The news job is offset on purpose: */30 collides with the weather tick and one
+# of the two always loses the render lock.
 #
 # Why separate from mario-refresh.sh: transitions are O(n^2) per track pair and
 # must NOT run every 10 minutes, while weather and news go stale if they wait

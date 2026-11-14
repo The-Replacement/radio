@@ -55,6 +55,11 @@ PSI_MEM_MAX=10
 # the stampede, so the signal separates those three cases.
 LOAD_FRACTION_PCT=75
 LOAD_MAX=$(awk -v n="$NPROC" -v p="$LOAD_FRACTION_PCT" 'BEGIN { printf "%.2f", n * p / 100 }')
+# Weather refreshes every 10 minutes, news every 30. These are "is it still
+# airing at all" limits, not precision: one skipped tick must not alarm, a dead
+# cron must. A missing/dangling alias reports age -1 and counts as not fresh.
+WEATHER_MAX_AGE_S=1500
+RSS_MAX_AGE_S=3900
 STATUS_MAX_AGE_S=600
 
 # Retention bounds. One place, so a policy change is not a code change.
@@ -235,6 +240,19 @@ cmd_verify() {
   if [ -n "$newest_wav" ]; then
     last_tts_age=$(( $(date +%s) - ${newest_wav%%.*} ))
   fi
+  # Weather and news refresh on their own cadence (10 and 30 minutes), so "is
+  # this still airing?" is not answered by any WAV mtime: their alias is
+  # republished on every run, so the alias mtime IS the refresh time. -1 means
+  # the alias is missing or dangling, which is a broken publish, not freshness.
+  local weather_age=-1 rss_age=-1 weather_fresh=false rss_fresh=false
+  if [ -e "$DATA/host/weather.wav" ]; then
+    weather_age=$(( $(date +%s) - $(stat -c %Y "$DATA/host/weather.wav" 2>/dev/null || echo 0) ))
+  fi
+  if [ -e "$DATA/host/rss.wav" ]; then
+    rss_age=$(( $(date +%s) - $(stat -c %Y "$DATA/host/rss.wav" 2>/dev/null || echo 0) ))
+  fi
+  [ "$weather_age" -ge 0 ] && [ "$weather_age" -le "$WEATHER_MAX_AGE_S" ] && weather_fresh=true
+  [ "$rss_age" -ge 0 ] && [ "$rss_age" -le "$RSS_MAX_AGE_S" ] && rss_fresh=true
 
   # --- resources
   local pkg_c=0 mem_avail_mb disk_free_gb mem_pressure disk_below_floor
@@ -283,7 +301,9 @@ cmd_verify() {
              "flowing": $([ "$bytes_rate" -gt 4000 ] && echo true || echo false), "title": "$title"},
   "door": {"status_without_token": "$door_code", "closed": $([ "$door_code" = "404" ] && echo true || echo false)},
   "camera": {"segment_age_s": $cam_age, "fresh": $([ "$cam_age" -ge 0 ] && [ "$cam_age" -lt 15 ] && echo true || echo false)},
-  "content": {"tracks": $tracks, "catalog_ok": $catalog_ok, "last_tts_age_s": $last_tts_age},
+  "content": {"tracks": $tracks, "catalog_ok": $catalog_ok, "last_tts_age_s": $last_tts_age,
+              "weather_age_s": $weather_age, "weather_fresh": $weather_fresh,
+              "rss_age_s": $rss_age, "rss_fresh": $rss_fresh},
   "resources": {"pkg_c": $pkg_c, "mem_available_mb": $mem_avail_mb,
                 "mem_pressure_some": "${mem_pressure:-0}", "disk_free_gb": $disk_free_gb,
                 "below_floor": $disk_below_floor,
@@ -336,6 +356,8 @@ print(f"  {mark(d['closed'])} door     GET / without token -> {d['status_without
 cam = f"segment age {c['segment_age_s']}s" if c['segment_age_s'] >= 0 else "no segments (device absent?)"
 print(f"  {mark(c['fresh'])} camera   {cam}")
 print(f"  {mark(ct['catalog_ok'] and ct['tracks'] > 0)} content  {ct['tracks']} tracks, catalog_ok={ct['catalog_ok']}, last TTS {ct['last_tts_age_s']}s ago")
+print(f"  {mark(ct.get('weather_fresh'))} weather  refreshed {ct.get('weather_age_s')}s ago (limit 1500s)")
+print(f"  {mark(ct.get('rss_fresh'))} news     refreshed {ct.get('rss_age_s')}s ago (limit 3900s)")
 print(f"  {mark(r['uncapped_containers'] == 0)} caps     {r['uncapped_containers']} uncapped container(s)")
 print(f"  {mark(r.get('mario_oneoffs', 0) < 2)} renders  {r.get('mario_oneoffs', 0)} mario one-off(s) running")
 print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free")

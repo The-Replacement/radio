@@ -34,32 +34,58 @@ definition.
   Liquidsoap on a library rotation.
 - `scripts/smoke.sh`: Host group (SKIP when no cached segment).
 
-## Hourly bucket refresh
+## Cadence and scheduling
 
-Time is a quantized bucket (default 1 hour). To keep the "time" announcement
-fresh without rotating music, run Mario hourly via cron:
+Time is a quantized bucket (`MARIO_TIME_BUCKET_HOURS`, 6 in this deployment to
+match the indiegen rotation of 21600 s). Transitions and liners are keyed by it:
+a bucket flip renders every segment for the new bucket once, and any rerun
+inside the same bucket is a cache hit that exits in about a second.
+
+Weather and news do **not** ride that bucket. Each has a bucket-less playout name
+(`weather.wav`, `rss.wav`) that `scripts/mario-slot.sh` republishes atomically, so
+their cadence is independent of the bucket width. Liquidsoap prefers those names
+and falls back to the bucket-scoped ones, so an older host dir still airs.
+
+| Family | Refreshed | Mechanism |
+|---|---|---|
+| transitions, liners | per 6 h bucket, plus every library rotation | `scripts/mario-refresh.sh` (hourly cron: cache hit unless the bucket flipped) and the rotation handler |
+| weather | every 10 min | `scripts/mario-slot.sh weather` — fetch Open-Meteo, then render, in one container |
+| news | every 30 min | `scripts/mario-slot.sh rss`, with a 30-minute bucket so the feed rotation moves every half hour |
+
+Cron on the box:
 
 ```
-0 * * * * /home/kbdejavu/servers/radio/scripts/mario-refresh.sh
+0 * * * *    /home/kbdejavu/servers/radio/scripts/radio-job.sh tts
+*/10 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh weather
+2,32 * * * * /home/kbdejavu/servers/radio/scripts/mario-slot.sh rss
+* * * * *    /home/kbdejavu/servers/radio/scripts/restart-on-signal.sh
 ```
+
+The news job is offset to :02/:32 on purpose: `*/30` would collide with the
+weather tick, and one of the two would always lose the render lock.
+
+Every path shares three guards, so they cannot pile up (that is not theoretical —
+on 2026-11-14 a missing one produced 30 concurrent renders and load 98):
+
+- **one render at a time** — `/tmp/mario-refresh.lock`; a second tick skips and logs it.
+- **the box gate** — `radio-job.sh preflight` (temperature, memory pressure, load,
+  concurrent renders). A deferred run is a correct outcome, not a failure.
+- **a progress watchdog** — `scripts/lib/render-watchdog.sh` kills a render that
+  stops producing segments. Deliberately not a fixed timeout: duration depends on
+  the `cpus` cap and on the library size (transitions are `n*(n-1)`), and a
+  cap-coupled timeout once killed every rotation pre-render, silently.
+
+Slot runs pass `--no-marker` (playout builds every transition path from
+`current-bucket`, and the news slot uses a narrower bucket, so it must not write
+it) and `--keep-buckets 1` (retention must not depend on the hourly job).
 
 Deploy note: `scripts/post-receive` (installed as the receive hook) rebuilds the
 `radio-mario` image automatically when a push touches `src/`, `presets/`,
 `pyproject.toml`, `uv.lock`, `Dockerfile.mario` or `docker-compose.yml`, and
 fails loudly if the build breaks. A push that only touches `web/` or docs does
-not pay the build. The new image is picked up by the next hourly run of
-`mario-refresh.sh`; the stream is never restarted by a push.
-
-where `scripts/mario-refresh.sh` is:
-
-```bash
-#!/usr/bin/env bash
-set -uo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MARIO_MUSIC_DIR="$ROOT/music" MARIO_HOST_DIR="$ROOT/data/host" \
-  mario generate --music-dir "$ROOT/music" --host-dir "$ROOT/data/host" \
-  >/dev/null 2>&1 || true
-```
+not pay the build. The new image is picked up by the next scheduled run; the
+stream is never restarted by a push — `liquidsoap/radio.liq` changes need a
+deliberate `docker compose restart liquidsoap` (~40 s of dead air).
 
 ## Voice
 
@@ -142,6 +168,10 @@ Argentine/rioplatense.
   check `docker compose logs liquidsoap` for `/host` read errors.
 - Wrong/missing seed: the COMMENT tag (`seed=...`) must be present; fallback is
   the `_s{seed}` filename suffix. Both come from indiegenerator.
+- The meteorologist or the newsreader went quiet: `scripts/radio-job.sh status`
+  prints `weather refreshed Ns ago` and `news refreshed Ns ago` (limits 1500 s and
+  3900 s). An age of `-1` means the alias is missing or dangling — a publish
+  problem, not a staleness problem. `data/mario-slot.log` has one line per run.
 
 ---
 
