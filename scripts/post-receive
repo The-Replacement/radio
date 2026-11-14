@@ -18,9 +18,12 @@
 #     and mediamtx are NOT restarted by a push — restarting Liquidsoap cuts
 #     the stream, and that is a human decision.
 #
-# Everything is recorded in data/deploy.log (gitignored). If the reload or the
-# build fails, it writes a complaint to the log and exits 1 — the push still
-# lands (it was already written) and the previous config/image keep serving.
+# Everything is recorded in data/deploy.log (gitignored) and in the deployment
+# manifest (data/deploy-manifest.json, also gitignored): the log says what
+# happened, the manifest says what is running and where it came from. If the
+# reload or the build fails, it writes a complaint to the log, records the
+# failed deploy in the manifest and exits 1 — the push still lands (it was
+# already written) and the previous config/image keep serving.
 set -u
 
 # Under a receive hook the cwd IS the git dir (not the worktree): with
@@ -37,8 +40,35 @@ LOG="$RAIZ/data/deploy.log"
 mkdir -p "$RAIZ/data"
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"; }
 
+# The deployment manifest: the machine-readable record of what this deploy
+# produced. The log says what happened; the manifest says which commit
+# produced which image, so a running container can be traced to a source
+# revision and a rollback has a target. A missing python3 must not break a
+# deploy that already landed, so that is a warning; a manifest that fails to
+# write is a failure of the evidence, and that one is loud.
+manifest_write() {
+  MANIFEST="$RAIZ/scripts/deploy_manifest.py"
+  if [ ! -f "$MANIFEST" ]; then
+    log "WARN: scripts/deploy_manifest.py is missing: this deploy is unrecorded"
+    return 0
+  fi
+  if ! command -v python3 >/dev/null 2>&1; then
+    log "WARN: python3 is not available: this deploy is unrecorded"
+    return 0
+  fi
+  if python3 "$MANIFEST" record --root "$RAIZ" --ref "$REF" --old "$OLD" --new "$NEW" \
+       --status "$1" --reason "$2" --rebuilt "$REBUILT" >> "$LOG" 2>&1; then
+    log "manifest: written to data/deploy-manifest.json (status $1)"
+    return 0
+  fi
+  log "FAIL: the deployment manifest could not be written: the deploy is unrecorded"
+  return 1
+}
+
 while read -r OLD NEW REF; do
   [ "$REF" = "refs/heads/master" ] || continue
+  REBUILT=""
+  REASON="push ${OLD}..${NEW} to ${REF}"
   log "push received ${OLD}..${NEW}"
   # A detached HEAD cannot be moved by receive.denyCurrentBranch=updateInstead:
   # the push updates the ref, the worktree stays where it was, and this hook
@@ -46,6 +76,7 @@ while read -r OLD NEW REF; do
   # 2026-11-13 and went unnoticed for hours. Fail loudly instead (#107).
   if ! git symbolic-ref -q HEAD >/dev/null 2>&1; then
     log "FAIL: HEAD is detached; updateInstead cannot move the worktree. Deploy did nothing."
+    manifest_write failed "$REASON; HEAD is detached"
     exit 1
   fi
   # Remote-tracking refs must come from GitHub fetches, never from a deploy push.
@@ -54,6 +85,7 @@ while read -r OLD NEW REF; do
   # happened. Stop loudly.
   CHANGES="$(git diff --name-only "$OLD" "$NEW")" || {
     log "FAIL: could not compare $OLD..$NEW — nothing was touched"
+    manifest_write failed "$REASON; could not compare $OLD..$NEW"
     exit 1
   }
   if [ -n "$CHANGES" ]; then
@@ -63,13 +95,23 @@ while read -r OLD NEW REF; do
     if docker compose -f "$RAIZ/docker-compose.yml" exec -T caddy \
          caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
       log "caddy reloaded live (Caddyfile/tokens.caddy) — listeners intact"
+      REASON="$REASON; caddy reloaded"
     else
       log "FAIL: caddy reload did not take; the previous config keeps serving"
+      manifest_write failed "$REASON; caddy reload failed"
       exit 1
     fi
   else
     log "no Caddyfile/tokens.caddy changes: nothing to reload"
   fi
+
+  # The images carry the source revision they were built from (OCI labels),
+  # so a running container can be traced to a commit. VCS_REF is the PUSHED
+  # SHA, not the checkout's idea of it: that is the commit the manifest
+  # records and the one the verification compares against.
+  VCS_REF="$NEW"
+  OCI_SOURCE="https://github.com/The-Replacement/radio"
+  export VCS_REF OCI_SOURCE
 
   # Rebuild radio-mario if the push touched code, presets or dependencies.
   if printf '%s\n' "$CHANGES" | grep -qE '^(src/|presets/|pyproject\.toml$|uv\.lock$|Dockerfile\.mario$|docker-compose\.yml$)'; then
@@ -78,9 +120,12 @@ while read -r OLD NEW REF; do
     if docker compose -f "$RAIZ/docker-compose.yml" build mario >> "$LOG" 2>&1; then
       build_dur=$(( $(date +%s) - build_start ))
       log "mario: build OK in ${build_dur}s — the next hourly cycle uses the new code"
+      REBUILT="$REBUILT,mario"
+      REASON="$REASON; mario rebuilt"
     else
       build_dur=$(( $(date +%s) - build_start ))
       log "FAIL: mario build failed after ${build_dur}s; the previous image is still in place"
+      manifest_write failed "$REASON; mario build failed"
       exit 1
     fi
   else
@@ -95,9 +140,12 @@ while read -r OLD NEW REF; do
     if docker compose -f "$RAIZ/docker-compose.yml" build cam >> "$LOG" 2>&1; then
       build_dur=$(( $(date +%s) - build_start ))
       log "cam: build OK in ${build_dur}s"
+      REBUILT="$REBUILT,cam"
+      REASON="$REASON; cam rebuilt"
     else
       build_dur=$(( $(date +%s) - build_start ))
       log "FAIL: cam build failed after ${build_dur}s; the previous image is still in place"
+      manifest_write failed "$REASON; cam build failed"
       exit 1
     fi
   else
@@ -113,6 +161,14 @@ while read -r OLD NEW REF; do
     else
       log "note: ownership repair skipped (no passwordless sudo)"
     fi
+  fi
+
+  # The evidence. Written last, so it describes the deploy that just
+  # happened — the images on the box are the ones this push produced. A
+  # deploy whose evidence cannot be written is not a green deploy: the push
+  # lands, but the hook says so and fails.
+  if ! manifest_write deployed "$REASON"; then
+    exit 1
   fi
 done
 log "deploy ready"

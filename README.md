@@ -875,6 +875,45 @@ Pushing from any machine without the destination (GitHub web, another
 laptop) leaves the backend behind — syncing it is just making a push
 from a configured machine.
 
+### Deployment evidence: manifest, image labels and verification
+
+The log line says a deploy happened. It does not say which commit produced the
+image the container is running, so the manifest exists: every successful or
+failed deploy ends with a machine-readable record at
+`data/deploy-manifest.json` (gitignored, written by
+`scripts/deploy_manifest.py record` from the hook). It carries the change key
+(`old..new`) and reason, the pushed SHA, the deployed timestamp, the hash of
+the hook that actually ran, the image id and OCI revision label of
+`radio-mario` and `radio-cam`, and the previous manifest one level deep as the
+rollback target. It is written with a temp file plus `rename`, so a reader
+never sees half a document, and it never enters the tracked tree.
+
+The two custom images carry that provenance themselves:
+
+- `org.opencontainers.image.revision` — the pushed SHA, passed to the build as
+  `VCS_REF`; a manual `docker compose build` without it says so with an empty
+  label;
+- `org.opencontainers.image.source` — the repository URL.
+
+To ask the box whether the evidence still holds:
+
+```bash
+python3 scripts/deploy_manifest.py verify            # contact the remote too
+python3 scripts/deploy_manifest.py verify --offline  # no network
+```
+
+It is read-only and answers four questions: does each recorded image id match
+the image on the box, and for images this deploy rebuilt, does the revision
+label match the pushed SHA; do the running containers use those images; is the
+checkout at the manifest's SHA; is the installed hook byte-identical to
+`scripts/post-receive` at that SHA; and did `origin/master` move only by fetch
+(a reflog subject, never a local write) and within the deployed commit's
+history. Exit codes: `0` everything agrees, `1` something disagrees, `2`
+something could not be evaluated (no manifest, no docker, unreachable remote).
+A cam image is rebuilt without restarting the camera, so right after such a
+push the container check reports the old image until a human restarts it —
+that is the truth, not a false alarm.
+
 ---
 
 ## Common problems
