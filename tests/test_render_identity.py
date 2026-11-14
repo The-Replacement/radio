@@ -129,9 +129,8 @@ def test_sink_forwards_the_config_template_version_for_transitions(
     passing if gen.py stopped threading the version through — and then a
     version bump would silently stop invalidating transitions.
     """
-    from types import SimpleNamespace
-
     from mario import gen
+    from mario.config import MarioConfig
 
     captured: dict[str, object] = {}
 
@@ -140,20 +139,20 @@ def test_sink_forwards_the_config_template_version_for_transitions(
         return Path("/dev/null")
 
     monkeypatch.setattr(gen, "generate_segment", fake_generate_segment)
-    ctx = SimpleNamespace(
-        config=SimpleNamespace(
+    ctx = gen._GenerationContext(
+        config=MarioConfig(
             host_dir=tmp_path,
             template_version="mario/testing",
-            tts_speed=1.0,
             voices_path=None,
-            voice="ef_dora",
             model=tmp_path / "m.onnx",
         ),
+        tracks=[],
         bucket=BUCKET,
-        backend=None,
+        kokoro_lang="es",
         dry_run=False,
         force=False,
-        kokoro_lang="es",
+        feed_fetcher=None,
+        keep_buckets=None,
     )
     sink = gen._SegmentSink(ctx, [])
     sink.transition(1, 2, "Hola", 1.0)
