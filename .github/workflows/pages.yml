@@ -1,0 +1,42 @@
+name: pages
+
+# Publishes the player to Cloudflare Pages from Actions instead of a git
+# integration.
+#
+# WHY NOT THE GIT INTEGRATION
+# The Pages project started as a git-linked project pointing at
+# `juanmanueldaza/radio`. When the repository moved to The-Replacement, the
+# Cloudflare GitHub App lost access: deployments stopped silently, and the
+# project still recorded the old owner. Re-linking requires a GitHub App
+# installation registered through the Cloudflare dashboard - a step that has to
+# be repeated on the next ownership change, and that cannot be automated.
+#
+# With Direct Upload the only thing CI needs is a token with Pages:Write. The
+# deploy then appears in this repository's Actions history, where the rest of the
+# gates already live.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "web/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # No build step: web/ is served as-is (same contract the Pages project
+          # had: build_command "exit 0", output directory "web").
+          command: pages deploy web --project-name radio-web --branch master
