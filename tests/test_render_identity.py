@@ -118,3 +118,44 @@ def test_liners_and_weather_use_the_same_rule(
     generate_weather_segment("abc12345", BUCKET, "18 grados", model, tmp_path, voices_path=voices)
     generate_weather_segment("abc12345", BUCKET, "21 grados", model, tmp_path, voices_path=voices)
     assert calls["n"] == 4
+
+
+def test_sink_forwards_the_config_template_version_for_transitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A plumbing guard: the sink must not drop template_version.
+
+    The unit tests above call the generators directly, so they would keep
+    passing if gen.py stopped threading the version through — and then a
+    version bump would silently stop invalidating transitions.
+    """
+    from types import SimpleNamespace
+
+    from mario import gen
+
+    captured: dict[str, object] = {}
+
+    def fake_generate_segment(*args: object, **kwargs: object) -> Path:
+        captured.update(kwargs)
+        return Path("/dev/null")
+
+    monkeypatch.setattr(gen, "generate_segment", fake_generate_segment)
+    ctx = SimpleNamespace(
+        config=SimpleNamespace(
+            host_dir=tmp_path,
+            template_version="mario/testing",
+            tts_speed=1.0,
+            voices_path=None,
+            voice="ef_dora",
+            model=tmp_path / "m.onnx",
+        ),
+        bucket=BUCKET,
+        backend=None,
+        dry_run=False,
+        force=False,
+        kokoro_lang="es",
+    )
+    sink = gen._SegmentSink(ctx, [])
+    sink.transition(1, 2, "Hola", 1.0)
+
+    assert captured["template_version"] == "mario/testing"

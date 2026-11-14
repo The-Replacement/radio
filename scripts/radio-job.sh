@@ -339,10 +339,11 @@ cmd_status() {
     printf 'no status yet: run "radio-job verify"\n' >&2
     return 1
   fi
-  python3 - "$STATUS" <<'PY'
+  python3 - "$STATUS" "$WEATHER_MAX_AGE_S" "$RSS_MAX_AGE_S" <<'PY'
 import json, sys, time
 
 data = json.load(open(sys.argv[1]))
+wmax, rmax = sys.argv[2], sys.argv[3]
 age = int(time.time() - time.mktime(time.strptime(data["ts"], "%Y-%m-%dT%H:%M:%SZ"))) if data.get("ts") else -1
 
 def mark(ok):
@@ -356,8 +357,8 @@ print(f"  {mark(d['closed'])} door     GET / without token -> {d['status_without
 cam = f"segment age {c['segment_age_s']}s" if c['segment_age_s'] >= 0 else "no segments (device absent?)"
 print(f"  {mark(c['fresh'])} camera   {cam}")
 print(f"  {mark(ct['catalog_ok'] and ct['tracks'] > 0)} content  {ct['tracks']} tracks, catalog_ok={ct['catalog_ok']}, last TTS {ct['last_tts_age_s']}s ago")
-print(f"  {mark(ct.get('weather_fresh'))} weather  refreshed {ct.get('weather_age_s')}s ago (limit 1500s)")
-print(f"  {mark(ct.get('rss_fresh'))} news     refreshed {ct.get('rss_age_s')}s ago (limit 3900s)")
+print(f"  {mark(ct.get('weather_fresh'))} weather  refreshed {ct.get('weather_age_s')}s ago (limit {wmax}s)")
+print(f"  {mark(ct.get('rss_fresh'))} news     refreshed {ct.get('rss_age_s')}s ago (limit {rmax}s)")
 print(f"  {mark(r['uncapped_containers'] == 0)} caps     {r['uncapped_containers']} uncapped container(s)")
 print(f"  {mark(r.get('mario_oneoffs', 0) < 2)} renders  {r.get('mario_oneoffs', 0)} mario one-off(s) running")
 print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free")

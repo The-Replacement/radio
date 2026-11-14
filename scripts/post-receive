@@ -113,9 +113,9 @@ while read -r OLD NEW REF; do
   if [ -x "$RAIZ/scripts/fix-data-ownership.sh" ]; then
     if sudo -n true 2>/dev/null; then
       sudo -n "$RAIZ/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 \
-        || log "FALLO: la reparacion de ownership no cuajo"
+        || log "WARN: ownership repair failed"
     else
-      log "nota: reparacion de ownership omitida (sin sudo sin contrasena)"
+      log "note: ownership repair skipped (no passwordless sudo)"
     fi
   fi
 done

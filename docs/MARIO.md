@@ -52,6 +52,31 @@ and falls back to the bucket-scoped ones, so an older host dir still airs.
 | weather | every 10 min | `scripts/mario-slot.sh weather` — fetch Open-Meteo, then render, in one container |
 | news | every 30 min | `scripts/mario-slot.sh rss`, with a 30-minute bucket so the feed rotation moves every half hour |
 
+### What invalidates a cached segment
+
+Filenames are stable, so the cache decides on a sidecar
+(`<name>.wav.meta.json`) holding a sha256 of `(template_version, voice, speed,
+lang, text)`. Consequences worth knowing before you touch anything:
+
+- **Editing any spoken text re-renders it**, whichever family it belongs to. The
+  text is always in the identity.
+- **The version knob is per family**, not global:
+
+  | Family | Knob |
+  |---|---|
+  | transitions | `MARIO_TEMPLATE_VERSION` (config) |
+  | liners | `template_version` in `presets/liners.yaml` |
+  | weather | `template_version` in `presets/weather.yaml` |
+  | news | `template_version` in `presets/rss.yaml` |
+
+  Bumping `MARIO_TEMPLATE_VERSION` does **not** invalidate weather or news: they
+  carry their preset's version. Use the matching one.
+- **Changing voice or speed re-renders everything**, including cached segments.
+  That is new: until 2026-11-14 those were not part of the key, so switching
+  voices left the old voice on air for any segment already rendered.
+- A segment with no sidecar (rendered before this existed) is re-rendered once
+  and cached again afterwards.
+
 Cron on the box:
 
 ```
