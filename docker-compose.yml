@@ -283,14 +283,17 @@ services:
     # only taxed the legitimate hourly render. CPU shares stay low: a render may
     # burst but yields to Liquidsoap under contention.
     #
-    # Thermal ceiling, not performance, sets the number. The box is an
-    # i7-1165G7: 4 cpus with the full stack up peaked at 88 C (2026-11-14T15:00,
-    # gate closed on it) against a 78 C gate threshold, which made the gate close
-    # because of the job it protects. 3 cpus is the largest cap that stays under
-    # the threshold, so a closed gate means something *else* is hot too.
+    # Thermal ceiling, measured (2026-11-14, i7-1165G7, full stack up): the
+    # peak is cap-insensitive above ~2 cores — 3 cpus peaked at 88 C over 536 s,
+    # 4 cpus at 88 C over 406 s. What scales is the *dose*: at 1.5 cpus the box
+    # sits at ~72 C for 2072 s (~35k C.s), at 4 cpus at ~88 C for 406 s
+    # (~13k C.s). Faster is cooler in total, so 4 is both the energy and the
+    # thermal optimum here. The gate threshold moved above this peak
+    # (radio-job.sh TEMP_MAX_C) so a closed gate keeps meaning "something else
+    # is hot too" instead of "our own scheduled render is running".
     mem_limit: 1536m
     memswap_limit: 1536m
-    cpus: 3
+    cpus: 4
     cpu_shares: 512
     pids_limit: 128
     logging:

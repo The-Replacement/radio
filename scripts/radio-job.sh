@@ -38,9 +38,13 @@ JOB_LOG="$DATA/job.log"
 SHADOW="${RADIO_JOB_SHADOW:-0}"
 
 # Gate thresholds. Measured envelope (2026-11-13): idle 42-46 C, hourly TTS peak
-# 72 C, no throttle events. 78 C sits above the known hourly peak and below the
-# point where a real-time encoder starts missing deadlines.
-TEMP_MAX_C=78
+# 72 C at the old 1.5-cpu cap, no throttle events. 78 C sat above that peak.
+# Updated 2026-11-14 after the render moved to 4 cpus: the render itself reaches
+# 88 C (measured, i7-1165G7), so a threshold below it closed the gate because of
+# the job the gate is protecting. 92 C sits above the scheduled render's own
+# peak and below Tjmax (100 C), so a closed gate now means something ELSE is
+# heating the box (ambient, a runaway, another job).
+TEMP_MAX_C=92
 PSI_MEM_MAX=10
 # Load average (1 min) at which adding another heavy job stops being free,
 # as a percentage of online CPUs. Deliberately NOT PSI cpu: root-cgroup "some"
