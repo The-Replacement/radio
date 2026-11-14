@@ -23,6 +23,10 @@ DATA="$ROOT/data"
 GC_LOG="$DATA/gc.log"
 STATUS="$DATA/status.json"
 
+# CPU capacity, so a load threshold is expressed against the real machine
+# instead of a number baked to the current box.
+NPROC=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+
 # RADIO_JOB_DRY_RUN=1 prints what gc would do and touches nothing. The first run
 # of a destructive script should not be its first test.
 DRY_RUN="${RADIO_JOB_DRY_RUN:-0}"
@@ -38,11 +42,15 @@ SHADOW="${RADIO_JOB_SHADOW:-0}"
 # point where a real-time encoder starts missing deadlines.
 TEMP_MAX_C=78
 PSI_MEM_MAX=10
-# CPU stall share (avg60) at which adding another heavy job stops being free.
-# The stampede of 2026-11-14 ran at load 98 on 8 cores and this gate knew nothing
-# about it: temperature stayed under the limit and memory was untouched. 25 is a
-# first cut — the job log records every verdict, so it can be re-tuned on data.
-PSI_CPU_MAX=25
+# Load average (1 min) at which adding another heavy job stops being free,
+# as a percentage of online CPUs. Deliberately NOT PSI cpu: root-cgroup "some"
+# is inflated by quota-throttled containers — a single mario render sitting at
+# its own cpus cap reports ~50% "some" on a 79%-idle box (measured 2026-11-14,
+# container cgroup full=52.57%, root cgroup full=0.00%). That measures the cap,
+# not the load. Load 1 min was 0.2 idle, ~4.5 during a 4-cpu render, 98 during
+# the stampede, so the signal separates those three cases.
+LOAD_FRACTION_PCT=75
+LOAD_MAX=$(awk -v n="$NPROC" -v p="$LOAD_FRACTION_PCT" 'BEGIN { printf "%.2f", n * p / 100 }')
 STATUS_MAX_AGE_S=600
 
 # Retention bounds. One place, so a policy change is not a code change.
@@ -250,6 +258,8 @@ cmd_verify() {
   mario_oneoffs=$(docker ps -q --filter 'name=radio-mario-run-' 2>/dev/null | grep -c . || true)
   local cpu_pressure
   cpu_pressure=$(awk '/^some/ {print $3}' /proc/pressure/cpu 2>/dev/null | sed 's/avg60=//')
+  local load1
+  load1=$(awk '{print $1}' /proc/loadavg 2>/dev/null || echo 0)
 
   # --- jobs
   local last_gc=""
@@ -274,6 +284,7 @@ cmd_verify() {
                 "mem_pressure_some": "${mem_pressure:-0}", "disk_free_gb": $disk_free_gb,
                 "below_floor": $disk_below_floor,
                 "cpu_pressure_some": "${cpu_pressure:-0}",
+                "load1": "${load1:-0}", "load_max": $LOAD_MAX,
                 "mario_oneoffs": $mario_oneoffs,
                 "uncapped_containers": $uncapped},
   "jobs": {"last_gc": "${last_gc:-never}"}
@@ -323,7 +334,8 @@ print(f"  {mark(c['fresh'])} camera   {cam}")
 print(f"  {mark(ct['catalog_ok'] and ct['tracks'] > 0)} content  {ct['tracks']} tracks, catalog_ok={ct['catalog_ok']}, last TTS {ct['last_tts_age_s']}s ago")
 print(f"  {mark(r['uncapped_containers'] == 0)} caps     {r['uncapped_containers']} uncapped container(s)")
 print(f"  {mark(r.get('mario_oneoffs', 0) < 2)} renders  {r.get('mario_oneoffs', 0)} mario one-off(s) running")
-print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free  PSI {r['mem_pressure_some']}/{r.get('cpu_pressure_some', '?')} (mem/cpu)")
+print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free")
+print(f"  load {r.get('load1', '?')}/{r.get('load_max', '?')} (1m/max)  PSI mem {r['mem_pressure_some']}  cpu some {r.get('cpu_pressure_some', '?')} (inflated by container caps)")
 print(f"  last gc  {data['jobs']['last_gc']}")
 PY
 }
@@ -343,12 +355,12 @@ preflight() {
     cmd_verify >/dev/null 2>&1 || { GATE_REASON="status unavailable"; return 1; }
   fi
 
-  if ! GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" "$PSI_CPU_MAX" <<'PYGATE'
+  if ! GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" "$LOAD_MAX" <<'PYGATE'
 import json
 import sys
 
-status, tmax, psimax, cpumax = (sys.argv[1], int(sys.argv[2]),
-                                float(sys.argv[3]), float(sys.argv[4]))
+status, tmax, psimax, loadmax = (sys.argv[1], int(sys.argv[2]),
+                                 float(sys.argv[3]), float(sys.argv[4]))
 d = json.load(open(status))
 r = d["resources"]
 if r["pkg_c"] >= tmax:
@@ -357,8 +369,8 @@ elif float(r["mem_pressure_some"]) > psimax:
     print(f"memory pressure: {r['mem_pressure_some']} > {psimax}")
 elif int(r.get("mario_oneoffs", 0)) >= 2:
     print(f"{r['mario_oneoffs']} mario renders already running")
-elif float(r.get("cpu_pressure_some", 0)) > cpumax:
-    print(f"cpu pressure: {r.get('cpu_pressure_some')} > {cpumax}")
+elif float(r.get("load1", 0)) > loadmax:
+    print(f"load: {r.get('load1')} > {loadmax}")
 elif r.get("below_floor"):
     print(f"disk below floor: {r['disk_free_gb']} GB free")
 elif not d["stream"]["flowing"]:
