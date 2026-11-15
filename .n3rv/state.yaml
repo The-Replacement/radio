@@ -1,0 +1,84 @@
+schema: 1
+project:
+  name: radio
+  stack: generic
+components:
+  agents:
+  - git-ops
+  - github-ops
+  - n3rv
+  - n3rv-scout
+  - n3rv-sensor
+  - project-ops
+  - sdd-archiver
+  - sdd-designer
+  - sdd-explorer
+  - sdd-proposer
+  - sdd-speccer
+  - sdd-task-planner
+  - sdd-verifier
+  skills:
+  - code
+  - commits
+  - git-ops
+  - github-ops
+  - judgment-day
+  - project-board
+  - sdd-apply
+  - sdd-archive
+  - sdd-design
+  - sdd-explore
+  - sdd-propose
+  - sdd-spec
+  - sdd-spec-kit-plan
+  - sdd-spec-kit-spec
+  - sdd-spec-kit-tasks
+  - sdd-tasks
+  - sdd-verify
+  - testing
+  commands:
+  - handoff
+  - judgment-day
+  - new-satellite
+  - review
+  - sdd-new
+  - spec-kit
+  hooks:
+  - pre-push
+detection:
+  structure:
+    has_src_dir: true
+    has_tests_dir: true
+    has_docs_dir: true
+    has_scripts_dir: true
+    has_web_files: true
+    entry_points: []
+    key_dirs:
+    - caddy
+    - cam
+    - config
+    - data
+    - icecast
+    - jingles
+    - liquidsoap
+    - mediamtx
+    - music
+    - music-audio
+    - presets
+    - secrets
+    - web
+  frameworks: []
+  tools: []
+mcp:
+  servers:
+  - name: sequential-thinking
+    type: local
+    command:
+    - npx
+    - -y
+    - '@modelcontextprotocol/server-sequential-thinking@2.1.1'
+    url: null
+    environment: null
+    description: ''
+    disabled: false
+board: null
