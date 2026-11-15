@@ -66,19 +66,42 @@ manifest_write() {
 }
 
 while read -r OLD NEW REF; do
-  [ "$REF" = "refs/heads/master" ] || continue
+  case "$REF" in
+    refs/heads/*) ;;
+    *) continue ;;
+  esac
   REBUILT=""
   REASON="push ${OLD}..${NEW} to ${REF}"
-  log "push received ${OLD}..${NEW}"
+  log "push received ${OLD}..${NEW} to ${REF}"
   # A detached HEAD cannot be moved by receive.denyCurrentBranch=updateInstead:
   # the push updates the ref, the worktree stays where it was, and this hook
   # then rebuilds images from STALE code while logging success. That happened on
   # 2026-11-13 and went unnoticed for hours. Fail loudly instead (#107).
-  if ! git symbolic-ref -q HEAD >/dev/null 2>&1; then
+  HEAD_REF="$(git symbolic-ref -q HEAD || true)"
+  if [ -z "$HEAD_REF" ]; then
     log "FAIL: HEAD is detached; updateInstead cannot move the worktree. Deploy did nothing."
     manifest_write failed "$REASON; HEAD is detached"
     exit 1
   fi
+  # updateInstead moves the worktree only when the pushed ref IS the branch
+  # checked out here. Any other branch updates a ref nobody has: the worktree
+  # keeps the previous commit while this hook rebuilds stale code and logs
+  # success. This box checks out $HEAD_REF; a push to anything else is not a
+  # deploy (infra#12).
+  if [ "$REF" != "$HEAD_REF" ]; then
+    log "FAIL: pushed $REF but HEAD is on $HEAD_REF; updateInstead would leave the worktree where it is. Push $HEAD_REF instead."
+    manifest_write failed "$REASON; branch mismatch, HEAD is $HEAD_REF"
+    exit 1
+  fi
+  # The worktree must actually be at the pushed commit: that is the tree the
+  # containers mount, and the only commit this deploy is allowed to serve.
+  WORKTREE_SHA="$(git rev-parse HEAD)"
+  if [ "$WORKTREE_SHA" != "$NEW" ]; then
+    log "FAIL: worktree is at $WORKTREE_SHA, not $NEW; refusing to deploy a tree that does not contain the push"
+    manifest_write failed "$REASON; worktree at $WORKTREE_SHA, pushed $NEW"
+    exit 1
+  fi
+  log "worktree moved to $WORKTREE_SHA"
   # Remote-tracking refs must come from GitHub fetches, never from a deploy push.
   # If the diff fails there is nothing to read: that is not green, it is a
   # false alarm — the reload cannot depend on a comparison that never
@@ -170,6 +193,11 @@ while read -r OLD NEW REF; do
   if ! manifest_write deployed "$REASON"; then
     exit 1
   fi
+  DEPLOYED=1
 done
-log "deploy ready"
+# "deploy ready" is evidence, so it may only exist when something was actually
+# deployed: a tag-only push must leave the log without it (infra#12).
+if [ "${DEPLOYED:-0}" -eq 1 ]; then
+  log "deploy ready"
+fi
 exit 0
