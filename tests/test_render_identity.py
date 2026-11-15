@@ -24,7 +24,9 @@ from tests.conftest import install_fake_kokoro
 BUCKET = "2026-11-14T12"
 
 
-def _render(model: Path, voices: Path, host: Path, *, text: str, template_version: str = "mario/2") -> Path:
+def _render(
+    model: Path, voices: Path, host: Path, *, text: str, template_version: str = "mario/2"
+) -> Path:
     return generate_segment(
         100,
         200,

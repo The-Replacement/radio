@@ -381,9 +381,7 @@ def generate_weather_segment(
     bucket_alias = host_dir / weather_alias_filename(bucket)
     previous = bucket_alias.resolve() if bucket_alias.is_symlink() else None
     _publish_playout_alias(host_dir, weather_alias_filename(bucket), target, force=force)
-    _publish_playout_alias(
-        host_dir, weather_playout_alias_filename(), target, force=force
-    )
+    _publish_playout_alias(host_dir, weather_playout_alias_filename(), target, force=force)
     _drop_superseded(host_dir, previous, _content_files_for("weather", bucket), keep=target)
     return target
 
@@ -421,9 +419,7 @@ def _drop_superseded(
             logger.warning("could not remove superseded %s (%s)", path.name, exc)
 
 
-def _publish_playout_alias(
-    host_dir: Path, alias_name: str, target: Path, *, force: bool
-) -> None:
+def _publish_playout_alias(host_dir: Path, alias_name: str, target: Path, *, force: bool) -> None:
     """Point a stable playout name at target (symlink, copy when unsupported).
 
     Atomic on purpose: Liquidsoap resolves this name between tracks, so it must
@@ -494,9 +490,7 @@ def generate_rss_segment(
     _publish_playout_alias(host_dir, rss_alias_filename(slug, bucket), target, force=force)
     if stable_alias:
         # The per-bucket name is what playout reads: it cannot know the slug.
-        _publish_playout_alias(
-            host_dir, rss_stable_alias_filename(bucket), target, force=force
-        )
+        _publish_playout_alias(host_dir, rss_stable_alias_filename(bucket), target, force=force)
         # And the bucket-less name, so a 30-minute refresh can land inside a
         # 6-hour bucket without waiting for the bucket to flip.
         _publish_playout_alias(host_dir, rss_playout_alias_filename(), target, force=force)
@@ -544,7 +538,5 @@ def generate_rss_fallback_segment(
     except OSError as exc:
         logger.warning("rss: could not remove stale alias %s (%s)", alias.name, exc)
     if stable_alias:
-        _publish_playout_alias(
-            host_dir, rss_stable_alias_filename(bucket), target, force=force
-        )
+        _publish_playout_alias(host_dir, rss_stable_alias_filename(bucket), target, force=force)
     return target

@@ -291,7 +291,9 @@ def read_reflog(root: Path, runner: CommandRunner, ref: str) -> list[ReflogEntry
         if len(parts) < 3:
             continue
         sha, selector, action = parts[0], parts[1], parts[2]
-        entries.append(ReflogEntry(sha=sha, action=action.strip(), when=_parse_reflog_date(selector)))
+        entries.append(
+            ReflogEntry(sha=sha, action=action.strip(), when=_parse_reflog_date(selector))
+        )
     return entries
 
 
@@ -556,8 +558,12 @@ def _check_deploy_status(manifest: Mapping[str, Any]) -> Check:
     if isinstance(change, dict):
         reason = str(change.get("reason") or "")
     if status == FAILED:
-        return Check("deploy-status", FAIL, f"the last deploy failed ({reason or 'no reason recorded'})")
-    return Check("deploy-status", PASS, f"the last deploy succeeded ({reason or 'no reason recorded'})")
+        return Check(
+            "deploy-status", FAIL, f"the last deploy failed ({reason or 'no reason recorded'})"
+        )
+    return Check(
+        "deploy-status", PASS, f"the last deploy succeeded ({reason or 'no reason recorded'})"
+    )
 
 
 def _check_checkout(root: Path, runner: CommandRunner, source_sha: str) -> Check:
@@ -696,9 +702,7 @@ def _check_containers(
             continue
         container = recorded.get("container")
         if not isinstance(container, str) or not container:
-            checks.append(
-                Check(f"container:{service}", UNKNOWN, "the manifest names no container")
-            )
+            checks.append(Check(f"container:{service}", UNKNOWN, "the manifest names no container"))
             continue
         res = runner(["docker", "inspect", "--format", "{{.Image}}|{{.State.Running}}", container])
         if res.returncode != 0:
@@ -909,9 +913,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "verify", help="check the box against the manifest (read-only)"
     )
     verify_parser.add_argument("--root", default=".", help="repository root (default: .)")
-    verify_parser.add_argument(
-        "--offline", action="store_true", help="do not contact the remote"
-    )
+    verify_parser.add_argument("--offline", action="store_true", help="do not contact the remote")
     return parser
 
 

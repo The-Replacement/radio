@@ -114,8 +114,12 @@ def test_observed_at_does_not_change_hash() -> None:
     import tempfile
 
     with tempfile.TemporaryDirectory() as td:
-        p1 = _write_snapshot(Path(td) / "a.json", _snapshot_data(observed_at="2026-11-10T14:00:00Z"))
-        p2 = _write_snapshot(Path(td) / "b.json", _snapshot_data(observed_at="2026-11-10T15:00:00Z"))
+        p1 = _write_snapshot(
+            Path(td) / "a.json", _snapshot_data(observed_at="2026-11-10T14:00:00Z")
+        )
+        p2 = _write_snapshot(
+            Path(td) / "b.json", _snapshot_data(observed_at="2026-11-10T15:00:00Z")
+        )
         s1 = load_weather_snapshot(p1)
         s2 = load_weather_snapshot(p2)
         assert s1 is not None and s2 is not None
@@ -149,14 +153,18 @@ def test_weather_cache_and_alias_filenames() -> None:
     assert weather_alias_filename("2026-11-10T14") == "weather_2026-11-10T14.wav"
 
 
-def test_generate_weather_only_empty_library(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_generate_weather_only_empty_library(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     install_fake_kokoro(monkeypatch)
     music = tmp_path / "music"
     music.mkdir()
     weather_file = _write_snapshot(tmp_path / "weather.json", _snapshot_data())
     model, voices = _kokoro_files(tmp_path)
     host = tmp_path / "host"
-    cfg = MarioConfig(music_dir=music, host_dir=host, model=model, voices_path=voices, weather_file=weather_file)
+    cfg = MarioConfig(
+        music_dir=music, host_dir=host, model=model, voices_path=voices, weather_file=weather_file
+    )
     paths = generate(cfg, time_bucket="2026-11-10T14", force=True)
     assert len(paths) == 1
     assert paths[0].is_file()
@@ -183,7 +191,11 @@ def test_weather_fallback_missing_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_
     model, voices = _kokoro_files(tmp_path)
     host = tmp_path / "host"
     cfg = MarioConfig(
-        music_dir=music, host_dir=host, model=model, voices_path=voices, weather_file=tmp_path / "missing.json"
+        music_dir=music,
+        host_dir=host,
+        model=model,
+        voices_path=voices,
+        weather_file=tmp_path / "missing.json",
     )
     paths = generate(cfg, time_bucket="2026-11-10T14", force=True)
     assert len(paths) == 1
@@ -191,7 +203,9 @@ def test_weather_fallback_missing_snapshot(monkeypatch: pytest.MonkeyPatch, tmp_
     assert (host / "weather_2026-11-10T14.wav").exists()
 
 
-def test_weather_fallback_does_not_block_liners(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_weather_fallback_does_not_block_liners(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     install_fake_kokoro(monkeypatch)
     music = tmp_path / "music"
     music.mkdir()
@@ -202,7 +216,12 @@ def test_weather_fallback_does_not_block_liners(monkeypatch: pytest.MonkeyPatch,
         "preset": "motorik",
         "pcm_sha256": "hash1",
         "plan": {"form": "A", "techniques": [], "sections": [], "director_log": []},
-        "measurements": {"duration_seconds": 10.0, "integrated_lufs": -16.0, "true_peak_dbtp": -1.5, "loudness_range_lu": 5.0},
+        "measurements": {
+            "duration_seconds": 10.0,
+            "integrated_lufs": -16.0,
+            "true_peak_dbtp": -1.5,
+            "loudness_range_lu": 5.0,
+        },
     }
     (music / "track1.json").write_text(json.dumps(payload), encoding="utf-8")
     model, voices = _kokoro_files(tmp_path)
@@ -233,7 +252,12 @@ def test_weather_one_per_bucket(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
             "preset": "motorik",
             "pcm_sha256": f"hash{seed}",
             "plan": {"form": "A", "techniques": [], "sections": [], "director_log": []},
-            "measurements": {"duration_seconds": 10.0, "integrated_lufs": -16.0, "true_peak_dbtp": -1.5, "loudness_range_lu": 5.0},
+            "measurements": {
+                "duration_seconds": 10.0,
+                "integrated_lufs": -16.0,
+                "true_peak_dbtp": -1.5,
+                "loudness_range_lu": 5.0,
+            },
         }
         (music / f"track{seed}.json").write_text(json.dumps(payload), encoding="utf-8")
     weather_file = _write_snapshot(tmp_path / "weather.json", _snapshot_data())
@@ -247,7 +271,9 @@ def test_weather_one_per_bucket(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
         liners_preset=Path("presets/liners.yaml"),
     )
     paths = generate(cfg, time_bucket="2026-11-10T14", force=True)
-    weather_cache_paths = [p for p in paths if p.name.startswith("weather_") and p.name.count("_") >= 2]
+    weather_cache_paths = [
+        p for p in paths if p.name.startswith("weather_") and p.name.count("_") >= 2
+    ]
     assert len(weather_cache_paths) == 1
     assert weather_cache_paths[0].name.endswith("_2026-11-10T14.wav")
 
@@ -259,7 +285,9 @@ def test_weather_dry_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     weather_file = _write_snapshot(tmp_path / "weather.json", _snapshot_data())
     model, voices = _kokoro_files(tmp_path)
     host = tmp_path / "host"
-    cfg = MarioConfig(music_dir=music, host_dir=host, model=model, voices_path=voices, weather_file=weather_file)
+    cfg = MarioConfig(
+        music_dir=music, host_dir=host, model=model, voices_path=voices, weather_file=weather_file
+    )
     paths = generate(cfg, time_bucket="2026-11-10T14", dry_run=True)
     assert len(paths) == 1
     assert paths[0].name.startswith("weather_")
@@ -274,12 +302,27 @@ def test_weather_determinism_across_runs(monkeypatch: pytest.MonkeyPatch, tmp_pa
     weather_file = _write_snapshot(tmp_path / "weather.json", _snapshot_data())
     model1, voices1 = _kokoro_files(tmp_path, "a_")
     model2, voices2 = _kokoro_files(tmp_path, "b_")
-    cfg1 = MarioConfig(music_dir=music, host_dir=tmp_path / "h1", model=model1, voices_path=voices1, weather_file=weather_file)
-    cfg2 = MarioConfig(music_dir=music, host_dir=tmp_path / "h2", model=model2, voices_path=voices2, weather_file=weather_file)
+    cfg1 = MarioConfig(
+        music_dir=music,
+        host_dir=tmp_path / "h1",
+        model=model1,
+        voices_path=voices1,
+        weather_file=weather_file,
+    )
+    cfg2 = MarioConfig(
+        music_dir=music,
+        host_dir=tmp_path / "h2",
+        model=model2,
+        voices_path=voices2,
+        weather_file=weather_file,
+    )
     p1 = generate(cfg1, time_bucket="2026-11-10T14", force=True)
     p2 = generate(cfg2, time_bucket="2026-11-10T14", force=True)
     assert [p.name for p in p1] == [p.name for p in p2]
-    assert hashlib.sha256(p1[0].read_bytes()).hexdigest() == hashlib.sha256(p2[0].read_bytes()).hexdigest()
+    assert (
+        hashlib.sha256(p1[0].read_bytes()).hexdigest()
+        == hashlib.sha256(p2[0].read_bytes()).hexdigest()
+    )
 
 
 def test_config_env_weather_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

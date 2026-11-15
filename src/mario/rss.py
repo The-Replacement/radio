@@ -115,7 +115,7 @@ def _lower_host(authority: str) -> str:
         end = hostport.find("]")
         if end != -1:
             inner = hostport[1:end].lower()
-            return f"{userinfo}[{inner}]{hostport[end + 1:]}"
+            return f"{userinfo}[{inner}]{hostport[end + 1 :]}"
         return userinfo + hostport.lower()
     if ":" in hostport:
         host, port = hostport.rsplit(":", 1)
@@ -456,13 +456,9 @@ def load_rss_feeds(path: Path) -> tuple[FeedConfig, ...]:
         normalized = normalize_feed_url(url)
         slug = feed_slug(name, normalized)
         if slug in slugs:
-            raise ValueError(
-                f"duplicate feed slug {slug!r} (entries {slugs[slug]} and {index})"
-            )
+            raise ValueError(f"duplicate feed slug {slug!r} (entries {slugs[slug]} and {index})")
         slugs[slug] = index
-        feeds.append(
-            FeedConfig(name=name, url=url.strip(), normalized_url=normalized, slug=slug)
-        )
+        feeds.append(FeedConfig(name=name, url=url.strip(), normalized_url=normalized, slug=slug))
     return tuple(feeds)
 
 

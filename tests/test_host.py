@@ -53,8 +53,24 @@ def test_time_bucket_quantization() -> None:
 
 
 def test_text_determinism_and_persona() -> None:
-    a = TrackMeta(seed=1, lane="motorik", form="A", preset="p", pcm_sha256="h1", path="x", duration_seconds=10.0)
-    b = TrackMeta(seed=2, lane="kosmische", form="B", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
+    a = TrackMeta(
+        seed=1,
+        lane="motorik",
+        form="A",
+        preset="p",
+        pcm_sha256="h1",
+        path="x",
+        duration_seconds=10.0,
+    )
+    b = TrackMeta(
+        seed=2,
+        lane="kosmische",
+        form="B",
+        preset="p",
+        pcm_sha256="h2",
+        path="y",
+        duration_seconds=10.0,
+    )
     t1 = build_text(a, b, "2026-11-10T14")
     t2 = build_text(a, b, "2026-11-10T14")
     assert t1 == t2
@@ -65,16 +81,48 @@ def test_text_determinism_and_persona() -> None:
 
 
 def test_text_reflects_lane_contrast() -> None:
-    motorik = TrackMeta(seed=1, lane="motorik", form="A", preset="p", pcm_sha256="h1", path="x", duration_seconds=10.0)
-    ambient = TrackMeta(seed=2, lane="ambient", form="B", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
+    motorik = TrackMeta(
+        seed=1,
+        lane="motorik",
+        form="A",
+        preset="p",
+        pcm_sha256="h1",
+        path="x",
+        duration_seconds=10.0,
+    )
+    ambient = TrackMeta(
+        seed=2,
+        lane="ambient",
+        form="B",
+        preset="p",
+        pcm_sha256="h2",
+        path="y",
+        duration_seconds=10.0,
+    )
     text = build_text(motorik, ambient, "2026-11-10T14")
     # Shift from driving to hush should be named softly.
     assert "asiente" in text.lower() or "bajo" in text.lower() or "quieto" in text.lower()
 
 
 def test_vibe_speed_deterministic_and_in_bounds() -> None:
-    a = TrackMeta(seed=11, lane="motorik", form="A", preset="p", pcm_sha256="h1", path="x", duration_seconds=10.0)
-    b = TrackMeta(seed=22, lane="ambient", form="B", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
+    a = TrackMeta(
+        seed=11,
+        lane="motorik",
+        form="A",
+        preset="p",
+        pcm_sha256="h1",
+        path="x",
+        duration_seconds=10.0,
+    )
+    b = TrackMeta(
+        seed=22,
+        lane="ambient",
+        form="B",
+        preset="p",
+        pcm_sha256="h2",
+        path="y",
+        duration_seconds=10.0,
+    )
     v1 = vibe_for(a, b, "2026-11-10T14")
     v2 = vibe_for(a, b, "2026-11-10T14")
     assert v1 == v2
@@ -85,9 +133,33 @@ def test_lane_to_mood_and_pacing_mapping() -> None:
     assert lane_mood("motorik") == "pulse"
     assert lane_mood("kosmische") == "drift"
     assert lane_mood("ambient") == "hush"
-    motorik = TrackMeta(seed=1, lane="motorik", form="A", preset="p", pcm_sha256="h1", path="x", duration_seconds=10.0)
-    kosmische = TrackMeta(seed=2, lane="kosmische", form="A", preset="p", pcm_sha256="h2", path="y", duration_seconds=10.0)
-    ambient = TrackMeta(seed=3, lane="ambient", form="A", preset="p", pcm_sha256="h3", path="z", duration_seconds=10.0)
+    motorik = TrackMeta(
+        seed=1,
+        lane="motorik",
+        form="A",
+        preset="p",
+        pcm_sha256="h1",
+        path="x",
+        duration_seconds=10.0,
+    )
+    kosmische = TrackMeta(
+        seed=2,
+        lane="kosmische",
+        form="A",
+        preset="p",
+        pcm_sha256="h2",
+        path="y",
+        duration_seconds=10.0,
+    )
+    ambient = TrackMeta(
+        seed=3,
+        lane="ambient",
+        form="A",
+        preset="p",
+        pcm_sha256="h3",
+        path="z",
+        duration_seconds=10.0,
+    )
     v_motorik = vibe_for(motorik, motorik, "2026-11-10T14")
     v_drift = vibe_for(motorik, kosmische, "2026-11-10T14")
     v_hush = vibe_for(motorik, ambient, "2026-11-10T14")
@@ -105,21 +177,29 @@ def test_load_tracks_from_sidecars(tmp_path: Path) -> None:
     assert seeds == {10, 20}
 
 
-def test_staging_name_is_unique_per_run(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_staging_name_is_unique_per_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Two runs staging the same target must never share a file."""
     staged: list[Path] = []
     import mario.render as render_mod
 
-    def fake_render_kokoro(text: str, model: Path, tmp: Path, *, voices_path: Path | None, voice: str, speed: float, lang: str) -> None:
+    def fake_render_kokoro(
+        text: str,
+        model: Path,
+        tmp: Path,
+        *,
+        voices_path: Path | None,
+        voice: str,
+        speed: float,
+        lang: str,
+    ) -> None:
         staged.append(tmp)
         tmp.write_bytes(b"RIFF")
 
     monkeypatch.setattr(render_mod, "_render_kokoro", fake_render_kokoro)
     model = tmp_path / "kokoro.onnx"
     voices = tmp_path / "voices.bin"
-    model.write_bytes(b"m"); voices.write_bytes(b"v")
+    model.write_bytes(b"m")
+    voices.write_bytes(b"v")
     out = tmp_path / "seg.wav"
 
     render_wav("a", model, out, voices_path=voices)
@@ -148,9 +228,11 @@ def test_cache_skip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         return R()
 
     from tests.conftest import install_fake_kokoro
+
     calls = install_fake_kokoro(monkeypatch)
     model, voices = tmp_path / "kokoro.onnx", tmp_path / "voices.bin"
-    model.write_bytes(b"m"); voices.write_bytes(b"v")
+    model.write_bytes(b"m")
+    voices.write_bytes(b"v")
     host_dir = tmp_path / "host"
     host_dir.mkdir()
     p1 = generate_segment(1, 2, "2026-11-10T14", "hi", model, host_dir, voices_path=voices)
@@ -179,7 +261,9 @@ def test_kokoro_path_receives_speed(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     def fake_write(path: str, samples: object, sample_rate: int, format: str = "WAV") -> None:
         Path(path).write_bytes(b"RIFF")
 
-    monkeypatch.setitem(__import__("sys").modules, "kokoro_onnx", SimpleNamespace(Kokoro=FakeKokoro))
+    monkeypatch.setitem(
+        __import__("sys").modules, "kokoro_onnx", SimpleNamespace(Kokoro=FakeKokoro)
+    )
     monkeypatch.setitem(__import__("sys").modules, "soundfile", SimpleNamespace(write=fake_write))
 
     model = tmp_path / "kokoro.onnx"
@@ -242,16 +326,30 @@ def test_host_determinism(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     _sidecar(music, 1, "motorik", "A")
     _sidecar(music, 2, "kosmische", "B")
     from tests.conftest import install_fake_kokoro
+
     install_fake_kokoro(monkeypatch, marker=b"DETERMINISTIC-WAV-BYTES")
     model = tmp_path / "kokoro.onnx"
     voices = tmp_path / "voices.bin"
-    model.write_bytes(b"m"); voices.write_bytes(b"v")
+    model.write_bytes(b"m")
+    voices.write_bytes(b"v")
 
     from mario.config import MarioConfig
     from mario.gen import generate
 
-    cfg1 = MarioConfig(music_dir=music, host_dir=tmp_path / "host1", model=model, voices_path=voices, time_bucket_hours=1)
-    cfg2 = MarioConfig(music_dir=music, host_dir=tmp_path / "host2", model=model, voices_path=voices, time_bucket_hours=1)
+    cfg1 = MarioConfig(
+        music_dir=music,
+        host_dir=tmp_path / "host1",
+        model=model,
+        voices_path=voices,
+        time_bucket_hours=1,
+    )
+    cfg2 = MarioConfig(
+        music_dir=music,
+        host_dir=tmp_path / "host2",
+        model=model,
+        voices_path=voices,
+        time_bucket_hours=1,
+    )
     paths1 = generate(cfg1, time_bucket="2026-11-10T14", force=True)
     paths2 = generate(cfg2, time_bucket="2026-11-10T14", force=True)
 

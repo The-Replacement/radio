@@ -89,7 +89,9 @@ def vibe_for(current: TrackMeta, nxt: TrackMeta, bucket: str) -> SegmentVibe:
     # Incoming lane leads the pacing; outgoing contributes lightly.
     base = 0.7 * _base_speed(nxt.lane) + 0.3 * _base_speed(current.lane)
     # Deterministic micro-variation in [-0.015, +0.015].
-    mix = (current.seed * 131542391 + nxt.seed * 2654435761 + sum(ord(c) for c in bucket)) & 0xFFFFFFFF
+    mix = (
+        current.seed * 131542391 + nxt.seed * 2654435761 + sum(ord(c) for c in bucket)
+    ) & 0xFFFFFFFF
     jitter = ((mix % 31) - 15) / 1000.0  # step 0.001, range [-0.015, 0.015]
     speed = _clamp_speed(round(base + jitter, 3))
     # Segment mood follows the incoming energy/space being cued.

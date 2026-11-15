@@ -47,31 +47,61 @@ def weather_fetch_cmd(
 
 @app.command("generate")
 def generate_cmd(
-    music_dir: Path | None = typer.Option(None, "--music-dir", help="Radio music/metadata directory."),
-    meta_dir: Path | None = typer.Option(None, "--meta-dir", help="Metadata directory (catalog/sidecars). Overrides --music-dir."),
-    host_dir: Path | None = typer.Option(None, "--host-dir", help="Output directory for Host segments."),
+    music_dir: Path | None = typer.Option(
+        None, "--music-dir", help="Radio music/metadata directory."
+    ),
+    meta_dir: Path | None = typer.Option(
+        None, "--meta-dir", help="Metadata directory (catalog/sidecars). Overrides --music-dir."
+    ),
+    host_dir: Path | None = typer.Option(
+        None, "--host-dir", help="Output directory for Host segments."
+    ),
     model: Path | None = typer.Option(None, "--model", help="Kokoro model .onnx path."),
     voices_path: Path | None = typer.Option(None, "--voices-path", help="Kokoro voices .bin path."),
     voice: str | None = typer.Option(None, "--voice", help="Kokoro voice name (e.g. ef_dora)."),
-    model_lang: str | None = typer.Option(None, "--model-lang", help="Language hint (e.g. es, en-us)."),
-    time_bucket: str | None = typer.Option(None, "--time-bucket", help="Override the time bucket (e.g. 2026-11-10T14)."),
-    time_bucket_hours: int | None = typer.Option(None, "--time-bucket-hours", help="Bucket width in hours."),
-    liners_preset: Path | None = typer.Option(None, "--liners-preset", help="Path to liners preset YAML (station idents)."),
-    weather_file: Path | None = typer.Option(None, "--weather-file", help="Path to local weather snapshot JSON."),
-    rss_feeds_file: Path | None = typer.Option(None, "--rss-feeds-file", help="Path to RSS feeds config (YAML/JSON)."),
-    rss_cache_dir: Path | None = typer.Option(None, "--rss-cache-dir", help="Directory for cached feed payloads."),
-    rss_max_items_per_cycle: int | None = typer.Option(None, "--rss-max-items-per-cycle", help="Max feeds read per cycle."),
-    rss_max_text_chars: int | None = typer.Option(None, "--rss-max-text-chars", help="Max spoken characters per feed item."),
-    rss_timeout_seconds: float | None = typer.Option(None, "--rss-timeout-seconds", help="Feed fetch timeout in seconds."),
+    model_lang: str | None = typer.Option(
+        None, "--model-lang", help="Language hint (e.g. es, en-us)."
+    ),
+    time_bucket: str | None = typer.Option(
+        None, "--time-bucket", help="Override the time bucket (e.g. 2026-11-10T14)."
+    ),
+    time_bucket_hours: int | None = typer.Option(
+        None, "--time-bucket-hours", help="Bucket width in hours."
+    ),
+    liners_preset: Path | None = typer.Option(
+        None, "--liners-preset", help="Path to liners preset YAML (station idents)."
+    ),
+    weather_file: Path | None = typer.Option(
+        None, "--weather-file", help="Path to local weather snapshot JSON."
+    ),
+    rss_feeds_file: Path | None = typer.Option(
+        None, "--rss-feeds-file", help="Path to RSS feeds config (YAML/JSON)."
+    ),
+    rss_cache_dir: Path | None = typer.Option(
+        None, "--rss-cache-dir", help="Directory for cached feed payloads."
+    ),
+    rss_max_items_per_cycle: int | None = typer.Option(
+        None, "--rss-max-items-per-cycle", help="Max feeds read per cycle."
+    ),
+    rss_max_text_chars: int | None = typer.Option(
+        None, "--rss-max-text-chars", help="Max spoken characters per feed item."
+    ),
+    rss_timeout_seconds: float | None = typer.Option(
+        None, "--rss-timeout-seconds", help="Feed fetch timeout in seconds."
+    ),
     no_marker: bool = typer.Option(
         False,
         "--no-marker",
         help="Do not rewrite <host-dir>/current-bucket. Required for single-slot runs, "
         "which may use a different bucket width than the families playout resolves.",
     ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Print planned outputs without rendering."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print planned outputs without rendering."
+    ),
     force: bool = typer.Option(False, "--force", help="Re-render even if cached."),
-    keep_buckets: int | None = typer.Option(None, "--keep-buckets", help="Prune host pool to this many recent buckets after generating."),
+    keep_buckets: int | None = typer.Option(
+        None, "--keep-buckets", help="Prune host pool to this many recent buckets after generating."
+    ),
     slots: str | None = typer.Option(
         None,
         "--slots",
@@ -113,8 +143,7 @@ def generate_cmd(
         selected = select_slots(slots)
         if selected is None:
             typer.echo(
-                f"mario: unknown slot in --slots {slots!r}; "
-                f"choose from {', '.join(SLOT_NAMES)}",
+                f"mario: unknown slot in --slots {slots!r}; choose from {', '.join(SLOT_NAMES)}",
                 err=True,
             )
             raise typer.Exit(code=2)
