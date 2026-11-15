@@ -82,12 +82,8 @@ def test_weather_alias_swap_is_atomic(
     install_fake_kokoro(monkeypatch)
     bucket = "2026-11-14T14"
     model, voices = kokoro_env
-    generate_weather_segment(
-        "cccccccc", bucket, "18 grados", model, tmp_path, voices_path=voices
-    )
-    generate_weather_segment(
-        "dddddddd", bucket, "19 grados", model, tmp_path, voices_path=voices
-    )
+    generate_weather_segment("cccccccc", bucket, "18 grados", model, tmp_path, voices_path=voices)
+    generate_weather_segment("dddddddd", bucket, "19 grados", model, tmp_path, voices_path=voices)
 
     playout = tmp_path / weather_playout_alias_filename()
     assert playout.exists(), "the playout name must never be missing between renders"

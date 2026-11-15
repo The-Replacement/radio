@@ -127,9 +127,7 @@ _ITEMS: tuple[str, ...] = (
 
 def _rss_doc(items: tuple[str, ...] | list[str]) -> bytes:
     return (
-        '<rss version="2.0"><channel><title>Feed</title>'
-        + "".join(items)
-        + "</channel></rss>"
+        '<rss version="2.0"><channel><title>Feed</title>' + "".join(items) + "</channel></rss>"
     ).encode("utf-8")
 
 
@@ -146,7 +144,7 @@ ATOM = (
     b"<entry><id>urn:uuid:1</id><title>Atom one</title>"
     b'<link href="https://example.org/atom-1"/>'
     b"<updated>2026-11-11T09:30:00Z</updated><summary>Atom summary one</summary></entry>"
-    b'<entry><id>urn:uuid:2</id><title>Atom two</title>'
+    b"<entry><id>urn:uuid:2</id><title>Atom two</title>"
     b'<content type="html">&lt;p&gt;Atom body two&lt;/p&gt;</content>'
     b"<updated>2026-11-10T08:00:00Z</updated></entry></feed>"
 )
@@ -250,7 +248,9 @@ def test_rss_unconfigured_no_output(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     _sidecar(music, 2)
     base = tmp_path / "off"
     model, voices = _kokoro_files(tmp_path)
-    cfg = MarioConfig(music_dir=music, host_dir=base / "host", model=model, voices_path=voices, rss_cache_dir=None)
+    cfg = MarioConfig(
+        music_dir=music, host_dir=base / "host", model=model, voices_path=voices, rss_cache_dir=None
+    )
 
     paths = generate(cfg, time_bucket=BUCKET, feed_fetcher=_blow_up)
 
@@ -266,26 +266,36 @@ def test_rss_unconfigured_no_output(monkeypatch: pytest.MonkeyPatch, tmp_path: P
 def test_load_rss_feeds_variants(tmp_path: Path) -> None:
     bare = _feeds_file(tmp_path, "- https://example.org/one.xml\n- https://example.org/two.xml\n")
     feeds = load_rss_feeds(bare)
-    assert [f.normalized_url for f in feeds] == ["https://example.org/one.xml", "https://example.org/two.xml"]
+    assert [f.normalized_url for f in feeds] == [
+        "https://example.org/one.xml",
+        "https://example.org/two.xml",
+    ]
     assert all(f.name is None for f in feeds)
     assert [f.slug for f in feeds] == ["example-org-one-xml", "example-org-two-xml"]
 
     named_path = tmp_path / "named.yaml"
-    named_path.write_text("- name: hn\n  url: https://news.example.org/rss\n- https://example.org/plain\n", encoding="utf-8")
+    named_path.write_text(
+        "- name: hn\n  url: https://news.example.org/rss\n- https://example.org/plain\n",
+        encoding="utf-8",
+    )
     named = load_rss_feeds(named_path)
     assert named[0].name == "hn"
     assert named[0].slug == "hn"
     assert named[1].slug == "example-org-plain"
 
     mapping = tmp_path / "mapping.yaml"
-    mapping.write_text("feeds:\n  - name: atomic\n    url: https://example.org/atom.xml?x=1\n", encoding="utf-8")
+    mapping.write_text(
+        "feeds:\n  - name: atomic\n    url: https://example.org/atom.xml?x=1\n", encoding="utf-8"
+    )
     mapped = load_rss_feeds(mapping)
     assert len(mapped) == 1
     assert mapped[0].normalized_url == "https://example.org/atom.xml?x=1"
 
 
 def test_load_rss_feeds_rejects_invalid(tmp_path: Path) -> None:
-    duplicate = _feeds_file(tmp_path, "- https://example.org/feed.xml\n- https://example.org/feed.xml#top\n")
+    duplicate = _feeds_file(
+        tmp_path, "- https://example.org/feed.xml\n- https://example.org/feed.xml#top\n"
+    )
     with pytest.raises(ValueError):
         load_rss_feeds(duplicate)
 
@@ -308,7 +318,10 @@ def test_load_rss_feeds_rejects_invalid(tmp_path: Path) -> None:
 def test_normalize_feed_url() -> None:
     assert normalize_feed_url("HTTP://Example.ORG/a?b=1#x") == "http://example.org/a?b=1"
     assert normalize_feed_url("http://example.org/P") == normalize_feed_url("http://example.org/P")
-    assert normalize_feed_url(normalize_feed_url("https://Example.org/f#frag")) == "https://example.org/f"
+    assert (
+        normalize_feed_url(normalize_feed_url("https://Example.org/f#frag"))
+        == "https://example.org/f"
+    )
     with pytest.raises(ValueError):
         normalize_feed_url("file:///etc/passwd")
 
@@ -390,7 +403,10 @@ def test_invalid_feeds_rejected(raw: bytes) -> None:
 
 
 def test_strip_and_truncate() -> None:
-    assert strip_html('<div>hello <b>world</b> &amp; friends<script>x</script></div>') == "hello world & friends"
+    assert (
+        strip_html("<div>hello <b>world</b> &amp; friends<script>x</script></div>")
+        == "hello world & friends"
+    )
     assert strip_html("  spaced   apart  ") == "spaced apart"
     assert truncate_text("  short  text  ", 100) == "  short  text  "
     clipped = truncate_text("alpha beta gamma delta", 16)

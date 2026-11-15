@@ -68,10 +68,7 @@ def sky_for(wmo_code: int) -> Sky | None:
 
 def build_url(lat: float, lon: float) -> str:
     """Build the Open-Meteo request URL for the current conditions."""
-    return (
-        f"{_API_URL}?latitude={lat}&longitude={lon}"
-        f"&current={_CURRENT_FIELDS}&timezone=UTC"
-    )
+    return f"{_API_URL}?latitude={lat}&longitude={lon}&current={_CURRENT_FIELDS}&timezone=UTC"
 
 
 def snapshot_from_payload(payload: dict[str, Any]) -> WeatherSnapshot | None:

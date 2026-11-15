@@ -8,7 +8,9 @@ from typing import Any
 import pytest
 
 
-def install_fake_kokoro(monkeypatch: pytest.MonkeyPatch, *, marker: bytes = b"RIFF") -> dict[str, Any]:
+def install_fake_kokoro(
+    monkeypatch: pytest.MonkeyPatch, *, marker: bytes = b"RIFF"
+) -> dict[str, Any]:
     calls: dict[str, Any] = {"n": 0, "creates": 0}
 
     class FakeKokoro:

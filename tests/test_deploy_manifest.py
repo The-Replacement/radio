@@ -63,9 +63,7 @@ class FakeRunner:
         self.calls: list[tuple[str, ...]] = []
 
     def on(self, pattern: str, returncode: int = 0, stdout: bytes = b"") -> FakeRunner:
-        self.responses.append(
-            (pattern, deploy_manifest.CommandResult(returncode, stdout, b""))
-        )
+        self.responses.append((pattern, deploy_manifest.CommandResult(returncode, stdout, b"")))
         return self
 
     def __call__(self, argv: Any, cwd: Any = None) -> Any:
@@ -97,9 +95,7 @@ def _image_inspect(image_id: str, revision: str) -> bytes:
             "Config": {
                 "Labels": {
                     "org.opencontainers.image.revision": revision,
-                    "org.opencontainers.image.source": (
-                        "https://github.com/The-Replacement/radio"
-                    ),
+                    "org.opencontainers.image.source": ("https://github.com/The-Replacement/radio"),
                 }
             },
         }
@@ -301,8 +297,14 @@ def _verifying_runner() -> FakeRunner:
     runner.on("ls-remote", stdout=f"{SOURCE_SHA}\trefs/heads/master".encode())
     runner.on("{{json .}} radio-mario", stdout=_image_inspect(MARIO_IMAGE_ID, SOURCE_SHA))
     runner.on("{{json .}} radio-cam", stdout=_image_inspect(CAM_IMAGE_ID, SOURCE_SHA))
-    runner.on("inspect --format {{.Image}}|{{.State.Running}} radio-mario", stdout=f"{MARIO_IMAGE_ID}|true".encode())
-    runner.on("inspect --format {{.Image}}|{{.State.Running}} radio-cam", stdout=f"{CAM_IMAGE_ID}|true".encode())
+    runner.on(
+        "inspect --format {{.Image}}|{{.State.Running}} radio-mario",
+        stdout=f"{MARIO_IMAGE_ID}|true".encode(),
+    )
+    runner.on(
+        "inspect --format {{.Image}}|{{.State.Running}} radio-cam",
+        stdout=f"{CAM_IMAGE_ID}|true".encode(),
+    )
     return runner
 
 
@@ -360,9 +362,11 @@ def test_verify_reports_a_mismatch_when_an_image_is_not_the_recorded_one(
     _manifest_with(root)
     runner = _verifying_runner()
     runner.responses.insert(
-        0, ("{{json .}} radio-cam", deploy_manifest.CommandResult(
-            0, _image_inspect(OTHER_IMAGE_ID, SOURCE_SHA), b""
-        ))
+        0,
+        (
+            "{{json .}} radio-cam",
+            deploy_manifest.CommandResult(0, _image_inspect(OTHER_IMAGE_ID, SOURCE_SHA), b""),
+        ),
     )
 
     checks = deploy_manifest.verify(root, runner)
@@ -379,9 +383,11 @@ def test_verify_reports_a_mismatch_when_a_running_container_is_on_another_image(
     _manifest_with(root)
     runner = _verifying_runner()
     runner.responses.insert(
-        0, ("inspect --format {{.Image}}|{{.State.Running}} radio-mario", deploy_manifest.CommandResult(
-            0, f"{CAM_IMAGE_ID}|true".encode(), b""
-        ))
+        0,
+        (
+            "inspect --format {{.Image}}|{{.State.Running}} radio-mario",
+            deploy_manifest.CommandResult(0, f"{CAM_IMAGE_ID}|true".encode(), b""),
+        ),
     )
 
     checks = deploy_manifest.verify(root, runner)
@@ -397,16 +403,17 @@ def test_verify_does_not_fail_a_stopped_one_off_container(tmp_path: Path) -> Non
     _manifest_with(root)
     runner = _verifying_runner()
     runner.responses.insert(
-        0, ("inspect --format {{.Image}}|{{.State.Running}} radio-mario", deploy_manifest.CommandResult(
-            0, f"{CAM_IMAGE_ID}|false".encode(), b""
-        ))
+        0,
+        (
+            "inspect --format {{.Image}}|{{.State.Running}} radio-mario",
+            deploy_manifest.CommandResult(0, f"{CAM_IMAGE_ID}|false".encode(), b""),
+        ),
     )
 
     checks = deploy_manifest.verify(root, runner)
 
     assert _check(checks, "container:mario").status == "NOTE"
-    assert not [c for c in checks if c.status == "FAIL"
-                and c.name.startswith("container:")]
+    assert not [c for c in checks if c.status == "FAIL" and c.name.startswith("container:")]
 
 
 def test_verify_reports_a_mismatch_when_a_rebuilt_image_carries_another_revision(
@@ -416,9 +423,11 @@ def test_verify_reports_a_mismatch_when_a_rebuilt_image_carries_another_revision
     _manifest_with(root)
     runner = _verifying_runner()
     runner.responses.insert(
-        0, ("{{json .}} radio-mario", deploy_manifest.CommandResult(
-            0, _image_inspect(MARIO_IMAGE_ID, "e" * 40), b""
-        ))
+        0,
+        (
+            "{{json .}} radio-mario",
+            deploy_manifest.CommandResult(0, _image_inspect(MARIO_IMAGE_ID, "e" * 40), b""),
+        ),
     )
 
     checks = deploy_manifest.verify(root, runner)
@@ -595,9 +604,7 @@ else:
 
 
 def _git(root: Path, *args: str) -> str:
-    completed = subprocess.run(
-        ["git", *args], cwd=root, check=True, capture_output=True, text=True
-    )
+    completed = subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True)
     return completed.stdout.strip()
 
 
@@ -667,9 +674,10 @@ def test_the_receive_hook_writes_the_manifest_of_the_deploy(tmp_path: Path) -> N
     # build: the revision of a running image is the commit that produced it.
     assert manifest["images"]["mario"]["revision"] == new_sha
     assert manifest["hook"]["resolved_path"] == "scripts/post-receive"
-    assert manifest["hook"]["sha256"] == hashlib.sha256(
-        (root / "scripts" / "post-receive").read_bytes()
-    ).hexdigest()
+    assert (
+        manifest["hook"]["sha256"]
+        == hashlib.sha256((root / "scripts" / "post-receive").read_bytes()).hexdigest()
+    )
 
 
 def test_the_deployed_manifest_verifies_against_the_box(
@@ -687,7 +695,14 @@ def test_the_deployed_manifest_verifies_against_the_box(
         env=env,
     )
     # The remote-tracking ref came from a fetch: the reflog subject says so.
-    _git(root, "update-ref", "-m", "fetch origin: fast-forward", "refs/remotes/origin/master", new_sha)
+    _git(
+        root,
+        "update-ref",
+        "-m",
+        "fetch origin: fast-forward",
+        "refs/remotes/origin/master",
+        new_sha,
+    )
 
     # The stub image answers with the label it was built with.
     monkeypatch.setenv("PATH", _path_with(bin_dir))

@@ -76,9 +76,7 @@ class MarioConfig(BaseModel):
             weather_file=Path(weather) if weather else None,
             rss_feeds_file=Path(rss_feeds) if rss_feeds else None,
             rss_cache_dir=Path(rss_cache) if rss_cache else None,
-            rss_max_items_per_cycle=int(
-                os.environ.get("MARIO_RSS_MAX_ITEMS_PER_CYCLE", "1")
-            ),
+            rss_max_items_per_cycle=int(os.environ.get("MARIO_RSS_MAX_ITEMS_PER_CYCLE", "1")),
             rss_max_text_chars=int(os.environ.get("MARIO_RSS_MAX_TEXT_CHARS", "600")),
             rss_timeout_seconds=float(os.environ.get("MARIO_RSS_TIMEOUT_SECONDS", "10.0")),
         )

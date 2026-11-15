@@ -13,6 +13,6 @@ def test_post_receive_does_not_rewrite_origin_tracking_refs() -> None:
         if not line.lstrip().startswith("#")
     )
 
-    assert not any(
-        "update-ref" in line and "refs/remotes/origin/" in line for line in commands
-    ), "a deploy push must not fabricate synchronization with GitHub"
+    assert not any("update-ref" in line and "refs/remotes/origin/" in line for line in commands), (
+        "a deploy push must not fabricate synchronization with GitHub"
+    )

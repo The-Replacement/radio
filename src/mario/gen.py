@@ -123,13 +123,9 @@ class _SegmentSink:
             )
         )
 
-    def liner(
-        self, ident_id: str, seed: int, text: str, *, template_version: str = ""
-    ) -> Path:
+    def liner(self, ident_id: str, seed: int, text: str, *, template_version: str = "") -> Path:
         if self.dry_run:
-            return self.record(
-                self.host_dir / liner_cache_filename(ident_id, seed, self.bucket)
-            )
+            return self.record(self.host_dir / liner_cache_filename(ident_id, seed, self.bucket))
         return self.record(
             generate_liner_segment(
                 ident_id,
@@ -146,9 +142,7 @@ class _SegmentSink:
 
     def weather(self, weather_hash: str, text: str, *, template_version: str = "") -> Path:
         if self.dry_run:
-            return self.record(
-                self.host_dir / weather_cache_filename(weather_hash, self.bucket)
-            )
+            return self.record(self.host_dir / weather_cache_filename(weather_hash, self.bucket))
         return self.record(
             generate_weather_segment(
                 weather_hash,
@@ -354,9 +348,7 @@ def _emit_weather(ctx: _GenerationContext, sink: _SegmentSink) -> None:
     weather_preset = load_weather_preset(weather_preset_path)
     snapshot = load_weather_snapshot(ctx.config.weather_file)
     weather_text, weather_hash = build_weather_text(snapshot, weather_preset)
-    sink.weather(
-        weather_hash, weather_text, template_version=weather_preset.template_version
-    )
+    sink.weather(weather_hash, weather_text, template_version=weather_preset.template_version)
 
 
 def _rss_fetcher(ctx: _GenerationContext) -> FeedFetcher:

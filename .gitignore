@@ -44,8 +44,10 @@ out*/
 .vscode/
 .DS_Store
 
-# N3RV — NEVER COMMIT (template-controlled)
-.n3rv/
+# N3RV — never commit generated files. The declared state IS committed:
+# it is the thing a reviewer reads before the generator does anything.
+.n3rv/*
+!.n3rv/state.yaml
 .opencode/
 .githooks/
 .specify/
