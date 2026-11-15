@@ -12,6 +12,7 @@ on:
       - "web/**"
       - ".github/workflows/ci.yml"
       - ".shellcheckrc"
+      - ".n3rv/**"
   pull_request:
     paths:
       - "src/**"
@@ -23,6 +24,7 @@ on:
       - "web/**"
       - ".github/workflows/ci.yml"
       - ".shellcheckrc"
+      - ".n3rv/**"
 
 jobs:
   test:

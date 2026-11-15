@@ -81,4 +81,14 @@ mcp:
     environment: null
     description: ''
     disabled: false
+  - name: chrome-devtools
+    type: local
+    command:
+    - npx
+    - -y
+    - chrome-devtools-mcp@1.13.0
+    url: null
+    environment: null
+    description: Chrome DevTools for debugging and inspecting web pages
+    disabled: false
 board: null
