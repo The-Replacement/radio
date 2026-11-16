@@ -914,6 +914,27 @@ A cam image is rebuilt without restarting the camera, so right after such a
 push the container check reports the old image until a human restarts it —
 that is the truth, not a false alarm.
 
+### Doctor drift (mainframe behind GitHub)
+
+`n3rv doctor --strict` fails with `drift: FAIL (exit bit 2)` when the
+`mainframe` remote HEAD differs from GitHub `master`. In this setup the box
+syncs by push (not by fetch/pull): `receive.denyCurrentBranch=updateInstead`
+moves the worktree only when the pushed branch is the one checked out on the
+box, and `scripts/post-receive` is the deploy/evidence path.
+
+- **Fix (honest):** from a machine with the `mainframe` remote and SSH access,
+  push the intended branch explicitly and re-run doctor:
+  ```bash
+  git push mainframe master
+  n3rv doctor --strict
+  ```
+  The push is a real deploy (the hook runs); check `data/deploy.log` and
+  `data/deploy-manifest.json` on the box for evidence (gitignored, box-local).
+- **Anti-fix:** do not set `deployment.target: none` in `.n3rv/state.yaml` to
+  silence drift while the mainframe remains the live deployment target. That
+  makes the check pass by lying about topology; declare `none` only if the box
+  is genuinely not a deployment target for this repo.
+
 ---
 
 ## Common problems
