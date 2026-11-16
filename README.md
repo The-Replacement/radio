@@ -875,6 +875,28 @@ Pushing from any machine without the destination (GitHub web, another
 laptop) leaves the backend behind — syncing it is just making a push
 from a configured machine.
 
+### When `n3rv doctor --strict` reports drift
+
+`drift: FAIL` with `mainframe HEAD is <sha> (GitHub is <sha>)` means
+the box is behind — the same cause as above: it syncs by push, not
+fetch. Fix it with the push, never with state:
+
+```bash
+git push mainframe master   # box wired as its own remote (this laptop)
+```
+
+Machines using the pushurl setup above need only plain `git push`
+(both destinations in one command). Naming `mainframe` matters when
+the box is a separate remote: `branch.master.remote=origin` makes a
+plain push silently skip it. The push fast-forwards the box,
+`post-receive` runs, and the next doctor run is green.
+
+Not a fix: `deployment.target: none` in `.n3rv/state.yaml`. The
+mainframe is the live deployment target; declaring otherwise trades a
+real gap for a fake green. What actually deployed is always in
+`data/deploy.log` and `data/deploy-manifest.json` on the box
+(gitignored).
+
 ### Deployment evidence: manifest, image labels and verification
 
 The log line says a deploy happened. It does not say which commit produced the
