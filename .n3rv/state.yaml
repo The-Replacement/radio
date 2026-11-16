@@ -1,4 +1,4 @@
-schema: 1
+schema: 2
 project:
   name: radio
   stack: generic
@@ -69,6 +69,7 @@ detection:
     - web
   frameworks: []
   tools: []
+  requires_python: null
 mcp:
   servers:
   - name: sequential-thinking
@@ -91,4 +92,10 @@ mcp:
     environment: null
     description: Chrome DevTools for debugging and inspecting web pages
     disabled: false
+deployment:
+  target: mainframe
+tiers:
+  runtime: true
+  spec_kit: true
+  tooling: true
 board: null
