@@ -107,6 +107,21 @@ def test_liquidsoap_liner_glob_matches_mario() -> None:
     assert fnmatch.fnmatch(name, glob_pat), f"{name} does not match glob {glob_pat}"
 
 
+def test_liquidsoap_jingle_pool_is_audio_only() -> None:
+    """#121: single() on README.md or .gitkeep raises "infallible source not
+    able to prepare in time", aborts the clock and kills the container. The
+    jingle pool must be filtered to audio extensions before list.nth picks."""
+    liq = _liq_text()
+    assert 'pattern="\\\\.(mp3|wav|flac|ogg)$"' in liq
+
+    import re
+
+    pool_filter = re.compile(r"\.(mp3|wav|flac|ogg)$")
+    assert pool_filter.search("station-jingle.wav")
+    assert not pool_filter.search("README.md")
+    assert not pool_filter.search(".gitkeep")
+
+
 # --- Caddy consumer-side verification ---
 
 

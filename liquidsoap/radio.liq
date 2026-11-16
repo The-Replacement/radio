@@ -211,8 +211,14 @@ def host_transition(ending, starting) =
       try
         n = int_of_string(ss)
         if (n mod 5) == 0 then
-          jfiles_raw = file.ls("/jingles")
-          jfiles = list.sort(fun(x,y) -> string.compare(x,y), jfiles_raw)
+          # Audio extensions only: single() on README.md or .gitkeep raises
+          # "infallible source not able to prepare in time", aborts the clock
+          # and kills the container (#121). The directory is docs-by-default;
+          # the filter is the fix, not the doc files.
+          jfiles_audio = list.filter(
+            fun(f) -> string.match(f, pattern="\\.(mp3|wav|flac|ogg)$"),
+            file.ls("/jingles"))
+          jfiles = list.sort(fun(x,y) -> string.compare(x,y), jfiles_audio)
           if list.length(jfiles) > 0 then
             idx = n mod list.length(jfiles)
             jingle_path = "/jingles/" ^ list.nth(default="", jfiles, idx)
