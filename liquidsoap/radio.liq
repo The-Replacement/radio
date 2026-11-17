@@ -105,6 +105,34 @@ def host_bucket() =
   end
 end
 
+# Play a spacer once, safely (#123). The file.exists guard below cannot close
+# this window: the hourly TTS prune can unlink the path between that check and
+# single()'s EOF re-fetch. An infallible single() then raises into the clock and
+# kills the container (reproduced on the pinned image: "Failed to fetch a new
+# request: Avutil.Error" -> "Infallible source.dynamic single was not able to
+# prepare a source in time"). This fetches ONCE, synchronously, at sequence
+# wake-up: success plays the file to EOF then returns null (advance); failure
+# logs the path and returns null (skip). Never raises, never retries, never
+# inserts silence. A vanished file is a skipped spacer, not a dead stream.
+def safe_single(uri) =
+  done = ref(false)
+  def next() =
+    if done() then
+      null
+    else
+      done := true
+      r = request.create(uri)
+      if request.resolve(r) then
+        r
+      else
+        log.important(label="safe_single", "spacer unavailable, skipping: #{uri}")
+        null
+      end
+    end
+  end
+  request.dynamic(synchronous=true, next)
+end
+
 def host_transition(ending, starting) =
   # Parse current seed.
   ec = try ending.metadata["comment"] catch _ do "" end
