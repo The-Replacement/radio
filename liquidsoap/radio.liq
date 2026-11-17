@@ -159,7 +159,7 @@ def host_transition(ending, starting) =
     host_path = "/host/#{es}_#{ss}_#{bucket}.wav"
     try
       if file.exists(host_path) then
-        spacers := list.append(spacers(), [single(host_path)])
+        spacers := list.append(spacers(), [safe_single(host_path)])
       end
     catch _ do
       ()
@@ -180,7 +180,7 @@ def host_transition(ending, starting) =
           rss_path = "/host/rss_#{bucket}.wav"
         end
         if file.exists(rss_path) then
-          spacers := list.append(spacers(), [single(rss_path)])
+          spacers := list.append(spacers(), [safe_single(rss_path)])
         end
       catch _ do
         ()
@@ -196,7 +196,7 @@ def host_transition(ending, starting) =
           weather_path = "/host/weather_#{bucket}.wav"
         end
         if file.exists(weather_path) then
-          spacers := list.append(spacers(), [single(weather_path)])
+          spacers := list.append(spacers(), [safe_single(weather_path)])
         end
       catch _ do
         ()
@@ -222,7 +222,7 @@ def host_transition(ending, starting) =
           if include_ident and list.length(spacers()) < 2 then
             try
               if file.exists(ident_path) then
-                spacers := list.append(spacers(), [single(ident_path)])
+                spacers := list.append(spacers(), [safe_single(ident_path)])
               end
             catch _ do
               ()
@@ -252,7 +252,7 @@ def host_transition(ending, starting) =
             jingle_path = "/jingles/" ^ list.nth(default="", jfiles, idx)
             try
               if file.exists(jingle_path) then
-                spacers := list.append(spacers(), [single(jingle_path)])
+                spacers := list.append(spacers(), [safe_single(jingle_path)])
               end
             catch _ do
               ()
