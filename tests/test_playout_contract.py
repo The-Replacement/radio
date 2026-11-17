@@ -122,6 +122,32 @@ def test_liquidsoap_jingle_pool_is_audio_only() -> None:
     assert not pool_filter.search(".gitkeep")
 
 
+def test_liquidsoap_spacers_are_fallible_safe_single() -> None:
+    """#123: single() is statically infallible when its file exists at
+    wake-up; the hourly TTS prune can unlink the path before the EOF
+    re-fetch, and the infallible source.dynamic wrapper then aborts the
+    clock (reproduced on the pinned image: "Infallible source.dynamic
+    single was not able to prepare a source in time"). Every spacer must go
+    through safe_single: play-once, synchronous single fetch, explicit
+    resolve, visible skip log. A bare single( call is a regression to the
+    abort."""
+    liq = _liq_text()
+    assert "def safe_single(uri)" in liq
+    # Exactly the five spacer call sites (host, rss, weather, ident, jingle).
+    assert liq.count("[safe_single(") == 5
+    # The helper must keep the semantics proven in the design probes:
+    # synchronous (else sequence skips the spacer before it ever fetches)
+    # and a visible warning naming the skipped path (else degradation is
+    # silent).
+    assert "request.dynamic(synchronous=true, next)" in liq
+    assert 'log.important(label="safe_single"' in liq
+    # No bare single( in code: underscore is a word character, so the
+    # lookbehind does not match safe_single(; comments are stripped because
+    # they legitimately discuss single() by name.
+    code = "\n".join(line for line in liq.splitlines() if not line.lstrip().startswith("#"))
+    assert re.search(r"(?<![A-Za-z0-9_])single\(", code) is None
+
+
 # --- Caddy consumer-side verification ---
 
 
