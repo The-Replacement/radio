@@ -5,7 +5,9 @@
 # (volume ./data/indiegen). When a cycle ends it writes a timestamp there; this
 # script reads it and, if it changed since last time, runs `docker compose restart
 # liquidsoap` — necessary because liquidsoap's watch adds tracks but does not
-# forget deleted ones (the "phantom" deletions would keep playing).
+# forget deleted ones (the "phantom" deletions would keep playing). The signal
+# is consumed (marker written) only after a successful restart: on failure the
+# next tick retries instead of silently losing the rotation (#127).
 #
 # It runs from cron every minute, as the box's user (kbdejavu, in the docker
 # group). There is no /var/run/docker.sock in any container: the generator cannot
@@ -79,7 +81,10 @@ fi
 render_skip=""
 exec 8>"$RENDER_LOCK"
 if ! flock -n 8; then
-  render_skip="hourly refresh is rendering ($RENDER_LOCK held)"
+  # Not necessarily the hourly refresh: any holder of the shared render lock
+  # (hourly refresh, weather/news slot) makes us skip. Naming it "hourly" sent
+  # an investigation down the wrong path once (#127).
+  render_skip="render lock held by another job ($RENDER_LOCK held)"
 elif ! gate=$("$ROOT/scripts/radio-job.sh" preflight 2>&1); then
   render_skip="gate closed: ${gate#gate closed: }"
 fi
@@ -114,5 +119,24 @@ if [ -x "$ROOT/scripts/fix-data-ownership.sh" ]; then
   fi
 fi
 
-docker compose -f "$ROOT/docker-compose.yml" restart liquidsoap
+# The load-bearing step: if the restart fails, do NOT consume the signal.
+# Writing the marker unconditionally made every later tick exit silently at
+# `sig == last` — the failure left no trace and the rotation's deletions stayed
+# in liquidsoap's in-memory playlist for hours (#127: cycle 39, 3h42m phantom
+# playlist). On failure the marker is untouched, so the next tick retries; a
+# persistently failing restart is loud (one WARN line per tick) instead of
+# silent forever.
+restart_out="$(docker compose -f "$ROOT/docker-compose.yml" restart liquidsoap 2>&1)"
+rc=$?
+if [ -n "$restart_out" ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    log "restart: $line"
+  done <<<"$restart_out"
+fi
+if [ "$rc" -ne 0 ]; then
+  log "WARN restart failed (rc=$rc): signal $sig NOT consumed; retrying next tick"
+  exit 1
+fi
+log "restart ok: signal $sig"
 printf '%s' "$sig" > "$MARK"
