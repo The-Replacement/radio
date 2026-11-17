@@ -81,7 +81,7 @@ def test_liquidsoap_rss_path_matches_mario() -> None:
     """Liquidsoap reads /host/rss_{bucket}.wav — must match
     Mario's rss_stable_alias_filename(bucket)."""
     liq = _liq_text()
-    assert 'rss_path = "/host/rss_#{bucket}.wav"' in liq
+    assert '"/host/rss_#{bucket}.wav"' in liq
     assert rss_stable_alias_filename(BUCKET) == "rss_2026-11-13T14.wav"
 
 
@@ -89,8 +89,20 @@ def test_liquidsoap_weather_path_matches_mario() -> None:
     """Liquidsoap reads /host/weather_{bucket}.wav — must match
     Mario's weather_alias_filename(bucket)."""
     liq = _liq_text()
-    assert 'weather_path = "/host/weather_#{bucket}.wav"' in liq
+    assert '"/host/weather_#{bucket}.wav"' in liq
     assert weather_alias_filename(BUCKET) == "weather_2026-11-13T14.wav"
+
+
+def test_liquidsoap_slot_paths_use_single_expression() -> None:
+    """#124: the rss/weather fallback must be one expression.
+
+    A reassignment inside an `if` block binds a shadowed variable that dies
+    with the block, so the exists-check after `end` reads the outer value and
+    the bucket-scoped fallback never fires (Warning 4: Unused variable).
+    """
+    liq = _liq_text()
+    assert 'rss_path = if file.exists("/host/rss.wav") then' in liq
+    assert 'weather_path = if file.exists("/host/weather.wav") then' in liq
 
 
 def test_liquidsoap_liner_glob_matches_mario() -> None:

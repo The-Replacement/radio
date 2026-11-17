@@ -175,9 +175,13 @@ def host_transition(ending, starting) =
         # Prefer the bucket-less name: news is refreshed every 30 min, so the
         # bucket-scoped file can be up to 30 min stale inside a 6-hour bucket.
         # The bucket name stays as the fallback so an older host dir still airs.
-        rss_path = "/host/rss.wav"
-        if not file.exists(rss_path) then
-          rss_path = "/host/rss_#{bucket}.wav"
+        # Single expression: a reassignment inside the `if` block would bind a
+        # shadowed variable that dies with the block, leaving the outer value
+        # on the exists-check (#124).
+        rss_path = if file.exists("/host/rss.wav") then
+          "/host/rss.wav"
+        else
+          "/host/rss_#{bucket}.wav"
         end
         if file.exists(rss_path) then
           spacers := list.append(spacers(), [safe_single(rss_path)])
@@ -191,9 +195,12 @@ def host_transition(ending, starting) =
     if bucket != "" and list.length(spacers()) < 2 then
       try
         # Same reasoning as news, at 10 minutes instead of 30.
-        weather_path = "/host/weather.wav"
-        if not file.exists(weather_path) then
-          weather_path = "/host/weather_#{bucket}.wav"
+        # Same single-expression shape as news (#124): no block-scoped
+        # reassignment, so the exists-check sees the resolved path.
+        weather_path = if file.exists("/host/weather.wav") then
+          "/host/weather.wav"
+        else
+          "/host/weather_#{bucket}.wav"
         end
         if file.exists(weather_path) then
           spacers := list.append(spacers(), [safe_single(weather_path)])
