@@ -56,6 +56,16 @@ die() {
   exit 2
 }
 
+# One run at a time, and never on top of somebody else's probe (#102).
+# Every liquidsoap start costs ~330 MiB of anonymous memory before it settles at
+# ~80 MB. An exec'd probe shares the encoder's cgroup, so on 2026-11-16 an extra
+# instance was OOM-killed at anon-rss 522 MB inside the encoder's own 512 MiB
+# cap; the encoder survived only because the kernel picked the bigger task. A
+# second run of this script is the same mistake with more copies. Refuse.
+LOCK="${SPACER_RACE_LOCK:-/tmp/spacer-race.lock}"
+exec 9>"$LOCK"
+flock -n 9 || die "another run holds $LOCK; probes would stack inside $CONTAINER"
+
 container_sh() {
   docker exec "$CONTAINER" sh -c "$1"
 }
@@ -266,6 +276,14 @@ main() {
   esac
 
   kill_leftovers
+
+  # A liquidsoap process that is neither PID 1 nor one of our (now reaped)
+  # probes belongs to somebody else — another session, a stray `compose run`.
+  # Starting a probe next to it doubles the startup cost inside one cgroup.
+  local foreign
+  foreign=$(container_sh 'for p in /proc/[0-9]*; do [ "$(cat "$p/comm" 2>/dev/null)" = liquidsoap ] && echo "$p"; done' 2>/dev/null | grep -vc '^/proc/1$' || true)
+  case "${foreign:-}" in '' | *[!0-9]*) foreign=0 ;; esac
+  [ "$foreign" -gt 0 ] && die "$foreign foreign liquidsoap process(es) already inside $CONTAINER; not stacking another"
 
   probe_negative_control
   probe_prestart_delete
