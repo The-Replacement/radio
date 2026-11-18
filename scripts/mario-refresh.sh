@@ -72,6 +72,11 @@ fi
 # while never running once. Probe first and say so.
 if [ -x "$ROOT/scripts/fix-data-ownership.sh" ]; then
   if sudo -n true 2>/dev/null; then
+    # SC2024 wants the redirect to run under sudo, but the redirect is the point
+    # of the line: $LOG is user-owned, and opening it BEFORE sudo is what keeps
+    # root from creating a root-owned log (the #83 problem this repairs). sudo
+    # wraps the command, which is exactly the intent.
+    # shellcheck disable=SC2024
     sudo -n "$ROOT/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 \
       || log "WARN ownership repair failed"
   else

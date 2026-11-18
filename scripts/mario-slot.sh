@@ -60,7 +60,7 @@ fi
 # cache-hits.
 RENDER_OUTPUT_LOG="$LOG"
 if [ "$SLOT" = "weather" ]; then
-  RENDER_ENTRYPOINT=sh
+  RENDER_ENTRYPOINT="sh"
   SLOT_ARGS=(-c "mario weather-fetch --out /data/host/weather.json || echo WEATHER_FETCH_FAILED >&2; exec mario generate --music-dir /music --host-dir /data/host --liners-preset /app/presets/liners.yaml --weather-file /data/host/weather.json --slots weather --no-marker --keep-buckets 1")
 else
   # News rotates over the feeds by bucket seed, so a 30-minute cadence needs a

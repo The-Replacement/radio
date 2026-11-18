@@ -51,4 +51,30 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
       - name: Run shellcheck
-        run: shellcheck -x scripts/**/*.sh
+        # `scripts/**/*.sh` is not recursive here: bash runs with globstar off,
+        # so `**` behaves as a single `*` and the pattern only ever matched
+        # subdirectories (scripts/lib/, scripts/smoke.d/). Every top-level
+        # script -- radio-job.sh, spacer-race.sh, smoke.sh, the mario and
+        # rotation handlers -- was never checked by CI (#126).
+        #
+        # Discovery is by shebang, not by `*.sh`: scripts/post-receive is the
+        # deploy hook, a shell script with no suffix, and it is not an
+        # exception. The step fails when discovery finds nothing, so a broken
+        # pattern turns red instead of green over an empty file list.
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          files=()
+          for f in scripts/**/*; do
+            [ -f "$f" ] || continue
+            case "$(head -n 1 "$f")" in
+              '#!'*/sh|'#!'*/bash|'#!'*' sh'|'#!'*' bash') files+=("$f") ;;
+            esac
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "shellcheck gate: no shell scripts found under scripts/" >&2
+            exit 1
+          fi
+          echo "shellcheck $(shellcheck --version | awk '/version:/ {print $2}'): ${#files[@]} scripts"
+          shellcheck -x "${files[@]}"
