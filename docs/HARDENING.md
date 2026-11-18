@@ -122,6 +122,34 @@ manual runs) is consistently aligned. To make cleanup automatable:
    device/group, Caddy writable storage + `NET_BIND_SERVICE`, pinned
    liquidsoap/caddy image behavior, secrets handling constraints from #87).
 
+## Extra liquidsoap instances (#102)
+
+Starting liquidsoap is expensive in anonymous memory: **~330 MiB before it
+settles at ~80 MB** (measured 2026-11-18: `liquidsoap --check` peaks at 337 MiB,
+a full run at 328 MiB, both inside the pinned image). A streaming instance then
+stays flat — 35 minutes, 6 and 18 tracks, with and without the `cross`
+transition, all settled at 77–82 MB.
+
+That startup cost is the whole story of the 2026-11-16 OOM lines. Six one-off
+`docker compose run liquidsoap` containers (0.6 s each, ~420 MB peak) and one
+`docker exec ... liquidsoap` inside the service were OOM-killed at
+`anon-rss ~522 MB`. The service itself never died: `RestartCount` stayed 0 and
+its PID appears in every kernel task dump while the extras were being killed.
+
+Rules that follow:
+
+- **Never run a second liquidsoap inside `radio-liquidsoap`.** An exec'd
+  process shares the encoder's cgroup and its 512 MiB cap; the kernel picks the
+  larger task, and one day that will be the encoder.
+- **Probes and checks run in a separate container**, capped, with
+  `--network none` and an output to a file — never against the live mount.
+- `scripts/spacer-race.sh` holds `/tmp/spacer-race.lock` and refuses to start if
+  a foreign liquidsoap process is already inside the container.
+- `radio-job.sh verify` records `liquidsoap_extra` (processes in the service
+  beyond PID 1) and `liquidsoap_oneoffs` (`radio-liquidsoap-run-*` containers)
+  in `data/status.json`, fails the `liq` line, and closes the gate while either
+  is non-zero.
+
 ## Documented exceptions / constraints
 
 - **Camera device access:** `cam` requires `/dev/video0` (or configured device)

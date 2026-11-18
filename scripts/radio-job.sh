@@ -62,6 +62,13 @@ WEATHER_MAX_AGE_S=1500
 RSS_MAX_AGE_S=3900
 STATUS_MAX_AGE_S=600
 
+# Share of its memory limit a container may reach before the gate stops handing
+# the box more work (#102). The 2026-11-16 liquidsoap kill loop reached its
+# 512 MiB cap in ~23 minutes after a rotation; a five-minute verify timer sees
+# that climb well before 100 %. The siren is not the cap -- an unmeasured cap is
+# -- so this is the number the operator tunes caps against.
+CAP_PRESSURE_PCT=90
+
 # Retention bounds. One place, so a policy change is not a code change.
 BUILD_CACHE_KEEP="5GB"
 JOURNAL_MAX="1G"
@@ -273,11 +280,51 @@ cmd_verify() {
     uncapped=$(docker inspect $ids --format '{{if eq .HostConfig.Memory 0}}{{.Name}}{{end}}' 2>/dev/null | grep -c . )
   fi
 
+  # --- memory pressure per container (#102): how close is each one to its cap?
+  # On 2026-11-16 the 512 MiB liquidsoap limit OOM-killed the stream 12 times
+  # while this file said "0 uncapped". A limit that is never measured is a limit
+  # that kills silently, and the kernel journal was the only record left. The
+  # cgroup counters (memory.peak, memory.events) are read from inside the
+  # container's own cgroup, so the answer needs no sampling and no history: the
+  # five-minute verify timer turns the climb into a number. They reset when the
+  # container restarts, which is why restarts is recorded beside them.
+  local memory_pressure='{"containers":{},"worst":{"container":null,"pct":null,"anon":null,"limit":null}}'
+  if [ -n "$ids" ]; then
+    # shellcheck disable=SC2086
+    if ! memory_pressure=$(docker inspect $ids --format '{{.Name}} {{.HostConfig.Memory}} {{.RestartCount}} {{.State.Pid}}' 2>/dev/null |
+      python3 "$ROOT/scripts/cgroup_mem.py" 2>/dev/null) || [ -z "$memory_pressure" ]; then
+      memory_pressure='{"containers":{},"worst":{"container":null,"pct":null,"anon":null,"limit":null}}'
+      printf 'WARN: per-container memory pressure unavailable\n' >&2
+    fi
+  fi
+
   # Concurrent one-off renders. The 2026-11-14 stampede showed up nowhere except
   # as heat: the cron handler spawned ~30 `compose run mario` containers and
   # nothing in status.json said so. Two or more is always a bug, never normal.
   local mario_oneoffs=0
   mario_oneoffs=$(docker ps -q --filter 'name=radio-mario-run-' 2>/dev/null | grep -c . || true)
+
+  # Extra liquidsoap instances (#102). Starting liquidsoap costs ~330 MiB of
+  # anonymous memory before it settles at ~80 MB; six `compose run` containers
+  # and one `docker exec` each paid that on 2026-11-16 and the 512 MiB cap
+  # killed every one of them. The service itself never died (RestartCount 0).
+  # An exec'd instance shares the encoder's cgroup, so the kill can land on the
+  # encoder instead: that is the risk worth seeing before it happens. -1 means
+  # "could not read", never 0: an unmeasured container must not look healthy.
+  local liquidsoap_extra=-1
+  if [ "$(docker inspect -f '{{.State.Running}}' radio-liquidsoap 2>/dev/null)" = "true" ]; then
+    # PID 1 is the encoder; anything else named liquidsoap is an extra start.
+    # Excluding /proc/1 by path rather than subtracting one: the count must not
+    # depend on what PID 1 happens to be.
+    liquidsoap_extra=$(docker exec radio-liquidsoap sh -c \
+      'for p in /proc/[0-9]*; do [ "$p" = /proc/1 ] && continue; [ "$(cat "$p/comm" 2>/dev/null)" = liquidsoap ] && echo "$p"; done' 2>/dev/null |
+      grep -c . || true)
+    case "${liquidsoap_extra:-}" in
+      '' | *[!0-9]*) liquidsoap_extra=-1 ;;
+    esac
+  fi
+  local liquidsoap_oneoffs=0
+  liquidsoap_oneoffs=$(docker ps -q --filter 'name=radio-liquidsoap-run-' 2>/dev/null | grep -c . || true)
   local cpu_pressure
   cpu_pressure=$(awk '/^some/ {print $3}' /proc/pressure/cpu 2>/dev/null | sed 's/avg60=//')
   local load1
@@ -310,7 +357,11 @@ cmd_verify() {
                 "cpu_pressure_some": "${cpu_pressure:-0}",
                 "load1": "${load1:-0}", "load_max": $LOAD_MAX,
                 "mario_oneoffs": $mario_oneoffs,
-                "uncapped_containers": $uncapped},
+                "liquidsoap_extra": $liquidsoap_extra,
+                "liquidsoap_oneoffs": $liquidsoap_oneoffs,
+                "uncapped_containers": $uncapped,
+                "cap_pressure_pct": $CAP_PRESSURE_PCT,
+                "memory_pressure": $memory_pressure},
   "jobs": {"last_gc": "${last_gc:-never}"}
 }
 JSON
@@ -360,7 +411,32 @@ print(f"  {mark(ct['catalog_ok'] and ct['tracks'] > 0)} content  {ct['tracks']} 
 print(f"  {mark(ct.get('weather_fresh'))} weather  refreshed {ct.get('weather_age_s')}s ago (limit {wmax}s)")
 print(f"  {mark(ct.get('rss_fresh'))} news     refreshed {ct.get('rss_age_s')}s ago (limit {rmax}s)")
 print(f"  {mark(r['uncapped_containers'] == 0)} caps     {r['uncapped_containers']} uncapped container(s)")
+mp = r.get("memory_pressure") or {}
+worst = mp.get("worst") or {}
+pct = worst.get("pct")
+cmax = r.get("cap_pressure_pct", 90)
+
+
+def mib(n):
+    return f"{n / 1048576:.0f} MiB" if n >= 1048576 else f"{n} B"
+
+
+if pct is None:
+    capped = [n for n, c in (mp.get("containers") or {}).items() if c.get("limit", 0) > 0]
+    if not capped:
+        print("  n/a  pressure no capped container to measure")
+    else:
+        print("  FAIL pressure unmeasured (no cgroup v2 memory.peak)")
+else:
+    restarts = (mp.get("containers") or {}).get(worst["container"], {}).get("restarts", "?")
+    print(f"  {mark(pct < cmax)} pressure {worst['container']} {pct}% of {mib(worst['limit'])} anon  restarts {restarts}")
 print(f"  {mark(r.get('mario_oneoffs', 0) < 2)} renders  {r.get('mario_oneoffs', 0)} mario one-off(s) running")
+extra = r.get("liquidsoap_extra", -1)
+oneoffs = r.get("liquidsoap_oneoffs", 0)
+if extra < 0:
+    print("  n/a  liq      service not running (extra instances unmeasured)")
+else:
+    print(f"  {mark(extra == 0 and oneoffs == 0)} liq      {extra} extra process(es), {oneoffs} one-off container(s)")
 print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free")
 print(f"  load {r.get('load1', '?')}/{r.get('load_max', '?')} (1m/max)  PSI mem {r['mem_pressure_some']}  cpu some {r.get('cpu_pressure_some', '?')} (inflated by container caps)")
 print(f"  last gc  {data['jobs']['last_gc']}")
@@ -382,20 +458,28 @@ preflight() {
     cmd_verify >/dev/null 2>&1 || { GATE_REASON="status unavailable"; return 1; }
   fi
 
-  if ! GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" "$LOAD_MAX" <<'PYGATE'
+  if ! GATE_REASON=$(python3 - "$STATUS" "$TEMP_MAX_C" "$PSI_MEM_MAX" "$LOAD_MAX" "$CAP_PRESSURE_PCT" <<'PYGATE'
 import json
 import sys
 
-status, tmax, psimax, loadmax = (sys.argv[1], int(sys.argv[2]),
-                                 float(sys.argv[3]), float(sys.argv[4]))
+status, tmax, psimax, loadmax, capmax = (sys.argv[1], int(sys.argv[2]),
+                                         float(sys.argv[3]), float(sys.argv[4]),
+                                         float(sys.argv[5]))
 d = json.load(open(status))
 r = d["resources"]
+worst = ((r.get("memory_pressure") or {}).get("worst") or {})
 if r["pkg_c"] >= tmax:
     print(f"hot: {r['pkg_c']}C >= {tmax}C")
 elif float(r["mem_pressure_some"]) > psimax:
     print(f"memory pressure: {r['mem_pressure_some']} > {psimax}")
 elif int(r.get("mario_oneoffs", 0)) >= 2:
     print(f"{r['mario_oneoffs']} mario renders already running")
+elif worst.get("pct") is not None and worst["pct"] >= capmax:
+    print(f"{worst['container']} at {worst['pct']}% of its memory cap")
+elif int(r.get("liquidsoap_extra", 0)) > 0:
+    print(f"{r['liquidsoap_extra']} extra liquidsoap process(es) inside the encoder's cgroup")
+elif int(r.get("liquidsoap_oneoffs", 0)) > 0:
+    print(f"{r['liquidsoap_oneoffs']} one-off liquidsoap container(s) running")
 elif float(r.get("load1", 0)) > loadmax:
     print(f"load: {r.get('load1')} > {loadmax}")
 elif r.get("below_floor"):
