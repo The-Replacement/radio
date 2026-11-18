@@ -179,6 +179,11 @@ while read -r OLD NEW REF; do
   # Effective only when scoped passwordless sudo is wired for this fixed script.
   if [ -x "$RAIZ/scripts/fix-data-ownership.sh" ]; then
     if sudo -n true 2>/dev/null; then
+      # SC2024 wants the redirect to run under sudo. It must not: $LOG belongs to
+      # the deploy user, and opening it BEFORE sudo is what stops root from
+      # creating a root-owned log (the #83 class of problem this repairs). sudo
+      # wraps the command; the redirect stays with the caller.
+      # shellcheck disable=SC2024
       sudo -n "$RAIZ/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 \
         || log "WARN: ownership repair failed"
     else
