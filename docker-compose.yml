@@ -347,6 +347,10 @@ services:
       MARIO_TIME_BUCKET_HOURS: ${MARIO_TIME_BUCKET_HOURS:-1}
       MARIO_MODEL_LANG: ${MARIO_MODEL_LANG:-es}
       MARIO_TEMPLATE_VERSION: ${MARIO_TEMPLATE_VERSION:-mario/2}
+      # Kokoro/onnxruntime may write caches under HOME; align with the overridden
+      # runtime user (MARIO_UID) so a non-10001 uid does not hit EACCES (#99).
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp
     volumes:
       - ./music:/music:ro
       - ./data/host:/data/host
