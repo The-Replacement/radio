@@ -150,6 +150,16 @@ Rules that follow:
   in `data/status.json`, fails the `liq` line, and closes the gate while either
   is non-zero.
 
+## cgroup priority (#105)
+
+Batch work (indiegen, mario) runs in the `radio-batch.slice` systemd slice with
+`CPUWeight=20`; the audio path stays in the default slice. The compose services
+set `cgroup_parent: radio-batch.slice` for `indiegen` and `mario` only. The slice
+unit lives in `infra/deploy/systemd/radio-batch.slice` and is installed by
+`infra/deploy/bootstrap.sh`. Requires Docker on the `systemd` cgroup driver; on
+a host still using `cgroupfs` the slice is invisible to containers and the
+`cgroup_parent` reference fails at start — verify with `docker info | grep -i cgroup`.
+
 ## Documented exceptions / constraints
 
 - **Camera device access:** `cam` requires `/dev/video0` (or configured device)
