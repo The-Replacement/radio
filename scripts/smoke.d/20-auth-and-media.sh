@@ -10,30 +10,30 @@ smoke_group_auth_and_media() {
   echo
   echo "the link exchanged for a cookie:"
   # tr -d '\r': curl uses CRLF and the \r breaks the end-of-line anchors.
-  local CABECERAS
-  CABECERAS="$(curl -s -i --max-time 10 "$BASE/?t=$TOKEN" 2>/dev/null | tr -d '\r' || true)"
-  grep -qiE '^set-cookie: radio=' <<<"$CABECERAS" \
+  local HEADERS
+  HEADERS="$(curl -s -i --max-time 10 "$BASE/?t=$TOKEN" 2>/dev/null | tr -d '\r' || true)"
+  grep -qiE '^set-cookie: radio=' <<<"$HEADERS" \
     && pasa "the invitation link sets the cookie" \
     || falla "the invitation link did NOT set the cookie"
-  grep -qE '^HTTP/[0-9.]+ 302' <<<"$CABECERAS" \
+  grep -qE '^HTTP/[0-9.]+ 302' <<<"$HEADERS" \
     && pasa "and redirects to the player (302)" \
     || falla "it did not redirect with 302"
-  grep -qiF "location: $FRONTEND/" <<<"$CABECERAS" \
+  grep -qiF "location: $FRONTEND/" <<<"$HEADERS" \
     && pasa "the redirect points at the frontend" \
     || falla "the redirect does not point at the frontend"
-  grep -qiF "location: $FRONTEND/?t=$TOKEN" <<<"$CABECERAS" \
+  grep -qiF "location: $FRONTEND/?t=$TOKEN" <<<"$HEADERS" \
     && pasa "and keeps the ?t= in the URL (the no-cookie browser's fallback)" \
     || falla "the redirect lost the ?t=: the no-cookie browser loses the fallback"
 
-  COOKIE_ENTREGADA="$(sed -nE 's/^[Ss]et-[Cc]ookie: radio=([^;]*).*/\1/p' <<<"$CABECERAS" | head -n1)"
+  COOKIE_DELIVERED="$(sed -nE 's/^[Ss]et-[Cc]ookie: radio=([^;]*).*/\1/p' <<<"$HEADERS" | head -n1)"
 
-  if [[ -z "$COOKIE_ENTREGADA" ]]; then
+  if [[ -z "$COOKIE_DELIVERED" ]]; then
     falla "could not read the cookie the exchange handed out"
   else
-    [[ "$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/")" == "200" ]] \
+    [[ "$(codigo -H "Cookie: radio=$COOKIE_DELIVERED" "$BASE/")" == "200" ]] \
       && pasa "the cookie the exchange HANDS OUT serves the player" \
       || falla "the cookie the exchange hands out does not work: does the exchange copy the token instead of translating it? (token->cookieid map in caddy/tokens.caddy)"
-    [[ "$(codigo_stream -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/stream")" == "200" ]] \
+    [[ "$(codigo_stream -H "Cookie: radio=$COOKIE_DELIVERED" "$BASE/stream")" == "200" ]] \
       && pasa "the cookie the exchange HANDS OUT serves the stream" \
       || falla "the exchange's cookie did not authenticate the stream"
   fi
@@ -63,7 +63,7 @@ smoke_group_auth_and_media() {
 
   # The stream has to deliver real audio, not just a 200.
   local len
-  len=$(curl -s --max-time 8 "$BASE/stream?t=$TOKEN" | head -c 65536 | wc -c)
+  len=$(curl -s --max-time 8 "$BASE/stream?t=$TOKEN" | head -code 65536 | wc -code)
   if [[ "${len:-0}" -gt 4096 ]]; then
     pasa "the stream delivers ${len} bytes of audio"
   else
@@ -108,43 +108,43 @@ _smoke_camera() {
     && pasa "init without a credential -> 404" \
     || falla "init without a credential -> $(codigo "$BASE/cam/init.mp4")"
 
-  local seg="" tipo="" c=""
-  if [[ -n "$COOKIE_ENTREGADA" ]]; then
-    [[ "$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/index.m3u8")" == "200" ]] \
+  local segment="" content_type="" code=""
+  if [[ -n "$COOKIE_DELIVERED" ]]; then
+    [[ "$(codigo -H "Cookie: radio=$COOKIE_DELIVERED" "$BASE/cam/index.m3u8")" == "200" ]] \
       && pasa "playlist with cookie -> 200" \
-      || falla "playlist with cookie -> $(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/index.m3u8")"
+      || falla "playlist with cookie -> $(codigo -H "Cookie: radio=$COOKIE_DELIVERED" "$BASE/cam/index.m3u8")"
 
-    tipo="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_ENTREGADA" \
+    content_type="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_DELIVERED" \
             "$BASE/cam/init.mp4" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-type:" {print $2}')"
-    [[ "$tipo" == "video/mp4" ]] \
-      && pasa "init with cookie -> 200 ($tipo)" \
-      || falla "init with cookie served '$tipo' (expected video/mp4)"
+    [[ "$content_type" == "video/mp4" ]] \
+      && pasa "init with cookie -> 200 ($content_type)" \
+      || falla "init with cookie served '$content_type' (expected video/mp4)"
 
-    seg="$(grep -v '^#' "$RAIZ/data/cam/index.m3u8" | grep -m1 . || true)"
-    if [[ -n "$seg" ]]; then
-      c="$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/$seg")"
-      if [[ "$c" != "200" ]]; then
-        seg="$(grep -v '^#' "$RAIZ/data/cam/index.m3u8" | grep -m1 . || true)"
-        c="$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/$seg")"
+    segment="$(grep -v '^#' "$RAIZ/data/cam/index.m3u8" | grep -m1 . || true)"
+    if [[ -n "$segment" ]]; then
+      code="$(codigo -H "Cookie: radio=$COOKIE_DELIVERED" "$BASE/cam/$segment")"
+      if [[ "$code" != "200" ]]; then
+        segment="$(grep -v '^#' "$RAIZ/data/cam/index.m3u8" | grep -m1 . || true)"
+        code="$(codigo -H "Cookie: radio=$COOKIE_DELIVERED" "$BASE/cam/$segment")"
       fi
-      [[ "$c" == "200" ]] && pasa "segment with cookie -> 200 ($seg)" \
-                         || falla "segment with cookie -> $c ($seg)"
+      [[ "$code" == "200" ]] && pasa "segment with cookie -> 200 ($segment)" \
+                         || falla "segment with cookie -> $code ($segment)"
     fi
 
-    tipo="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_ENTREGADA" \
-            "$BASE/cam/${seg:-nada}" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-type:" {print $2}')"
-    [[ "$tipo" == "video/iso.segment" ]] \
-      && pasa "the segment comes out as $tipo" \
-      || falla "the segment came out as '$tipo' (expected video/iso.segment; did you switch to .ts?)"
+    content_type="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_DELIVERED" \
+            "$BASE/cam/${segment:-none}" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-type:" {print $2}')"
+    [[ "$content_type" == "video/iso.segment" ]] \
+      && pasa "the segment comes out as $content_type" \
+      || falla "the segment came out as '$content_type' (expected video/iso.segment; did you switch to .ts?)"
   fi
 
   # --- WebRTC: the gate applies to the signalling ---
   [[ "$(codigo -X POST --data 'v=0' -H 'Content-Type: application/sdp' "$BASE/cam/whep")" == "404" ]] \
     && pasa "whep without a credential -> 404" \
     || falla "whep without a credential passed the gate"
-  if [[ -n "$COOKIE_ENTREGADA" ]]; then
+  if [[ -n "$COOKIE_DELIVERED" ]]; then
     [[ "$(codigo -X POST --data 'v=0' -H 'Content-Type: application/sdp' \
-          -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/cam/whep?t=$TOKEN")" == "400" ]] \
+          -H "Cookie: radio=$COOKIE_DELIVERED" "$BASE/cam/whep?t=$TOKEN")" == "400" ]] \
       && pasa "whep with a credential reaches mediamtx (400 = invalid SDP)" \
       || falla "whep with a credential did not reach mediamtx"
   fi
@@ -163,10 +163,10 @@ _smoke_camera() {
     && pasa "cannot escape the directory -> 404" \
     || falla "the path with .. was not rejected"
 
-  if [[ -n "${seg:-}" ]]; then
-    [[ "$(codigo "$BASE/cam/$TOKEN/$seg")" == "200" ]] \
-      && pasa "the relative segment inherits the token -> 200 ($seg)" \
-      || falla "the relative segment did not inherit the token ($seg)"
+  if [[ -n "${segment:-}" ]]; then
+    [[ "$(codigo "$BASE/cam/$TOKEN/$segment")" == "200" ]] \
+      && pasa "the relative segment inherits the token -> 200 ($segment)" \
+      || falla "the relative segment did not inherit the token ($segment)"
   fi
 
   # The test that matters: a real player downloading everything.
@@ -190,22 +190,22 @@ _smoke_mario() {
 
   echo
   echo "host (Mario):"
-  local seg name c tipo
-  seg="$(ls "$RAIZ"/data/host/*.wav | head -n1)"
-  name="$(basename "$seg")"
+  local segment name code content_type
+  segment="$(ls "$RAIZ"/data/host/*.wav | head -n1)"
+  name="$(basename "$segment")"
 
   [[ "$(codigo "$BASE/host/$name")" == "404" ]] \
     && pasa "segment without a credential -> 404" \
     || falla "segment without a credential -> $(codigo "$BASE/host/$name")"
 
-  if [[ -n "$COOKIE_ENTREGADA" ]]; then
-    c="$(codigo -H "Cookie: radio=$COOKIE_ENTREGADA" "$BASE/host/$name")"
-    [[ "$c" == "200" ]] && pasa "segment with cookie -> 200 ($name)" \
-                      || falla "segment with cookie -> $c ($name)"
+  if [[ -n "$COOKIE_DELIVERED" ]]; then
+    code="$(codigo -H "Cookie: radio=$COOKIE_DELIVERED" "$BASE/host/$name")"
+    [[ "$code" == "200" ]] && pasa "segment with cookie -> 200 ($name)" \
+                      || falla "segment with cookie -> $code ($name)"
 
-    tipo="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_ENTREGADA" \
+    content_type="$(curl -s -o /dev/null -D - --max-time 5 -H "Cookie: radio=$COOKIE_DELIVERED" \
             "$BASE/host/$name" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-type:" {print $2}')"
-    [[ "$tipo" == audio/* ]] && pasa "segment content-type is audio/* ($tipo)" \
-                            || falla "segment content-type '$tipo' (expected audio/*)"
+    [[ "$content_type" == audio/* ]] && pasa "segment content-type is audio/* ($content_type)" \
+                            || falla "segment content-type '$content_type' (expected audio/*)"
   fi
 }

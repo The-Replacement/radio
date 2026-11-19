@@ -34,25 +34,25 @@
 
 set -euo pipefail
 
-RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ARCHIVO_TOKENS="$RAIZ/secrets/tokens.txt"
-ARCHIVO_CADDY="$RAIZ/caddy/tokens.caddy"
-GENERADOR="$RAIZ/scripts/token-matcher.py"
-COMPOSE=(docker compose -f "$RAIZ/docker-compose.yml")
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TOKENS_FILE="$ROOT/secrets/tokens.txt"
+CADDY_FILE="$ROOT/caddy/tokens.caddy"
+GENERATOR="$ROOT/scripts/token-matcher.py"
+COMPOSE=(docker compose -f "$ROOT/docker-compose.yml")
 
-asegurar_permisos_secretos() {
-  mkdir -p "$RAIZ/secrets"
-  chmod 700 "$RAIZ/secrets" 2>/dev/null || true
-  touch "$ARCHIVO_TOKENS"
-  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
-  if [[ -f "$ARCHIVO_CADDY" ]]; then
-    chmod 600 "$ARCHIVO_CADDY" 2>/dev/null || true
+ensure_secret_permissions() {
+  mkdir -p "$ROOT/secrets"
+  chmod 700 "$ROOT/secrets" 2>/dev/null || true
+  touch "$TOKENS_FILE"
+  chmod 600 "$TOKENS_FILE" 2>/dev/null || true
+  if [[ -f "$CADDY_FILE" ]]; then
+    chmod 600 "$CADDY_FILE" 2>/dev/null || true
   fi
 }
 
-asegurar_permisos_secretos
+ensure_secret_permissions
 
-aleatorio() {
+random_val() {
   if command -v openssl >/dev/null 2>&1; then
     openssl rand -hex 32
   else
@@ -62,7 +62,7 @@ aleatorio() {
 
 # Normalises the expiry: "" | "30d" | "2026-12-31" -> "" | "YYYY-MM-DD".
 # Exits with an error if the date is invalid or already past.
-normalizar_vencimiento() {
+normalize_expiry() {
   python3 - "$1" <<'PY'
 import re, sys
 from datetime import date, timedelta
@@ -90,13 +90,13 @@ PY
 
 # Validates the config with Caddy itself before reloading.
 # A broken matcher must not be able to take the radio down: if this fails,
-# regenerar_matcher restores the previous file.
-validar_caddy() {
+# regenerate_matcher restores the previous file.
+validate_caddy() {
   if "${COMPOSE[@]}" ps --status running --services 2>/dev/null | grep -qx caddy; then
     "${COMPOSE[@]}" exec -T caddy \
       caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
   else
-    docker run --rm -v "$RAIZ/caddy:/etc/caddy:ro" caddy:2-alpine \
+    docker run --rm -v "$ROOT/caddy:/etc/caddy:ro" caddy:2-alpine \
       caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
   fi
 }
@@ -113,39 +113,39 @@ validar_caddy() {
 #
 # 2) Validate before accepting the config. A matcher that does not compile in
 #    CEL leaves Caddy in a restart loop: the whole radio goes down.
-regenerar_matcher() {
-  local nuevo="$ARCHIVO_CADDY.nuevo"
-  local respaldo
-  respaldo="$(mktemp)"
+regenerate_matcher() {
+  local new_file="$CADDY_FILE.new_file"
+  local backup
+  backup="$(mktemp)"
 
-  if ! python3 "$GENERADOR" "$ARCHIVO_TOKENS" "$nuevo"; then
+  if ! python3 "$GENERATOR" "$TOKENS_FILE" "$new_file"; then
     echo "ERROR: could not generate the matcher; the current config was not touched." >&2
-    rm -f "$nuevo"
+    rm -f "$new_file"
     return 1
   fi
 
-  [[ -f "$ARCHIVO_CADDY" ]] && cat "$ARCHIVO_CADDY" > "$respaldo"
+  [[ -f "$CADDY_FILE" ]] && cat "$CADDY_FILE" > "$backup"
 
   # In-place write: keeps the inode the container has mounted.
-  cat "$nuevo" > "$ARCHIVO_CADDY"
-  chmod 600 "$ARCHIVO_CADDY" 2>/dev/null || true
-  rm -f "$nuevo"
+  cat "$new_file" > "$CADDY_FILE"
+  chmod 600 "$CADDY_FILE" 2>/dev/null || true
+  rm -f "$new_file"
 
-  if ! validar_caddy; then
+  if ! validate_caddy; then
     echo "ERROR: Caddy does not accept the generated config. Restoring the previous one." >&2
-    cat "$respaldo" > "$ARCHIVO_CADDY"
-    rm -f "$respaldo"
+    cat "$backup" > "$CADDY_FILE"
+    rm -f "$backup"
     echo "See the detail with:" >&2
-    echo "  docker run --rm -v \"$RAIZ/caddy:/etc/caddy:ro\" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile" >&2
+    echo "  docker run --rm -v \"$ROOT/caddy:/etc/caddy:ro\" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile" >&2
     return 1
   fi
 
-  rm -f "$respaldo"
+  rm -f "$backup"
   return 0
 }
 
-recargar_caddy() {
-  if docker compose -f "$RAIZ/docker-compose.yml" ps --status running --services 2>/dev/null | grep -qx caddy; then
+reload_caddy() {
+  if docker compose -f "$ROOT/docker-compose.yml" ps --status running --services 2>/dev/null | grep -qx caddy; then
     echo "-> reloading Caddy (without cutting the listeners)..."
     if "${COMPOSE[@]}" exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
       echo "-> done."
@@ -164,12 +164,12 @@ recargar_caddy() {
 # the path), so only the reading is extracted, not the shape.
 public_url() {
   local public
-  public="$(grep -E '^PUBLIC_URL=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
+  public="$(grep -E '^PUBLIC_URL=' "$ROOT/.env" 2>/dev/null | cut -d= -f2- || true)"
   public="${public:-http://localhost:8090}"
   printf '%s' "${public%/}"
 }
 
-url_de() {
+url_for() {
   printf '%s/?t=%s\n' "$(public_url)" "$1"
 }
 
@@ -180,15 +180,15 @@ url_de() {
 # them without the query. With ?t=... the playlist downloads and the segments
 # give 404. With the token in a path segment, every relative request inherits it
 # on its own.
-url_cam_de() {
+cam_url_for() {
   printf '%s/cam/%s/index.m3u8\n' "$(public_url)" "$1"
 }
 
 # The name is used inside ERE expressions (^name ) and as a work file.
 # Restricting it to a charset with no metacharacters closes the regex injection
-# surface: with no ., *, +, (, ), [, ] in the name, the pattern `^${nombre} `
+# surface: with no ., *, +, (, ), [, ] in the name, the pattern `^${name} `
 # matches only that person.
-validar_nombre() {
+validate_name() {
   if ! [[ "$1" =~ ^[A-Za-z0-9_-]+$ ]]; then
     echo "Invalid name: '$1'. Use only letters, numbers, hyphen or underscore." >&2
     exit 1
@@ -199,12 +199,12 @@ validar_nombre() {
 # the Secure flag or the browser may send the session cookie over plain HTTP.
 # Fail fast on unsafe production profiles (audit O4/#89). Set
 # ALLOW_INSECURE_COOKIE=1 only for intentional non-production exceptions.
-validar_entorno() {
-  local sitio publico flags
-  sitio="$(grep -E '^SITE_ADDRESS=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
-  publico="$(grep -E '^PUBLIC_URL=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
-  flags="$(grep -E '^COOKIE_FLAGS=' "$RAIZ/.env" 2>/dev/null | cut -d= -f2- || true)"
-  if [[ ( "$sitio" == https://* || "$publico" == https://* ) && "$flags" != *Secure* ]]; then
+validate_environment() {
+  local site public_value flags
+  site="$(grep -E '^SITE_ADDRESS=' "$ROOT/.env" 2>/dev/null | cut -d= -f2- || true)"
+  public_value="$(grep -E '^PUBLIC_URL=' "$ROOT/.env" 2>/dev/null | cut -d= -f2- || true)"
+  flags="$(grep -E '^COOKIE_FLAGS=' "$ROOT/.env" 2>/dev/null | cut -d= -f2- || true)"
+  if [[ ( "$site" == https://* || "$public_value" == https://* ) && "$flags" != *Secure* ]]; then
     echo "ERROR: HTTPS is configured (SITE_ADDRESS/PUBLIC_URL) but COOKIE_FLAGS has no 'Secure'." >&2
     echo "       Add '; Secure' to COOKIE_FLAGS for production." >&2
     echo "       For an intentional exception (not recommended), rerun with ALLOW_INSECURE_COOKIE=1." >&2
@@ -217,178 +217,178 @@ validar_entorno() {
 # Prints invitation URLs for a person. Full credentials are sensitive (audit
 # O2/#87): reveal only on explicit request.
 cmd_reveal() {
-  local nombre="${1:?usage: token.sh reveal <name>}"
-  validar_nombre "$nombre"
-  if ! grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
-    echo "\"$nombre\" was not on the list." >&2
+  local name="${1:?usage: token.sh reveal <name>}"
+  validate_name "$name"
+  if ! grep -qE "^${name} " "$TOKENS_FILE"; then
+    echo "\"$name\" was not on the list." >&2
     exit 1
   fi
   local t v
-  t="$(awk -v n="$nombre" '$1==n {print $2}' "$ARCHIVO_TOKENS")"
-  v="$(awk -v n="$nombre" '$1==n {print $4}' "$ARCHIVO_TOKENS")"
-  echo "Credential for \"$nombre\" (sensitive - do not share publicly/log):"
+  t="$(awk -v n="$name" '$1==n {print $2}' "$TOKENS_FILE")"
+  v="$(awk -v n="$name" '$1==n {print $4}' "$TOKENS_FILE")"
+  echo "Credential for \"$name\" (sensitive - do not share publicly/log):"
   [[ -n "$v" ]] && echo "  expires $v"
   echo
-  echo "  Invitation (browser): $(url_de "$t")"
-  echo "  Camera (VLC/mpv):    $(url_cam_de "$t")"
+  echo "  Invitation (browser): $(url_for "$t")"
+  echo "  Camera (VLC/mpv):    $(cam_url_for "$t")"
 }
 
 cmd_add() {
-  local nombre="${1:?usage: token.sh add <name> [expiry]}"
-  local pedido="${2:-}"
-  local vence
+  local name="${1:?usage: token.sh add <name> [expiry]}"
+  local requested="${2:-}"
+  local expiry
 
-  validar_nombre "$nombre"
-  validar_entorno
+  validate_name "$name"
+  validate_environment
 
   # CAREFUL: after `if ! cmd`, $? is the negation's (always 0).
   # The code has to be saved before negating it.
   local rc=0
-  vence="$(normalizar_vencimiento "$pedido")" || rc=$?
+  expiry="$(normalize_expiry "$requested")" || rc=$?
   if [ "$rc" -ne 0 ]; then
     case "$rc" in
-      3) echo "That date has already passed: '$pedido'" >&2 ;;
-      *) echo "Invalid expiry: '$pedido'. Use 30d or 2026-12-31" >&2 ;;
+      3) echo "That date has already passed: '$requested'" >&2 ;;
+      *) echo "Invalid expiry: '$requested'. Use 30d or 2026-12-31" >&2 ;;
     esac
     exit 1
   fi
 
-  if grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
+  if grep -qE "^${name} " "$TOKENS_FILE"; then
     local v
-    v="$(awk -v n="$nombre" '$1==n {print $4}' "$ARCHIVO_TOKENS")"
-    echo "\"$nombre\" already has access." >&2
+    v="$(awk -v n="$name" '$1==n {print $4}' "$TOKENS_FILE")"
+    echo "\"$name\" already has access." >&2
     [[ -n "$v" ]] && echo "(expires $v)" >&2
     echo "Credential links are sensitive and are not printed by default." >&2
-    echo "Run: ./scripts/token.sh reveal \"$nombre\"" >&2
+    echo "Run: ./scripts/token.sh reveal \"$name\"" >&2
     return 0
   fi
 
   local t
-  t="$(aleatorio)"
-  printf '%s %s %s%s\n' "$nombre" "$t" "$(aleatorio)" "${vence:+ $vence}" >> "$ARCHIVO_TOKENS"
-  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
-  regenerar_matcher
-  echo "OK access granted to \"$nombre\""
-  if [[ -n "$vence" ]]; then
-    echo "   expires $vence (that day included)"
+  t="$(random_val)"
+  printf '%s %s %s%s\n' "$name" "$t" "$(random_val)" "${expiry:+ $expiry}" >> "$TOKENS_FILE"
+  chmod 600 "$TOKENS_FILE" 2>/dev/null || true
+  regenerate_matcher
+  echo "OK access granted to \"$name\""
+  if [[ -n "$expiry" ]]; then
+    echo "   expires $expiry (that day included)"
   else
-    echo "   no expiry set (long-lived). Prefer an expiry, e.g. ./scripts/token.sh add \"$nombre\" 30d" >&2
+    echo "   no expiry set (long-lived). Prefer an expiry, e.g. ./scripts/token.sh add \"$name\" 30d" >&2
   fi
   echo
   echo "  Credential links are sensitive (bearer tokens) and are not printed by default."
   echo "  To display the invitation and camera URLs now, run:"
-  echo "    ./scripts/token.sh reveal \"$nombre\""
+  echo "    ./scripts/token.sh reveal \"$name\""
   echo
   echo "  Treat revealed links as secrets: avoid logs, shell history, screenshots, and unencrypted chats."
-  echo "  Revoke when no longer needed: ./scripts/token.sh rm \"$nombre\""
+  echo "  Revoke when no longer needed: ./scripts/token.sh rm \"$name\""
   echo
-  recargar_caddy
+  reload_caddy
 }
 
 cmd_rm() {
-  local nombre="${1:?usage: token.sh rm <name>}"
-  validar_nombre "$nombre"
-  if ! grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
-    echo "\"$nombre\" was not on the list." >&2
+  local name="${1:?usage: token.sh rm <name>}"
+  validate_name "$name"
+  if ! grep -qE "^${name} " "$TOKENS_FILE"; then
+    echo "\"$name\" was not on the list." >&2
     exit 1
   fi
   # The `|| true` is not decorative: if it is the LAST token, grep -v returns no
   # lines, exits with 1, and with `set -e` the script died here without warning.
-  grep -vE "^${nombre} " "$ARCHIVO_TOKENS" > "$ARCHIVO_TOKENS.tmp" || true
-  mv "$ARCHIVO_TOKENS.tmp" "$ARCHIVO_TOKENS"
-  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
-  regenerar_matcher
-  echo "OK access revoked for \"$nombre\" (token and cookie)"
-  recargar_caddy
+  grep -vE "^${name} " "$TOKENS_FILE" > "$TOKENS_FILE.tmp" || true
+  mv "$TOKENS_FILE.tmp" "$TOKENS_FILE"
+  chmod 600 "$TOKENS_FILE" 2>/dev/null || true
+  regenerate_matcher
+  echo "OK access revoked for \"$name\" (token and cookie)"
+  reload_caddy
 }
 
 cmd_ls() {
-  if ! [[ -s "$ARCHIVO_TOKENS" ]]; then
+  if ! [[ -s "$TOKENS_FILE" ]]; then
     echo "(nobody has access yet)"
     return 0
   fi
-  local hoy; hoy="$(date +%F)"
+  local today; today="$(date +%F)"
   printf '%-20s %-16s %s\n' "WHO" "TOKEN" "EXPIRES"
   while read -r n t _ v; do
     [[ -z "${n:-}" ]] && continue
     if [[ -z "${v:-}" ]]; then
       printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "never"
-    elif [[ "$v" < "$hoy" ]]; then
+    elif [[ "$v" < "$today" ]]; then
       printf '%-20s %-16s %s  <-- EXPIRED\n' "$n" "${t:0:12}..." "$v"
     else
       printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "$v"
     fi
-  done < "$ARCHIVO_TOKENS"
+  done < "$TOKENS_FILE"
 }
 
 cmd_regen() {
-  validar_entorno
-  regenerar_matcher
+  validate_environment
+  regenerate_matcher
   echo "OK caddy/tokens.caddy regenerated from secrets/tokens.txt"
-  recargar_caddy
+  reload_caddy
 }
 
 cmd_rotate() {
-  local nombre="${1:?usage: token.sh rotate <name> [expiry]}"
-  local pedido="${2:-}"
-  local vence_nuevo vence_actual
+  local name="${1:?usage: token.sh rotate <name> [expiry]}"
+  local requested="${2:-}"
+  local new_expiry current_expiry
 
-  validar_nombre "$nombre"
-  validar_entorno
+  validate_name "$name"
+  validate_environment
 
-  if ! grep -qE "^${nombre} " "$ARCHIVO_TOKENS"; then
-    echo "\"$nombre\" was not on the list." >&2
+  if ! grep -qE "^${name} " "$TOKENS_FILE"; then
+    echo "\"$name\" was not on the list." >&2
     exit 1
   fi
 
-  vence_actual="$(awk -v n="$nombre" '$1==n {print $4}' "$ARCHIVO_TOKENS")"
-  if [[ -n "$pedido" ]]; then
+  current_expiry="$(awk -v n="$name" '$1==n {print $4}' "$TOKENS_FILE")"
+  if [[ -n "$requested" ]]; then
     local rc=0
-    vence_nuevo="$(normalizar_vencimiento "$pedido")" || rc=$?
+    new_expiry="$(normalize_expiry "$requested")" || rc=$?
     if [ "$rc" -ne 0 ]; then
       case "$rc" in
-        3) echo "That date has already passed: '$pedido'" >&2 ;;
-        *) echo "Invalid expiry: '$pedido'. Use 30d or 2026-12-31" >&2 ;;
+        3) echo "That date has already passed: '$requested'" >&2 ;;
+        *) echo "Invalid expiry: '$requested'. Use 30d or 2026-12-31" >&2 ;;
       esac
       exit 1
     fi
   else
-    vence_nuevo="$vence_actual"
+    new_expiry="$current_expiry"
   fi
 
-  local tmp="$ARCHIVO_TOKENS.tmp.$$"
-  awk -v n="$nombre" -v t="$(aleatorio)" -v c="$(aleatorio)" -v v="$vence_nuevo" '
+  local tmp="$TOKENS_FILE.tmp.$$"
+  awk -v n="$name" -v t="$(random_val)" -v c="$(random_val)" -v v="$new_expiry" '
     $1==n { printf "%s %s %s%s\n", n, t, c, (v=="" ? "" : " " v); next }
     { print }
-  ' "$ARCHIVO_TOKENS" > "$tmp"
-  mv "$tmp" "$ARCHIVO_TOKENS"
-  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
-  regenerar_matcher
-  echo "OK credentials rotated for \"$nombre\" (old token/cookie revoked)"
-  if [[ -n "$vence_nuevo" ]]; then
-    echo "   expires $vence_nuevo"
+  ' "$TOKENS_FILE" > "$tmp"
+  mv "$tmp" "$TOKENS_FILE"
+  chmod 600 "$TOKENS_FILE" 2>/dev/null || true
+  regenerate_matcher
+  echo "OK credentials rotated for \"$name\" (old token/cookie revoked)"
+  if [[ -n "$new_expiry" ]]; then
+    echo "   expires $new_expiry"
   else
-    echo "   no expiry set (long-lived). Prefer an expiry, e.g. ./scripts/token.sh rotate \"$nombre\" 30d" >&2
+    echo "   no expiry set (long-lived). Prefer an expiry, e.g. ./scripts/token.sh rotate \"$name\" 30d" >&2
   fi
-  echo "   Reveal new links (sensitive): ./scripts/token.sh reveal \"$nombre\""
-  recargar_caddy
+  echo "   Reveal new links (sensitive): ./scripts/token.sh reveal \"$name\""
+  reload_caddy
 }
 
 cmd_prune() {
   # Removes expired credentials from secrets/tokens.txt (lifecycle hygiene).
   # Active/non-expiring credentials are kept. Regenerates matcher afterward.
-  if ! [[ -s "$ARCHIVO_TOKENS" ]]; then
+  if ! [[ -s "$TOKENS_FILE" ]]; then
     echo "(no credentials file or empty)"
     return 0
   fi
-  local hoy tmp removed
-  hoy="$(date +%F)"
-  tmp="$ARCHIVO_TOKENS.tmp.$$"
-  removed=$(awk -v hoy="$hoy" '
-    NF>=4 && $4 < hoy { r++; next }
+  local today tmp removed
+  today="$(date +%F)"
+  tmp="$TOKENS_FILE.tmp.$$"
+  removed=$(awk -v today="$today" '
+    NF>=4 && $4 < today { r++; next }
     { print }
     END { print r+0 > "/dev/stderr" }
-  ' "$ARCHIVO_TOKENS" 2> "$tmp.count" > "$tmp" || true)
+  ' "$TOKENS_FILE" 2> "$tmp.count" > "$tmp" || true)
   removed="$(cat "$tmp.count" 2>/dev/null || echo 0)"
   rm -f "$tmp.count"
   if [[ "$removed" == "0" ]]; then
@@ -396,11 +396,11 @@ cmd_prune() {
     echo "No expired credentials to prune."
     return 0
   fi
-  mv "$tmp" "$ARCHIVO_TOKENS"
-  chmod 600 "$ARCHIVO_TOKENS" 2>/dev/null || true
-  regenerar_matcher
+  mv "$tmp" "$TOKENS_FILE"
+  chmod 600 "$TOKENS_FILE" 2>/dev/null || true
+  regenerate_matcher
   echo "OK pruned $removed expired credential(s) from secrets/tokens.txt"
-  recargar_caddy
+  reload_caddy
 }
 
 cmd_check() {
@@ -409,7 +409,7 @@ cmd_check() {
 
   echo "Security/lifecycle check (#87):"
 
-  if validar_entorno; then
+  if validate_environment; then
     echo "  PASS cookie/transport config basics"
   else
     echo "  FAIL cookie/transport config basics"
@@ -418,9 +418,9 @@ cmd_check() {
 
   # File and directory permissions (bearer-equivalent artifacts)
   local dir_mode tok_mode caddy_mode
-  dir_mode="$(stat -c '%a' "$RAIZ/secrets" 2>/dev/null || echo missing)"
-  tok_mode="$(stat -c '%a' "$ARCHIVO_TOKENS" 2>/dev/null || echo missing)"
-  caddy_mode="$(stat -c '%a' "$ARCHIVO_CADDY" 2>/dev/null || echo missing)"
+  dir_mode="$(stat -c '%a' "$ROOT/secrets" 2>/dev/null || echo missing)"
+  tok_mode="$(stat -c '%a' "$TOKENS_FILE" 2>/dev/null || echo missing)"
+  caddy_mode="$(stat -c '%a' "$CADDY_FILE" 2>/dev/null || echo missing)"
 
   if [[ "$dir_mode" == "700" ]]; then
     echo "  PASS secrets/ permissions (700)"
@@ -448,13 +448,13 @@ cmd_check() {
   fi
 
   # Lifecycle posture from stored credentials
-  local hoy expired_in_storage non_expiring
-  hoy="$(date +%F)"
+  local today expired_in_storage non_expiring
+  today="$(date +%F)"
   expired_in_storage=0
   non_expiring=0
-  if [[ -s "$ARCHIVO_TOKENS" ]]; then
-    expired_in_storage="$(awk -v hoy="$hoy" 'NF>=4 && $4 < hoy {c++} END {print c+0}' "$ARCHIVO_TOKENS")"
-    non_expiring="$(awk 'NF>=2 && (NF < 4 || $4 == "") {c++} END {print c+0}' "$ARCHIVO_TOKENS")"
+  if [[ -s "$TOKENS_FILE" ]]; then
+    expired_in_storage="$(awk -v today="$today" 'NF>=4 && $4 < today {c++} END {print c+0}' "$TOKENS_FILE")"
+    non_expiring="$(awk 'NF>=2 && (NF < 4 || $4 == "") {c++} END {print c+0}' "$TOKENS_FILE")"
   fi
 
   if [[ "$expired_in_storage" -gt 0 ]]; then

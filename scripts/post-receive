@@ -29,15 +29,15 @@ set -u
 # Under a receive hook the cwd IS the git dir (not the worktree): with
 # --show-toplevel the resolution lands on .git and the hook writes/reloads in
 # the wrong place. The .. of the git dir is the worktree in a normal clone.
-RAIZ="$(cd "$(git rev-parse --git-dir)/.." && pwd)"
+ROOT="$(cd "$(git rev-parse --git-dir)/.." && pwd)"
 # Odd layouts (bare, linked worktrees): fall back to the toplevel, and if that
 # returns the git dir, keep pwd as the last resort.
-[ -f "$RAIZ/docker-compose.yml" ] || {
+[ -f "$ROOT/docker-compose.yml" ] || {
   ALT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  [ -n "$ALT" ] && [ -f "$ALT/docker-compose.yml" ] && RAIZ="$ALT"
+  [ -n "$ALT" ] && [ -f "$ALT/docker-compose.yml" ] && ROOT="$ALT"
 }
-LOG="$RAIZ/data/deploy.log"
-mkdir -p "$RAIZ/data"
+LOG="$ROOT/data/deploy.log"
+mkdir -p "$ROOT/data"
 log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"; }
 
 # The deployment manifest: the machine-readable record of what this deploy
@@ -47,7 +47,7 @@ log() { printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"
 # deploy that already landed, so that is a warning; a manifest that fails to
 # write is a failure of the evidence, and that one is loud.
 manifest_write() {
-  MANIFEST="$RAIZ/scripts/deploy_manifest.py"
+  MANIFEST="$ROOT/scripts/deploy_manifest.py"
   if [ ! -f "$MANIFEST" ]; then
     log "WARN: scripts/deploy_manifest.py is missing: this deploy is unrecorded"
     return 0
@@ -56,7 +56,7 @@ manifest_write() {
     log "WARN: python3 is not available: this deploy is unrecorded"
     return 0
   fi
-  if python3 "$MANIFEST" record --root "$RAIZ" --ref "$REF" --old "$OLD" --new "$NEW" \
+  if python3 "$MANIFEST" record --root "$ROOT" --ref "$REF" --old "$OLD" --new "$NEW" \
        --status "$1" --reason "$2" --rebuilt "$REBUILT" >> "$LOG" 2>&1; then
     log "manifest: written to data/deploy-manifest.json (status $1)"
     return 0
@@ -115,7 +115,7 @@ while read -r OLD NEW REF; do
     printf '%s\n' "$CHANGES" | sed 's/^/         /' >> "$LOG"
   fi
   if printf '%s\n' "$CHANGES" | grep -qE '^caddy/(Caddyfile|tokens\.caddy)$'; then
-    if docker compose -f "$RAIZ/docker-compose.yml" exec -T caddy \
+    if docker compose -f "$ROOT/docker-compose.yml" exec -T caddy \
          caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
       log "caddy reloaded live (Caddyfile/tokens.caddy) — listeners intact"
       REASON="$REASON; caddy reloaded"
@@ -140,7 +140,7 @@ while read -r OLD NEW REF; do
   if printf '%s\n' "$CHANGES" | grep -qE '^(src/|presets/|pyproject\.toml$|uv\.lock$|Dockerfile\.mario$|docker-compose\.yml$)'; then
     log "mario: changes detected, rebuilding the radio-mario image"
     build_start=$(date +%s)
-    if docker compose -f "$RAIZ/docker-compose.yml" build mario >> "$LOG" 2>&1; then
+    if docker compose -f "$ROOT/docker-compose.yml" build mario >> "$LOG" 2>&1; then
       build_dur=$(( $(date +%s) - build_start ))
       log "mario: build OK in ${build_dur}s — the next hourly cycle uses the new code"
       REBUILT="$REBUILT,mario"
@@ -160,7 +160,7 @@ while read -r OLD NEW REF; do
   if printf '%s\n' "$CHANGES" | grep -qE '^(cam/|docker-compose\.yml$)'; then
     log "cam: changes detected, rebuilding the radio-cam image"
     build_start=$(date +%s)
-    if docker compose -f "$RAIZ/docker-compose.yml" build cam >> "$LOG" 2>&1; then
+    if docker compose -f "$ROOT/docker-compose.yml" build cam >> "$LOG" 2>&1; then
       build_dur=$(( $(date +%s) - build_start ))
       log "cam: build OK in ${build_dur}s"
       REBUILT="$REBUILT,cam"
@@ -177,14 +177,14 @@ while read -r OLD NEW REF; do
 
   # Best-effort ownership repair for hardened non-root bind mounts (#83).
   # Effective only when scoped passwordless sudo is wired for this fixed script.
-  if [ -x "$RAIZ/scripts/fix-data-ownership.sh" ]; then
+  if [ -x "$ROOT/scripts/fix-data-ownership.sh" ]; then
     if sudo -n true 2>/dev/null; then
       # SC2024 wants the redirect to run under sudo. It must not: $LOG belongs to
       # the deploy user, and opening it BEFORE sudo is what stops root from
       # creating a root-owned log (the #83 class of problem this repairs). sudo
       # wraps the command; the redirect stays with the caller.
       # shellcheck disable=SC2024
-      sudo -n "$RAIZ/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 \
+      sudo -n "$ROOT/scripts/fix-data-ownership.sh" >> "$LOG" 2>&1 \
         || log "WARN: ownership repair failed"
     else
       log "note: ownership repair skipped (no passwordless sudo)"
