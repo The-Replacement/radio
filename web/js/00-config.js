@@ -20,8 +20,8 @@
   */
   var STR = {
     station: 'comechingona',
-    playIcon: '&#9654;',
-    pauseIcon: '&#10073;&#10073;',
+    playIcon: '\u25B6',
+    pauseIcon: '\u23F8',
     play: 'Reproducir',
     pause: 'Pausar',
     live: 'en vivo',
@@ -31,7 +31,7 @@
     blocked: 'bloqueado',
     broadcastStopped: 'La transmisión está detenida',
     autoplayBlocked: 'El navegador bloqueó la reproducción automática. Presioná reproducir.',
-    door: 'El servidor respondió 404.<br>El acceso expiró o el navegador no guardó la cookie. Pedí un link nuevo.',
+    door: 'El servidor respondió 404.\nEl acceso expiró o el navegador no guardó la cookie. Pedí un link nuevo.',
     cameraCaption: 'cámara',
     doorToast: 'Acceso expirado. Pedí un link nuevo.',
     copySeed: 'copiar',
@@ -39,7 +39,7 @@
     seedCopied: 'copiado',
     connectFailed: function (code) {
       return 'No se pudo conectar al stream' + (code ? ' (error ' + code + ')' : '') +
-        '.<br>La conexión se cortó y no volvió. Revisá la red.';
+        '.\nLa conexión se cortó y no volvió. Revisá la red.';
     },
     reconnectingLine: function (n, max) {
       return 'Stream cortado. Reconectando (' + n + '/' + max + ')...';

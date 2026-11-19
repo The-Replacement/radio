@@ -122,14 +122,14 @@
     pausadoAMano = false;
     bloqueadoPorAutoplay = false;
     reproduciendo = true;
-    btn.innerHTML = STR.pauseIcon;
+    btn.textContent = STR.pauseIcon;
     setLabel(STR.pause);
     estado.textContent = STR.live;
     dot.classList.add('live');
     err.style.display = 'none';
   });
   audio.addEventListener('pause', function () {
-    btn.innerHTML = STR.playIcon;
+    btn.textContent = STR.playIcon;
     setLabel(STR.play);
     // The `pause` fired by every failed attempt must not paint over the
     // banner: while a chain is in flight the page is reconnecting, not
@@ -170,7 +170,7 @@
     reintentando = false;
     cancelarReintento();
     err.style.display = 'block';
-    err.innerHTML = sinCredencial
+    err.textContent = sinCredencial
       ? STR.door
       : STR.connectFailed(ultimoCodigo);
     dot.classList.remove('live');
