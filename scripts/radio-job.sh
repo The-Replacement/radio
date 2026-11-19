@@ -71,6 +71,9 @@ CAP_PRESSURE_PCT=90
 
 # Retention bounds. One place, so a policy change is not a code change.
 BUILD_CACHE_KEEP="5GB"
+# The age window is what actually reclaims on a box without buildx (see gc).
+# 7 days outlives a debugging session, not a release cycle.
+BUILD_CACHE_MAX_AGE="168h"
 JOURNAL_MAX="1G"
 DEPLOY_LOG_MAX_BYTES=$((10 * 1024 * 1024))
 KEEP_SOAK_LOGS=10
@@ -101,7 +104,47 @@ log_job() {
   printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$JOB_LOG"
 }
 
-human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || printf '%sB' "$1"; }
+# SI units, matching `docker system df` and `df -B1`, at 4 significant digits:
+# "8.735GB" is the same number docker printed, and a retention log that rounds
+# 8.735GB down to "8.8GB" cannot account for every byte. Note the one place this
+# reads oddly: `df -h` is IEC, so a line here saying 858.6GB is "800G" there.
+human() {
+  awk -v b="${1:-0}" 'BEGIN {
+    split("B|kB|MB|GB|TB", u, "|"); i = 1
+    while (b >= 1000 && i < 5) { b /= 1000; i++ }
+    printf (i == 1 ? "%d%s\n" : "%.4g%s\n"), b, u[i]
+  }'
+}
+
+# Docker reports sizes as SI strings ("8.735GB"); numfmt --from=si rejects the
+# trailing B, so parse them here rather than depend on that quirk.
+human_to_bytes() {
+  awk -v v="$1" 'BEGIN {
+    if (v == "") { print 0; exit }
+    n = v + 0
+    u = toupper(v); sub(/^[0-9.]+/, "", u)
+    if      (u ~ /^T/) m = 1e12
+    else if (u ~ /^G/) m = 1e9
+    else if (u ~ /^M/) m = 1e6
+    else if (u ~ /^K/) m = 1e3
+    else               m = 1
+    printf "%d\n", n * m
+  }'
+}
+
+# One row of `docker system df`, in bytes. What docker counts per class is its
+# business; gc only needs before/after.
+docker_df_bytes() {
+  local size
+  size=$(docker system df --format '{{.Type}}|{{.Size}}' 2>/dev/null | awk -F'|' -v t="$1" '$1 == t { print $2 }')
+  human_to_bytes "$size"
+}
+
+docker_df_reclaimable() {
+  docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null | awk -F'|' -v t="$1" '$1 == t { print $2 }'
+}
+
+freed_bytes() { if [ "$1" -le "$2" ]; then echo 0; else echo $(($1 - $2)); fi; }
 
 run() {
   if [ "$DRY_RUN" = "1" ]; then
@@ -135,32 +178,63 @@ cmd_gc() {
   before=$(df --output=avail -B1 / | tail -1)
 
   if docker info >/dev/null 2>&1; then
-    local cache
-    cache=$(docker system df --format '{{.Type}} {{.Size}}' 2>/dev/null | awk '$1=="Build"{print $2}')
-    if docker builder prune -f --keep-storage "$BUILD_CACHE_KEEP" >> "$GC_LOG" 2>&1; then
-      log_gc "build cache pruned (was ${cache:-unknown}), keeping $BUILD_CACHE_KEEP"
-    else
-      log_gc "FAIL: builder prune failed"
-    fi
+    # Build cache is the class that grows without bound. --keep-storage alone is
+    # NOT enough: it is only honoured when the BuildKit builder owns the cache.
+    # On the mainframe (docker 29, no buildx plugin, measured 2026-11-18) it
+    # exits 0 having freed 0B while 5.1GB stayed reclaimable, so the age prune is
+    # the mechanism that actually reclaims. The cap is then enforced by hand
+    # when the window still leaves more than BUILD_CACHE_KEEP behind.
+    local cache_before cache_after keep_bytes
+    keep_bytes=$(human_to_bytes "$BUILD_CACHE_KEEP")
+    cache_before=$(docker_df_bytes "Build Cache")
     if [ "$DRY_RUN" = "1" ]; then
-      log_gc "dry: would prune dangling images"
+      log_gc "dry: build cache is $(human "$cache_before"); would prune age > $BUILD_CACHE_MAX_AGE, keep $BUILD_CACHE_KEEP"
     else
-      local imgs
-      imgs=$(docker image prune -f 2>&1 | tail -1)
-      log_gc "dangling images: ${imgs:-no output}"
+      # Docker's own output is mostly the legacy-builder deprecation notice; the
+      # byte accounting below is the audit trail, so only failures are surfaced.
+      docker builder prune -f --keep-storage "$BUILD_CACHE_KEEP" >/dev/null 2>&1 \
+        || log_gc "FAIL: builder prune --keep-storage $BUILD_CACHE_KEEP failed"
+      docker builder prune -f --filter "until=$BUILD_CACHE_MAX_AGE" >/dev/null 2>&1 \
+        || log_gc "FAIL: builder prune --filter until=$BUILD_CACHE_MAX_AGE failed"
+      cache_after=$(docker_df_bytes "Build Cache")
+      if [ "$cache_after" -gt "$keep_bytes" ]; then
+        docker builder prune -af >/dev/null 2>&1 \
+          && log_gc "build cache $(human "$cache_after") exceeds $BUILD_CACHE_KEEP after the age prune; pruned all"
+        cache_after=$(docker_df_bytes "Build Cache")
+      fi
+      log_gc "build cache $(human "$cache_before") -> $(human "$cache_after") (freed $(human "$(freed_bytes "$cache_before" "$cache_after")"))"
+    fi
+
+    local img_before img_after img_reclaimable
+    img_before=$(docker_df_bytes "Images")
+    if [ "$DRY_RUN" = "1" ]; then
+      log_gc "dry: images $(human "$img_before"); would prune dangling"
+    else
+      docker image prune -f >/dev/null 2>&1 || log_gc "FAIL: image prune failed"
+      img_after=$(docker_df_bytes "Images")
+      log_gc "images $(human "$img_before") -> $(human "$img_after") (freed $(human "$(freed_bytes "$img_before" "$img_after")"))"
+      # An image a container is running from is not ours to delete: the design
+      # table's "keep last 2 per service" would take out the live encoder.
+      img_reclaimable=$(docker_df_reclaimable "Images")
+      [ -n "$img_reclaimable" ] \
+        && log_gc "images reclaimable but held by a container: $img_reclaimable (gc leaves those alone)"
     fi
   else
     log_gc "SKIP: docker daemon not reachable"
   fi
 
   # Journal: needs root. Absent passwordless sudo this is a line in the log, not
-  # a failed run.
+  # a failed run. The durable bound is SystemMaxUse=1G in journald.conf (installed
+  # by infra/deploy/bootstrap.sh); the vacuum only enforces it sooner.
+  local journal_now
+  # journalctl prints "take up 142.5M"; the unit may or may not carry a B.
+  journal_now=$(journalctl --disk-usage 2>/dev/null | sed -n 's/.*take up \([0-9.]*[A-Za-z]*\).*/\1/p')
   if [ "$DRY_RUN" = "1" ]; then
-    log_gc "dry: would vacuum journal to $JOURNAL_MAX"
+    log_gc "dry: journal is ${journal_now:-unknown}; would vacuum to $JOURNAL_MAX"
   elif sudo -n journalctl --vacuum-size="$JOURNAL_MAX" >/dev/null 2>&1; then
-    log_gc "journal vacuumed to $JOURNAL_MAX"
+    log_gc "journal vacuumed to $JOURNAL_MAX (was ${journal_now:-unknown})"
   else
-    log_gc "SKIP: journal vacuum needs root (SystemMaxUse in journald.conf is the durable fix)"
+    log_gc "SKIP: journal vacuum needs root (was ${journal_now:-unknown}; SystemMaxUse in journald.conf is the durable fix)"
   fi
 
   rotate_if_large "$DATA/deploy.log" "$DEPLOY_LOG_MAX_BYTES" 2000
