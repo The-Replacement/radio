@@ -21,6 +21,11 @@ the radio and, on every cycle:
   run a cycle (`--no-run-on-start` in the compose): the first cycle arrives by
   interval or by trigger. On purpose — a cold cycle would replace all of
   `./music` during `up -d` (and there is an untracked batch on the box).
+- **Trigger-only**: set `INDIEGEN_INTERVAL_SECONDS=0` (or `INDIEGEN_TRIGGER_ONLY=1`)
+  to disable indiegen's own timer. Cycles then run only when `data/indiegen/trigger`
+  appears, driven by `radio-job render` / the `radio-render` timer, so the
+  sensor gate in `radio-job` applies. Requires the indiegenerator trigger-only
+  support (PR indiegenerator#59). Default keeps the 6 h self-schedule.
 - **Push to indiegenerator**: the `scripts/post-receive` hook of the
   `indiegenerator` repo (installed on the mainframe's remote) rebuilds the
   service and, if the policy is on, touches `data/indiegen/trigger` and fires an
