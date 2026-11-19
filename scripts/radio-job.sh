@@ -302,12 +302,23 @@ cmd_verify() {
   local door_code
   door_code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:8090/ 2>/dev/null || echo 000)
 
-  # --- camera: newest HLS segment
-  local cam_age=-1
+  # --- camera: newest HLS segment, and WHY it is or is not fresh. The text
+  # reader used to guess the reason ("no segments (device absent?)") because the
+  # file carried only an age. A reason that is derived is not a guess.
+  local cam_age=-1 cam_reason="unknown"
   local newest_cam
   newest_cam=$(find "$DATA/cam" -maxdepth 1 -name '*.m3u8' -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
   if [ -n "$newest_cam" ]; then
     cam_age=$(( $(date +%s) - ${newest_cam%%.*} ))
+  fi
+  if [ "$(docker inspect -f '{{.State.Running}}' radio-cam 2>/dev/null)" != "true" ]; then
+    cam_reason="container not running"
+  elif [ "$cam_age" -lt 0 ]; then
+    cam_reason="running, no segments"
+  elif [ "$cam_age" -ge 15 ]; then
+    cam_reason="stale: newest segment ${cam_age}s old"
+  else
+    cam_reason="ok"
   fi
 
   # --- content
@@ -334,6 +345,34 @@ cmd_verify() {
   fi
   [ "$weather_age" -ge 0 ] && [ "$weather_age" -le "$WEATHER_MAX_AGE_S" ] && weather_fresh=true
   [ "$rss_age" -ge 0 ] && [ "$rss_age" -le "$RSS_MAX_AGE_S" ] && rss_fresh=true
+
+  # Library age: when did the generator last publish, and when is the next
+  # cycle due. `updated_at` is the generator's own record of the last completed
+  # cycle; the runs/ directory mtime is the fallback when it cannot be parsed.
+  # This is what lets the player say "last new track: 3 hours ago" instead of
+  # implying the library is fixed.
+  local last_render_age=-1 next_render_in=-1 interval_s=21600
+  interval_s=$(sed -n 's/^INDIEGEN_INTERVAL_SECONDS=\([0-9]*\).*/\1/p' "$ROOT/.env" 2>/dev/null | tail -1)
+  [ -n "${interval_s:-}" ] || interval_s=21600
+  local last_render_epoch=""
+  last_render_epoch=$(python3 - "$DATA/indiegen/state.json" <<'PY' 2>/dev/null
+import json, sys
+try:
+    print(int(float(json.load(open(sys.argv[1]))["updated_at"])))
+except Exception:
+    pass
+PY
+)
+  if [ -z "$last_render_epoch" ]; then
+    last_render_epoch=$(find "$DATA/indiegen/runs" -mindepth 1 -maxdepth 1 -type d -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
+    last_render_epoch=${last_render_epoch%%.*}
+  fi
+  if [ -n "${last_render_epoch:-}" ]; then
+    last_render_age=$(( $(date +%s) - last_render_epoch ))
+    next_render_in=$(( interval_s - last_render_age ))
+    # Overdue is information, a negative countdown is noise.
+    [ "$next_render_in" -lt 0 ] && next_render_in=0
+  fi
 
   # --- resources
   local pkg_c=0 mem_avail_mb disk_free_gb mem_pressure disk_below_floor
@@ -407,6 +446,32 @@ cmd_verify() {
   # --- jobs
   local last_gc=""
   [ -f "$GC_LOG" ] && last_gc=$(grep 'gc done' "$GC_LOG" 2>/dev/null | tail -1 | cut -d' ' -f1)
+  # Deferrals in the last hour, from the job log the gate already writes. A
+  # closed gate is a legitimate outcome; it must not be invisible.
+  local deferred="" deferred_count=0
+  if [ -f "$JOB_LOG" ]; then
+    local cutoff
+    cutoff=$(date -u -d '-1 hour' +%FT%TZ 2>/dev/null || date -u -v-1H +%FT%TZ 2>/dev/null || echo "")
+    if [ -n "$cutoff" ]; then
+      deferred=$(awk -v c="$cutoff" '$1 >= c && / deferred: / { print }' "$JOB_LOG" 2>/dev/null | tail -5)
+      deferred_count=$(printf '%s' "$deferred" | grep -c . || true)
+    fi
+  fi
+  local deferred_json="[]"
+  if [ "$deferred_count" -gt 0 ]; then
+    deferred_json=$(printf '%s\n' "$deferred" | python3 -c '
+import json, sys
+out = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    ts, rest = line.split(" ", 1)
+    job, _, reason = rest.partition(" deferred: ")
+    out.append({"at": ts, "job": job, "reason": reason})
+print(json.dumps(out[-5:]))
+' 2>/dev/null) || deferred_json="[]"
+  fi
   local deployed=""
   deployed=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)
   local detached=true
@@ -421,8 +486,10 @@ cmd_verify() {
   "stream": {"source": $source_present, "bytes_per_s": $bytes_rate,
              "flowing": $([ "$bytes_rate" -gt 4000 ] && echo true || echo false), "title": "$title"},
   "door": {"status_without_token": "$door_code", "closed": $([ "$door_code" = "404" ] && echo true || echo false)},
-  "camera": {"segment_age_s": $cam_age, "fresh": $([ "$cam_age" -ge 0 ] && [ "$cam_age" -lt 15 ] && echo true || echo false)},
+  "camera": {"segment_age_s": $cam_age, "reason": "$cam_reason",
+             "fresh": $([ "$cam_age" -ge 0 ] && [ "$cam_age" -lt 15 ] && echo true || echo false)},
   "content": {"tracks": $tracks, "catalog_ok": $catalog_ok, "last_tts_age_s": $last_tts_age,
+              "last_render_age_s": $last_render_age, "next_render_in_s": $next_render_in,
               "weather_age_s": $weather_age, "weather_fresh": $weather_fresh,
               "rss_age_s": $rss_age, "rss_fresh": $rss_fresh},
   "resources": {"pkg_c": $pkg_c, "mem_available_mb": $mem_avail_mb,
@@ -436,7 +503,7 @@ cmd_verify() {
                 "uncapped_containers": $uncapped,
                 "cap_pressure_pct": $CAP_PRESSURE_PCT,
                 "memory_pressure": $memory_pressure},
-  "jobs": {"last_gc": "${last_gc:-never}"}
+  "jobs": {"last_gc": "${last_gc:-never}", "deferred": $deferred_json}
 }
 JSON
 )
@@ -453,6 +520,19 @@ JSON
     printf 'FAIL: %s is empty after writing\n' "$STATUS" >&2
     return 1
   fi
+
+  # Publish under the door. Caddy serves /host/* from ./data/host behind the
+  # same @gate as the player, so the page can read the station's own account of
+  # itself without a second endpoint and without a credential in a URL.
+  # Liquidsoap mounts that directory too, but it only opens the names it builds
+  # from seeds and buckets — a status.json is never one of them.
+  if [ -d "$DATA/host" ]; then
+    cp "$STATUS" "$DATA/host/status.json.tmp" 2>/dev/null \
+      && mv "$DATA/host/status.json.tmp" "$DATA/host/status.json" 2>/dev/null \
+      || printf 'WARN: could not publish %s/host/status.json (owner: %s)\n' \
+           "$DATA" "$(stat -c '%U:%G' "$DATA/host" 2>/dev/null || echo unknown)" >&2
+  fi
+
   printf 'status written: %s\n' "$STATUS"
   return 0
 }
@@ -479,9 +559,14 @@ print(f"radio status  {data['ts']}  ({age}s old)")
 print(f"  deploy    {data['deploy']['commit']}  detached={data['deploy']['detached_head']}")
 print(f"  {mark(s['source'] and s['bytes_per_s'] > 0)} stream   source={s['source']} rate={s['bytes_per_s']} B/s  {s['title']!r}")
 print(f"  {mark(d['closed'])} door     GET / without token -> {d['status_without_token']}")
-cam = f"segment age {c['segment_age_s']}s" if c['segment_age_s'] >= 0 else "no segments (device absent?)"
-print(f"  {mark(c['fresh'])} camera   {cam}")
+cam = f"segment age {c['segment_age_s']}s" if c['segment_age_s'] >= 0 else "no segments"
+print(f"  {mark(c['fresh'])} camera   {c.get('reason', cam)}")
 print(f"  {mark(ct['catalog_ok'] and ct['tracks'] > 0)} content  {ct['tracks']} tracks, catalog_ok={ct['catalog_ok']}, last TTS {ct['last_tts_age_s']}s ago")
+lr, nr = ct.get("last_render_age_s", -1), ct.get("next_render_in_s", -1)
+if isinstance(lr, int) and lr >= 0:
+    print(f"  library  last render {lr}s ago, next cycle in {nr}s")
+else:
+    print("  n/a  library  no render recorded")
 print(f"  {mark(ct.get('weather_fresh'))} weather  refreshed {ct.get('weather_age_s')}s ago (limit {wmax}s)")
 print(f"  {mark(ct.get('rss_fresh'))} news     refreshed {ct.get('rss_age_s')}s ago (limit {rmax}s)")
 print(f"  {mark(r['uncapped_containers'] == 0)} caps     {r['uncapped_containers']} uncapped container(s)")
@@ -514,6 +599,10 @@ else:
 print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free")
 print(f"  load {r.get('load1', '?')}/{r.get('load_max', '?')} (1m/max)  PSI mem {r['mem_pressure_some']}  cpu some {r.get('cpu_pressure_some', '?')} (inflated by container caps)")
 print(f"  last gc  {data['jobs']['last_gc']}")
+deferred = data["jobs"].get("deferred") or []
+if deferred:
+    last = deferred[-1]
+    print(f"  deferred {len(deferred)} job(s) in the last hour; latest {last.get('job')}: {last.get('reason')}")
 PY
 }
 
