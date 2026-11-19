@@ -743,3 +743,111 @@ def test_the_manifest_never_lands_in_the_tracked_tree() -> None:
 @pytest.mark.parametrize("script", ["scripts/deploy_manifest.py"])
 def test_the_manifest_script_is_executable(script: str) -> None:
     assert os.access(REPO_ROOT / script, os.X_OK), f"{script} runs from the hook: it needs +x"
+
+
+# --------------------------------------------------------------------------
+# The machine-readable verdict (n3rv's declared runtime verifier, infra#3)
+# --------------------------------------------------------------------------
+
+JSON_STATUSES = {"PASS", "FAIL", "UNKNOWN", "NOTE"}
+JSON_VERDICTS = {"OK", "MISMATCH", "UNVERIFIED"}
+
+
+def _run_verify_cli(monkeypatch: Any, runner: FakeRunner, root: Path, *extra: str) -> int:
+    """Run `deploy_manifest.py verify` with a fake box behind it."""
+    monkeypatch.setattr(deploy_manifest, "subprocess_runner", runner)
+    argv = ["verify", "--root", str(root), "--offline", *extra]
+    return int(deploy_manifest.main(argv))
+
+
+def test_verify_json_emits_the_contract_a_declared_verifier_parses(
+    tmp_path: Path, capsys: Any, monkeypatch: Any
+) -> None:
+    root = _make_root(tmp_path)
+    _manifest_with(root)
+
+    code = _run_verify_cli(monkeypatch, _verifying_runner(), root, "--json")
+    out = capsys.readouterr().out
+
+    # stdout is the document and nothing else: the consumer parses it whole.
+    payload = json.loads(out)
+    assert code == 0
+    assert payload["schema"] == 1
+    assert payload["verdict"] in JSON_VERDICTS
+    assert payload["verdict"] == "OK"
+    assert payload["source_sha"] == SOURCE_SHA
+    assert payload["checks"]
+    for check in payload["checks"]:
+        assert set(check) == {"name", "status", "detail"}
+        assert check["status"] in JSON_STATUSES
+    assert "Deployment evidence" not in out, "no human report on the machine path"
+    assert len(out.encode("utf-8")) < 65_536, "n3rv refuses anything larger"
+
+
+def test_verify_json_reports_a_mismatch_and_names_the_failing_check(
+    tmp_path: Path, capsys: Any, monkeypatch: Any
+) -> None:
+    root = _make_root(tmp_path)
+    # The box says it runs a commit the checkout does not stand on.
+    _manifest_with(root, source_sha="f" * 40)
+
+    code = _run_verify_cli(monkeypatch, _verifying_runner(), root, "--json")
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["verdict"] == "MISMATCH"
+    assert code == 1, "the exit code stays advisory, but it must still be honest"
+    failing = [check for check in payload["checks"] if check["status"] == "FAIL"]
+    assert failing, "a mismatch carries the checks that disagree"
+    assert {"checkout"} <= {check["name"] for check in failing}
+    assert payload["source_sha"] == "f" * 40, "source_sha is what the box claims, not the truth"
+
+
+def test_verify_json_reports_unverified_when_a_check_could_not_be_evaluated(
+    tmp_path: Path, capsys: Any, monkeypatch: Any
+) -> None:
+    root = _make_root(tmp_path)
+    _manifest_with(root)
+    runner = _verifying_runner()
+    # git cannot resolve HEAD: the checkout check becomes UNKNOWN, not FAIL.
+    runner.responses.insert(
+        0, ("rev-parse HEAD", deploy_manifest.CommandResult(1, b"", b"fatal: not a repository"))
+    )
+
+    code = _run_verify_cli(monkeypatch, runner, root, "--json")
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["verdict"] == "UNVERIFIED"
+    assert code == 2
+    assert any(check["status"] == "UNKNOWN" for check in payload["checks"])
+    assert not any(check["status"] == "FAIL" for check in payload["checks"])
+
+
+def test_verify_json_omits_an_absent_source_sha_instead_of_sending_an_empty_one(
+    tmp_path: Path, capsys: Any, monkeypatch: Any
+) -> None:
+    root = _make_root(tmp_path)
+    _manifest_with(root, source_sha="")
+
+    _run_verify_cli(monkeypatch, _verifying_runner(), root, "--json")
+    payload = json.loads(capsys.readouterr().out)
+
+    # An empty string would be compared against GitHub and reported as a
+    # mismatch that is really an absent fact.
+    assert "source_sha" not in payload
+
+
+def test_verify_text_output_is_unchanged_by_the_json_flag(
+    tmp_path: Path, capsys: Any, monkeypatch: Any
+) -> None:
+    root = _make_root(tmp_path)
+    _manifest_with(root)
+
+    code = _run_verify_cli(monkeypatch, _verifying_runner(), root)
+    out = capsys.readouterr().out
+    lines = out.splitlines()
+
+    assert code == 0
+    assert lines[0] == f"Deployment evidence — {root}"
+    assert out.rstrip().endswith("VERDICT: OK: every check agrees with the manifest")
+    assert sum(1 for line in lines if line.startswith("VERDICT: ")) == 1
+    assert not any(line.startswith("{") for line in lines), "no JSON on the human path"
