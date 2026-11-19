@@ -37,6 +37,11 @@ JOB_LOG="$DATA/job.log"
 # how the scheduler is proven against the live station before it is allowed to act.
 SHADOW="${RADIO_JOB_SHADOW:-0}"
 
+# One heavy job at a time. The gate is a snapshot taken before the job starts:
+# two jobs that ask while the box is idle both get a yes, and only one of them
+# should run. Overridable so tests (and a second appliance) do not share a path.
+HEAVY_LOCK="${RADIO_JOB_HEAVY_LOCK:-/tmp/radio-heavy.lock}"
+
 # Gate thresholds. Measured envelope (2026-11-13): idle 42-46 C, hourly TTS peak
 # 72 C at the old 1.5-cpu cap, no throttle events. 78 C sat above that peak.
 # Updated 2026-11-14 after the render moved to 4 cpus: the render itself reaches
@@ -71,6 +76,9 @@ CAP_PRESSURE_PCT=90
 
 # Retention bounds. One place, so a policy change is not a code change.
 BUILD_CACHE_KEEP="5GB"
+# The age window is what actually reclaims on a box without buildx (see gc).
+# 7 days outlives a debugging session, not a release cycle.
+BUILD_CACHE_MAX_AGE="168h"
 JOURNAL_MAX="1G"
 DEPLOY_LOG_MAX_BYTES=$((10 * 1024 * 1024))
 KEEP_SOAK_LOGS=10
@@ -101,7 +109,47 @@ log_job() {
   printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" >> "$JOB_LOG"
 }
 
-human() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || printf '%sB' "$1"; }
+# SI units, matching `docker system df` and `df -B1`, at 4 significant digits:
+# "8.735GB" is the same number docker printed, and a retention log that rounds
+# 8.735GB down to "8.8GB" cannot account for every byte. Note the one place this
+# reads oddly: `df -h` is IEC, so a line here saying 858.6GB is "800G" there.
+human() {
+  awk -v b="${1:-0}" 'BEGIN {
+    split("B|kB|MB|GB|TB", u, "|"); i = 1
+    while (b >= 1000 && i < 5) { b /= 1000; i++ }
+    printf (i == 1 ? "%d%s\n" : "%.4g%s\n"), b, u[i]
+  }'
+}
+
+# Docker reports sizes as SI strings ("8.735GB"); numfmt --from=si rejects the
+# trailing B, so parse them here rather than depend on that quirk.
+human_to_bytes() {
+  awk -v v="$1" 'BEGIN {
+    if (v == "") { print 0; exit }
+    n = v + 0
+    u = toupper(v); sub(/^[0-9.]+/, "", u)
+    if      (u ~ /^T/) m = 1e12
+    else if (u ~ /^G/) m = 1e9
+    else if (u ~ /^M/) m = 1e6
+    else if (u ~ /^K/) m = 1e3
+    else               m = 1
+    printf "%d\n", n * m
+  }'
+}
+
+# One row of `docker system df`, in bytes. What docker counts per class is its
+# business; gc only needs before/after.
+docker_df_bytes() {
+  local size
+  size=$(docker system df --format '{{.Type}}|{{.Size}}' 2>/dev/null | awk -F'|' -v t="$1" '$1 == t { print $2 }')
+  human_to_bytes "$size"
+}
+
+docker_df_reclaimable() {
+  docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null | awk -F'|' -v t="$1" '$1 == t { print $2 }'
+}
+
+freed_bytes() { if [ "$1" -le "$2" ]; then echo 0; else echo $(($1 - $2)); fi; }
 
 run() {
   if [ "$DRY_RUN" = "1" ]; then
@@ -135,32 +183,63 @@ cmd_gc() {
   before=$(df --output=avail -B1 / | tail -1)
 
   if docker info >/dev/null 2>&1; then
-    local cache
-    cache=$(docker system df --format '{{.Type}} {{.Size}}' 2>/dev/null | awk '$1=="Build"{print $2}')
-    if docker builder prune -f --keep-storage "$BUILD_CACHE_KEEP" >> "$GC_LOG" 2>&1; then
-      log_gc "build cache pruned (was ${cache:-unknown}), keeping $BUILD_CACHE_KEEP"
-    else
-      log_gc "FAIL: builder prune failed"
-    fi
+    # Build cache is the class that grows without bound. --keep-storage alone is
+    # NOT enough: it is only honoured when the BuildKit builder owns the cache.
+    # On the mainframe (docker 29, no buildx plugin, measured 2026-11-18) it
+    # exits 0 having freed 0B while 5.1GB stayed reclaimable, so the age prune is
+    # the mechanism that actually reclaims. The cap is then enforced by hand
+    # when the window still leaves more than BUILD_CACHE_KEEP behind.
+    local cache_before cache_after keep_bytes
+    keep_bytes=$(human_to_bytes "$BUILD_CACHE_KEEP")
+    cache_before=$(docker_df_bytes "Build Cache")
     if [ "$DRY_RUN" = "1" ]; then
-      log_gc "dry: would prune dangling images"
+      log_gc "dry: build cache is $(human "$cache_before"); would prune age > $BUILD_CACHE_MAX_AGE, keep $BUILD_CACHE_KEEP"
     else
-      local imgs
-      imgs=$(docker image prune -f 2>&1 | tail -1)
-      log_gc "dangling images: ${imgs:-no output}"
+      # Docker's own output is mostly the legacy-builder deprecation notice; the
+      # byte accounting below is the audit trail, so only failures are surfaced.
+      docker builder prune -f --keep-storage "$BUILD_CACHE_KEEP" >/dev/null 2>&1 \
+        || log_gc "FAIL: builder prune --keep-storage $BUILD_CACHE_KEEP failed"
+      docker builder prune -f --filter "until=$BUILD_CACHE_MAX_AGE" >/dev/null 2>&1 \
+        || log_gc "FAIL: builder prune --filter until=$BUILD_CACHE_MAX_AGE failed"
+      cache_after=$(docker_df_bytes "Build Cache")
+      if [ "$cache_after" -gt "$keep_bytes" ]; then
+        docker builder prune -af >/dev/null 2>&1 \
+          && log_gc "build cache $(human "$cache_after") exceeds $BUILD_CACHE_KEEP after the age prune; pruned all"
+        cache_after=$(docker_df_bytes "Build Cache")
+      fi
+      log_gc "build cache $(human "$cache_before") -> $(human "$cache_after") (freed $(human "$(freed_bytes "$cache_before" "$cache_after")"))"
+    fi
+
+    local img_before img_after img_reclaimable
+    img_before=$(docker_df_bytes "Images")
+    if [ "$DRY_RUN" = "1" ]; then
+      log_gc "dry: images $(human "$img_before"); would prune dangling"
+    else
+      docker image prune -f >/dev/null 2>&1 || log_gc "FAIL: image prune failed"
+      img_after=$(docker_df_bytes "Images")
+      log_gc "images $(human "$img_before") -> $(human "$img_after") (freed $(human "$(freed_bytes "$img_before" "$img_after")"))"
+      # An image a container is running from is not ours to delete: the design
+      # table's "keep last 2 per service" would take out the live encoder.
+      img_reclaimable=$(docker_df_reclaimable "Images")
+      [ -n "$img_reclaimable" ] \
+        && log_gc "images reclaimable but held by a container: $img_reclaimable (gc leaves those alone)"
     fi
   else
     log_gc "SKIP: docker daemon not reachable"
   fi
 
   # Journal: needs root. Absent passwordless sudo this is a line in the log, not
-  # a failed run.
+  # a failed run. The durable bound is SystemMaxUse=1G in journald.conf (installed
+  # by infra/deploy/bootstrap.sh); the vacuum only enforces it sooner.
+  local journal_now
+  # journalctl prints "take up 142.5M"; the unit may or may not carry a B.
+  journal_now=$(journalctl --disk-usage 2>/dev/null | sed -n 's/.*take up \([0-9.]*[A-Za-z]*\).*/\1/p')
   if [ "$DRY_RUN" = "1" ]; then
-    log_gc "dry: would vacuum journal to $JOURNAL_MAX"
+    log_gc "dry: journal is ${journal_now:-unknown}; would vacuum to $JOURNAL_MAX"
   elif sudo -n journalctl --vacuum-size="$JOURNAL_MAX" >/dev/null 2>&1; then
-    log_gc "journal vacuumed to $JOURNAL_MAX"
+    log_gc "journal vacuumed to $JOURNAL_MAX (was ${journal_now:-unknown})"
   else
-    log_gc "SKIP: journal vacuum needs root (SystemMaxUse in journald.conf is the durable fix)"
+    log_gc "SKIP: journal vacuum needs root (was ${journal_now:-unknown}; SystemMaxUse in journald.conf is the durable fix)"
   fi
 
   rotate_if_large "$DATA/deploy.log" "$DEPLOY_LOG_MAX_BYTES" 2000
@@ -231,12 +310,23 @@ cmd_verify() {
   [ -n "${http_port:-}" ] || http_port=8090
   door_code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:${http_port}/" 2>/dev/null || echo 000)
 
-  # --- camera: newest HLS segment
-  local cam_age=-1
+  # --- camera: newest HLS segment, and WHY it is or is not fresh. The text
+  # reader used to guess the reason ("no segments (device absent?)") because the
+  # file carried only an age. A reason that is derived is not a guess.
+  local cam_age=-1 cam_reason="unknown"
   local newest_cam
   newest_cam=$(find "$DATA/cam" -maxdepth 1 -name '*.m3u8' -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
   if [ -n "$newest_cam" ]; then
     cam_age=$(( $(date +%s) - ${newest_cam%%.*} ))
+  fi
+  if [ "$(docker inspect -f '{{.State.Running}}' radio-cam 2>/dev/null)" != "true" ]; then
+    cam_reason="container not running"
+  elif [ "$cam_age" -lt 0 ]; then
+    cam_reason="running, no segments"
+  elif [ "$cam_age" -ge 15 ]; then
+    cam_reason="stale: newest segment ${cam_age}s old"
+  else
+    cam_reason="ok"
   fi
 
   # --- content
@@ -263,6 +353,32 @@ cmd_verify() {
   fi
   [ "$weather_age" -ge 0 ] && [ "$weather_age" -le "$WEATHER_MAX_AGE_S" ] && weather_fresh=true
   [ "$rss_age" -ge 0 ] && [ "$rss_age" -le "$RSS_MAX_AGE_S" ] && rss_fresh=true
+
+  # Library age: when did the generator last publish, and when is the next
+  # cycle due. `updated_at` is the generator's own record of the last completed
+  # cycle; the runs/ directory mtime is the fallback when it cannot be parsed.
+  local last_render_age=-1 next_render_in=-1 interval_s=21600
+  interval_s=$(sed -n 's/^INDIEGEN_INTERVAL_SECONDS=\([0-9]*\).*/\1/p' "$ROOT/.env" 2>/dev/null | tail -1)
+  [ -n "${interval_s:-}" ] || interval_s=21600
+  local last_render_epoch=""
+  last_render_epoch=$(python3 - "$DATA/indiegen/state.json" <<'PY' 2>/dev/null
+import json, sys
+try:
+    print(int(float(json.load(open(sys.argv[1]))["updated_at"])))
+except Exception:
+    pass
+PY
+)
+  if [ -z "$last_render_epoch" ]; then
+    last_render_epoch=$(find "$DATA/indiegen/runs" -mindepth 1 -maxdepth 1 -type d -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
+    last_render_epoch=${last_render_epoch%%.*}
+  fi
+  if [ -n "${last_render_epoch:-}" ]; then
+    last_render_age=$(( $(date +%s) - last_render_epoch ))
+    next_render_in=$(( interval_s - last_render_age ))
+    # Overdue is information, a negative countdown is noise.
+    [ "$next_render_in" -lt 0 ] && next_render_in=0
+  fi
 
   # --- resources
   local pkg_c=0 mem_avail_mb disk_free_gb mem_pressure disk_below_floor
@@ -336,6 +452,32 @@ cmd_verify() {
   # --- jobs
   local last_gc=""
   [ -f "$GC_LOG" ] && last_gc=$(grep 'gc done' "$GC_LOG" 2>/dev/null | tail -1 | cut -d' ' -f1)
+  # Deferrals in the last hour, from the job log the gate already writes. A
+  # closed gate is a legitimate outcome; it must not be invisible.
+  local deferred="" deferred_count=0
+  if [ -f "$JOB_LOG" ]; then
+    local cutoff
+    cutoff=$(date -u -d '-1 hour' +%FT%TZ 2>/dev/null || date -u -v-1H +%FT%TZ 2>/dev/null || echo "")
+    if [ -n "$cutoff" ]; then
+      deferred=$(awk -v c="$cutoff" '$1 >= c && / deferred: / { print }' "$JOB_LOG" 2>/dev/null | tail -5)
+      deferred_count=$(printf '%s' "$deferred" | grep -c . || true)
+    fi
+  fi
+  local deferred_json="[]"
+  if [ "$deferred_count" -gt 0 ]; then
+    deferred_json=$(printf '%s\n' "$deferred" | python3 -c '
+import json, sys
+out = []
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    ts, rest = line.split(" ", 1)
+    job, _, reason = rest.partition(" deferred: ")
+    out.append({"at": ts, "job": job, "reason": reason})
+print(json.dumps(out[-5:]))
+' 2>/dev/null) || deferred_json="[]"
+  fi
   local deployed=""
   deployed=$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)
   local detached=true
@@ -350,8 +492,10 @@ cmd_verify() {
   "stream": {"source": $source_present, "bytes_per_s": $bytes_rate,
              "flowing": $([ "$bytes_rate" -gt 4000 ] && echo true || echo false), "title": "$title"},
   "door": {"status_without_token": "$door_code", "closed": $([ "$door_code" = "404" ] && echo true || echo false)},
-  "camera": {"segment_age_s": $cam_age, "fresh": $([ "$cam_age" -ge 0 ] && [ "$cam_age" -lt 15 ] && echo true || echo false)},
+  "camera": {"segment_age_s": $cam_age, "reason": "$cam_reason",
+             "fresh": $([ "$cam_age" -ge 0 ] && [ "$cam_age" -lt 15 ] && echo true || echo false)},
   "content": {"tracks": $tracks, "catalog_ok": $catalog_ok, "last_tts_age_s": $last_tts_age,
+              "last_render_age_s": $last_render_age, "next_render_in_s": $next_render_in,
               "weather_age_s": $weather_age, "weather_fresh": $weather_fresh,
               "rss_age_s": $rss_age, "rss_fresh": $rss_fresh},
   "resources": {"pkg_c": $pkg_c, "mem_available_mb": $mem_avail_mb,
@@ -365,7 +509,7 @@ cmd_verify() {
                 "uncapped_containers": $uncapped,
                 "cap_pressure_pct": $CAP_PRESSURE_PCT,
                 "memory_pressure": $memory_pressure},
-  "jobs": {"last_gc": "${last_gc:-never}"}
+  "jobs": {"last_gc": "${last_gc:-never}", "deferred": $deferred_json}
 }
 JSON
 )
@@ -382,6 +526,19 @@ JSON
     printf 'FAIL: %s is empty after writing\n' "$STATUS" >&2
     return 1
   fi
+
+  # Publish under the door. Caddy serves /host/* from ./data/host behind the
+  # same @gate as the player, so the page can read the station's own account of
+  # itself without a second endpoint and without a credential in a URL.
+  # Liquidsoap mounts that directory too, but it only opens the names it builds
+  # from seeds and buckets — a status.json is never one of them.
+  if [ -d "$DATA/host" ]; then
+    cp "$STATUS" "$DATA/host/status.json.tmp" 2>/dev/null \
+      && mv "$DATA/host/status.json.tmp" "$DATA/host/status.json" 2>/dev/null \
+      || printf 'WARN: could not publish %s/host/status.json (owner: %s)\n' \
+           "$DATA" "$(stat -c '%U:%G' "$DATA/host" 2>/dev/null || echo unknown)" >&2
+  fi
+
   printf 'status written: %s\n' "$STATUS"
   return 0
 }
@@ -408,9 +565,14 @@ print(f"radio status  {data['ts']}  ({age}s old)")
 print(f"  deploy    {data['deploy']['commit']}  detached={data['deploy']['detached_head']}")
 print(f"  {mark(s['source'] and s['bytes_per_s'] > 0)} stream   source={s['source']} rate={s['bytes_per_s']} B/s  {s['title']!r}")
 print(f"  {mark(d['closed'])} door     GET / without token -> {d['status_without_token']}")
-cam = f"segment age {c['segment_age_s']}s" if c['segment_age_s'] >= 0 else "no segments (device absent?)"
-print(f"  {mark(c['fresh'])} camera   {cam}")
+cam = f"segment age {c['segment_age_s']}s" if c['segment_age_s'] >= 0 else "no segments"
+print(f"  {mark(c['fresh'])} camera   {c.get('reason', cam)}")
 print(f"  {mark(ct['catalog_ok'] and ct['tracks'] > 0)} content  {ct['tracks']} tracks, catalog_ok={ct['catalog_ok']}, last TTS {ct['last_tts_age_s']}s ago")
+lr, nr = ct.get("last_render_age_s", -1), ct.get("next_render_in_s", -1)
+if isinstance(lr, int) and lr >= 0:
+    print(f"  library  last render {lr}s ago, next cycle in {nr}s")
+else:
+    print("  n/a  library  no render recorded")
 print(f"  {mark(ct.get('weather_fresh'))} weather  refreshed {ct.get('weather_age_s')}s ago (limit {wmax}s)")
 print(f"  {mark(ct.get('rss_fresh'))} news     refreshed {ct.get('rss_age_s')}s ago (limit {rmax}s)")
 print(f"  {mark(r['uncapped_containers'] == 0)} caps     {r['uncapped_containers']} uncapped container(s)")
@@ -443,6 +605,10 @@ else:
 print(f"  temp {r['pkg_c']}C  mem {r['mem_available_mb']} MB avail  disk {r['disk_free_gb']} GB free")
 print(f"  load {r.get('load1', '?')}/{r.get('load_max', '?')} (1m/max)  PSI mem {r['mem_pressure_some']}  cpu some {r.get('cpu_pressure_some', '?')} (inflated by container caps)")
 print(f"  last gc  {data['jobs']['last_gc']}")
+deferred = data["jobs"].get("deferred") or []
+if deferred:
+    last = deferred[-1]
+    print(f"  deferred {len(deferred)} job(s) in the last hour; latest {last.get('job')}: {last.get('reason')}")
 PY
 }
 
@@ -522,9 +688,25 @@ defer_or_run() {
     printf '%s would run (shadow mode)\n' "$job"
     return 0
   fi
+  # Serialize heavy jobs. `render` and `tts` both take this lock so a generator
+  # cycle cannot start under a mario render (docs/INDIEGENERATOR.md: a render
+  # that is killed mid-flight costs the CPU twice and publishes nothing).
+  # Contention is a deferral, not a failure: the next tick retries.
+  if ! exec 6>"$HEAVY_LOCK"; then
+    log_job "$job deferred: cannot open $HEAVY_LOCK"
+    printf '%s deferred: cannot open %s\n' "$job" "$HEAVY_LOCK"
+    return 0
+  fi
+  if ! flock -n 6; then
+    exec 6>&-
+    log_job "$job deferred: another heavy job holds $HEAVY_LOCK"
+    printf '%s deferred: another heavy job holds %s\n' "$job" "$HEAVY_LOCK"
+    return 0
+  fi
   log_job "$job starting"
   "$@"
   local rc=$?
+  exec 6>&- # releases the lock; the next tick can start
   log_job "$job finished rc=$rc"
   return "$rc"
 }
@@ -536,6 +718,7 @@ cmd_tts() {
 
 cmd_render() {
   require_writable_data || return 1
+  cmd_disk_ok || return 1
   defer_or_run render "$ROOT/scripts/indiegen-cycle.sh"
 }
 
@@ -872,8 +1055,9 @@ radio-job - scheduled work for the radio appliance
   self-heal alias for heal
 
 Environment:
-  RADIO_JOB_SHADOW=1  evaluate the gate and log, execute nothing
-  RADIO_JOB_DRY_RUN=1 same, for gc
+  RADIO_JOB_SHADOW=1      evaluate the gate and log, execute nothing
+  RADIO_JOB_DRY_RUN=1     same, for gc
+  RADIO_JOB_HEAVY_LOCK    heavy-job lock path (default /tmp/radio-heavy.lock)
 
 Tracking: #103 (gc), #104 (status), #105 (scheduler + gate), #106 (ladder).
 USAGE
