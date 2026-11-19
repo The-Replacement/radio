@@ -155,7 +155,7 @@ Rules that follow:
 Batch work (indiegen, mario) runs in the `radio-batch.slice` systemd slice with
 `CPUWeight=20`; the audio path stays in the default slice. The compose services
 set `cgroup_parent: radio-batch.slice` for `indiegen` and `mario` only. The slice
-unit lives in `infra/deploy/systemd/radio-batch.slice` and is installed by
+unit lives in the separate `infra` repo (`infra/deploy/systemd/radio-batch.slice`) and is installed by
 `infra/deploy/bootstrap.sh`. Requires Docker on the `systemd` cgroup driver; on
 a host still using `cgroupfs` the slice is invisible to containers and the
 `cgroup_parent` reference fails at start — verify with `docker info | grep -i cgroup`.
