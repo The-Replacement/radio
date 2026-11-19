@@ -170,3 +170,9 @@ a host still using `cgroupfs` the slice is invisible to containers and the
   `allow_root` must be validated against the pinned upstream image.
 - **Secrets:** do not relax `0600` handling for `secrets/tokens.txt` and
   generated `caddy/tokens.caddy` (see #87).
+- **Mario runtime identity (#99):** image bakes uid 10001 but compose overrides
+  to `MARIO_UID/GID` (default 1000, like the indiegen default). `MARIO_UID` should equal
+  `INDIEGEN_UID` (or `./music` and the model dir must be group/other-readable)
+  so Mario can read catalog/sidecars and the Kokoro model. `HOME`/`XDG_CACHE_HOME`
+  are set to `/tmp` because the image's `/home/mario` is owned by uid 10001.
+  `data/host` (incl. `rss-cache`) is the only writable bind mount.
