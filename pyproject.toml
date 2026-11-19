@@ -19,10 +19,10 @@ classifiers = [
   "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [
-  "kokoro-onnx>=0.4.0",
+  "kokoro-onnx==0.6.1",
   "pydantic==2.14.1",
   "PyYAML==6.0.3",
-  "soundfile>=0.12.0",
+  "soundfile==0.14.0",
   "typer==0.27.3",
 ]
 

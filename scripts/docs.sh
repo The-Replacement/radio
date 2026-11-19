@@ -49,7 +49,7 @@ if [ ! -x "$MMDC" ]; then
   [ -f "$CACHE/package.json" ] \
     || printf '{"name":"radio-docs","private":true}\n' > "$CACHE/package.json"
   if ! ( cd "$CACHE" && PUPPETEER_SKIP_DOWNLOAD=1 \
-           npm install --no-audit --no-fund @mermaid-js/mermaid-cli >/dev/null 2>&1 ); then
+           npm install --no-audit --no-fund @mermaid-js/mermaid-cli@12.2.0 >/dev/null 2>&1 ); then
     missing "could not install mermaid-cli (no network?)"
   fi
   echo "Done."
