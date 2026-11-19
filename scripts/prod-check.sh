@@ -5,13 +5,13 @@
 # Exits non-zero on unsafe production profiles; prints actionable guidance.
 set -euo pipefail
 
-RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="$RAIZ/.env"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_FILE="$ROOT/.env"
 
 ok=0; mal=0; warn=0
-pasa() { printf '  \033[32mOK\033[0m   %s\n' "$1"; ok=$((ok+1)); }
-falla() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; mal=$((mal+1)); }
-aviso() { printf '  \033[33mWARN\033[0m %s\n' "$1"; warn=$((warn+1)); }
+pass() { printf '  \033[32mOK\033[0m   %s\n' "$1"; ok=$((ok+1)); }
+fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; mal=$((mal+1)); }
+warn() { printf '  \033[33mWARN\033[0m %s\n' "$1"; warn=$((warn+1)); }
 
 get_env() {
   local key="$1"
@@ -19,11 +19,11 @@ get_env() {
 }
 
 echo
-echo "Production/config checks - $RAIZ"
+echo "Production/config checks - $ROOT"
 echo
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  aviso ".env not found (using defaults in some contexts). Create it from .env.example for production."
+  warn ".env not found (using defaults in some contexts). Create it from .env.example for production."
 fi
 
 SITE_ADDRESS="$(get_env SITE_ADDRESS)"
@@ -34,55 +34,55 @@ COOKIE_FLAGS="$(get_env COOKIE_FLAGS)"
 # #89: Secure cookie required when HTTPS is in use
 if [[ "$SITE_ADDRESS" == https://* || "$PUBLIC_URL" == https://* ]]; then
   if [[ "$COOKIE_FLAGS" == *Secure* ]]; then
-    pasa "COOKIE_FLAGS includes Secure for HTTPS configuration"
+    pass "COOKIE_FLAGS includes Secure for HTTPS configuration"
   else
-    falla "HTTPS configured (SITE_ADDRESS/PUBLIC_URL) but COOKIE_FLAGS has no 'Secure' (add '; Secure')"
+    fail "HTTPS configured (SITE_ADDRESS/PUBLIC_URL) but COOKIE_FLAGS has no 'Secure' (add '; Secure')"
   fi
 else
-  pasa "non-HTTPS/local profile detected for cookie transport check"
+  pass "non-HTTPS/local profile detected for cookie transport check"
 fi
 
 # Basic transport consistency hints
 if [[ "$PUBLIC_URL" == https://* && "$SITE_ADDRESS" == http://* ]]; then
-  aviso "PUBLIC_URL is https but SITE_ADDRESS is http - verify reverse proxy/TLS termination is intentional"
+  warn "PUBLIC_URL is https but SITE_ADDRESS is http - verify reverse proxy/TLS termination is intentional"
 fi
 if [[ -n "$FRONTEND_URL" && "$FRONTEND_URL" == http://* && "$PUBLIC_URL" == https://* ]]; then
-  aviso "FRONTEND_URL is http while PUBLIC_URL is https - verify split-origin/CORS/cookie behavior"
+  warn "FRONTEND_URL is http while PUBLIC_URL is https - verify split-origin/CORS/cookie behavior"
 fi
 
 # #87: credential storage/lifecycle notes (explicit checks where possible)
-TOKENS_FILE="$RAIZ/secrets/tokens.txt"
-MATCHER_FILE="$RAIZ/caddy/tokens.caddy"
+TOKENS_FILE="$ROOT/secrets/tokens.txt"
+MATCHER_FILE="$ROOT/caddy/tokens.caddy"
 if [[ -f "$TOKENS_FILE" ]]; then
   perms="$(stat -c '%a' "$TOKENS_FILE" 2>/dev/null || echo '?')"
   if [[ "$perms" == "600" || "$perms" == "400" ]]; then
-    pasa "secrets/tokens.txt permissions are restrictive ($perms)"
+    pass "secrets/tokens.txt permissions are restrictive ($perms)"
   else
-    falla "secrets/tokens.txt permissions are $perms (expected 600); fix with: chmod 600 secrets/tokens.txt"
+    fail "secrets/tokens.txt permissions are $perms (expected 600); fix with: chmod 600 secrets/tokens.txt"
   fi
   if [[ -s "$TOKENS_FILE" ]]; then
     # warn if any credential has no expiry (4th field missing)
     if awk 'NF==3 {found=1} END{exit found?0:1}' "$TOKENS_FILE"; then
-      aviso "one or more credentials have no expiry; prefer time-limited credentials and rotation (token.sh rotate/prune)"
+      warn "one or more credentials have no expiry; prefer time-limited credentials and rotation (token.sh rotate/prune)"
     else
-      pasa "all listed credentials include an expiry field"
+      pass "all listed credentials include an expiry field"
     fi
   fi
-  aviso "secrets/tokens.txt stores bearer credentials in plaintext - restrict host access/backups and avoid leaking logs/shell history"
+  warn "secrets/tokens.txt stores bearer credentials in plaintext - restrict host access/backups and avoid leaking logs/shell history"
 else
-  aviso "secrets/tokens.txt not found (no issued credentials yet)"
+  warn "secrets/tokens.txt not found (no issued credentials yet)"
 fi
 
 if [[ -f "$MATCHER_FILE" ]]; then
   mperms="$(stat -c '%a' "$MATCHER_FILE" 2>/dev/null || echo '?')"
   if [[ "$mperms" == "600" || "$mperms" == "400" ]]; then
-    pasa "caddy/tokens.caddy permissions are restrictive ($mperms)"
+    pass "caddy/tokens.caddy permissions are restrictive ($mperms)"
   else
-    falla "caddy/tokens.caddy permissions are $mperms (expected 600; contains bearer credentials) - fix with: chmod 600 caddy/tokens.caddy"
+    fail "caddy/tokens.caddy permissions are $mperms (expected 600; contains bearer credentials) - fix with: chmod 600 caddy/tokens.caddy"
   fi
-  aviso "caddy/tokens.caddy contains plaintext credential matchers required by Caddy CEL - treat as secret, keep out of backups/repos where possible"
+  warn "caddy/tokens.caddy contains plaintext credential matchers required by Caddy CEL - treat as secret, keep out of backups/repos where possible"
 else
-  aviso "caddy/tokens.caddy not found (run: ./scripts/token.sh regen)"
+  warn "caddy/tokens.caddy not found (run: ./scripts/token.sh regen)"
 fi
 
 echo

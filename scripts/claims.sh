@@ -11,10 +11,10 @@
 # site's living docs, not the PLAN-LEGAL nor the audit prompt).
 set -uo pipefail
 
-RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$RAIZ" || exit 1
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT" || exit 1
 
-VERDE=$'\033[32m'; ROJO=$'\033[31m'; FIN=$'\033[0m'
+GREEN=$'\033[32m'; RED=$'\033[31m'; RESET=$'\033[0m'
 
 # The documented allowlist, one line per explicit permission. Anything not here,
 # in this config, is a new hardcode and the gate goes red.
@@ -22,17 +22,17 @@ VERDE=$'\033[32m'; ROJO=$'\033[31m'; FIN=$'\033[0m'
 #   web/index.html — the station's public signature, not an origin
 # claims.sh does not scan itself: the script literally contains the allowed
 # lines BY definition.
-PERMITIDAS=(
+ALLOWED=(
   '.env.example|FRONTEND_URL=https://comechingona.daza.ar'
   'web/index.html|comechingona.daza.ar · sierras de los comechingones'
 )
 
-permitida() {
-  local archivo="$1" contenido="$2" p archivo_ok cadena_ok
-  for p in "${PERMITIDAS[@]}"; do
-    archivo_ok="${p%%|*}"
-    cadena_ok="${p#*|}"
-    if [[ "$archivo" == "$archivo_ok" && "$contenido" == *"$cadena_ok"* ]]; then
+allowed() {
+  local archivo="$1" contenido="$2" p file_ok string_ok
+  for p in "${ALLOWED[@]}"; do
+    file_ok="${p%%|*}"
+    string_ok="${p#*|}"
+    if [[ "$archivo" == "$file_ok" && "$contenido" == *"$string_ok"* ]]; then
       return 0
     fi
   done
@@ -47,31 +47,31 @@ mapfile -t HITS < <(git grep -niF 'comechingona.daza.ar' -- \
   caddy web docker-compose.yml .env.example \
   icecast liquidsoap cam mediamtx ':!scripts/claims.sh' 2>/dev/null || true)
 
-malas=0
-buenas=0
+bad_count=0
+good_count=0
 for hit in "${HITS[@]}"; do
   archivo="${hit%%:*}"
   resto="${hit#*:}"
   contenido="${resto#*:}"
   linea="${resto%%:*}"
-  if permitida "$archivo" "$contenido"; then
-    printf '  %sOK%s    %-28s :%s — documented allowlist\n' "$VERDE" "$FIN" "$archivo" "$linea"
-    buenas=$((buenas + 1))
+  if allowed "$archivo" "$contenido"; then
+    printf '  %sOK%s    %-28s :%s — documented allowlist\n' "$GREEN" "$RESET" "$archivo" "$linea"
+    good_count=$((good_count + 1))
   else
-    printf '  %sFAIL%s %s:%s — %s\n' "$ROJO" "$FIN" "$archivo" "$linea" "$contenido"
-    malas=$((malas + 1))
+    printf '  %sFAIL%s %s:%s — %s\n' "$RED" "$RESET" "$archivo" "$linea" "$contenido"
+    bad_count=$((bad_count + 1))
   fi
 done
 
 echo
-if [[ "$malas" -eq 0 ]]; then
-  printf '%sAll good%s — %d occurrence(s), all on the allowlist. The seam is intact.\n\n' "$VERDE" "$FIN" "$buenas"
+if [[ "$bad_count" -eq 0 ]]; then
+  printf '%sAll good%s — %d occurrence(s), all on the allowlist. The seam is intact.\n\n' "$GREEN" "$RESET" "$good_count"
   exit 0
 else
-  printf '%s%d occurrence(s) without allowlist%s — the domain is hand-written again.\n' "$ROJO" "$malas" "$FIN"
+  printf '%s%d occurrence(s) without allowlist%s — the domain is hand-written again.\n' "$RED" "$bad_count" "$RESET"
   echo
   echo "Fix it through the seam (FRONTEND_URL) or, if it is really needed, write the"
-  echo "line in PERMITIDAS with its justification — one concrete line, in plain sight."
+  echo "line in ALLOWED with its justification — one concrete line, in plain sight."
   echo
   exit 1
 fi
