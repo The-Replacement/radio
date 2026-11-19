@@ -108,12 +108,20 @@ class CommandRunner(Protocol):
     def __call__(self, argv: Sequence[str], cwd: Path | None = None) -> CommandResult: ...
 
 
+_ALLOWED_BINARIES = {"git", "docker"}
+
+
 def subprocess_runner(argv: Sequence[str], cwd: Path | None = None) -> CommandResult:
     """Run a command and capture its output.
 
     A missing binary is a failed command, not an exception: the caller asks
     questions, and "docker is not installed" is an answer, not a crash.
+
+    Only the documented binaries (git, docker) are allowed, so a tampered
+    manifest cannot turn this runner into a general shell (O8).
     """
+    if not argv or str(argv[0]) not in _ALLOWED_BINARIES:
+        return CommandResult(returncode=127, stdout=b"", stderr=b"disallowed binary")
     try:
         completed = subprocess.run(
             list(argv),
