@@ -87,3 +87,13 @@ from a partial rename). Resolved in #101: both sides now use `pass`/`fail`/
 `status_code`/`ROOT`. If you see the old names again, the rename regressed.
 EOF
 echo "written"
+
+## Maintenance (audit Y3/#84)
+
+The gate/ops surface is justified by regressions and contracts, but carries
+maintenance cost. Periodically review gates/features against active invariants:
+
+- For each gate/script, record the regression or contract it protects (in PR/issue/docs).
+- Retire or simplify gates that no longer protect a live invariant, keeping traceability.
+- Prefer tightening existing gates over adding parallel ones; avoid duplicating checks across CI, hooks, and box scripts without a documented reason.
+- When a feature path is removed, remove or update its gates in the same change.

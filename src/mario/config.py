@@ -38,6 +38,15 @@ class MarioConfig(BaseModel):
     rss_timeout_seconds: float = Field(default=10.0, gt=0)
 
     def model_post_init(self, __context: object, /) -> None:
+        """Normalize legacy/split-layout path fields.
+
+        Precedence/compatibility:
+        - `meta_dir` is the canonical metadata root (catalog/sidecars).
+        - If `meta_dir` is omitted, it defaults to `music_dir` (legacy co-located layout).
+        - If only `meta_dir` is provided (and `music_dir` left at its default),
+          `music_dir` is aligned to `meta_dir` for legacy callers.
+        - `metadata_dir` property should be used by consumers that need metadata.
+        """
         # Backward compat: meta_dir defaults to music_dir when not set explicitly.
         if self.meta_dir is None:
             object.__setattr__(self, "meta_dir", self.music_dir)
@@ -57,6 +66,10 @@ class MarioConfig(BaseModel):
         weather = os.environ.get("MARIO_WEATHER_FILE")
         rss_feeds = os.environ.get("MARIO_RSS_FEEDS_FILE")
         rss_cache = os.environ.get("MARIO_RSS_CACHE_DIR")
+        # Env precedence: MARIO_META_DIR (metadata root) overrides; if absent,
+        # fall back to MARIO_MUSIC_DIR for legacy co-located deployments.
+        # `music_dir` is preserved when explicitly set for legacy callers; otherwise
+        # it follows `meta_dir`.
         music_env = os.environ.get("MARIO_MUSIC_DIR")
         meta_env = os.environ.get("MARIO_META_DIR")
         meta = Path(meta_env or music_env or "/music")

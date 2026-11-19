@@ -42,6 +42,15 @@ else
   pass "non-HTTPS/local profile detected for cookie transport check"
 fi
 
+# #86: origin/CORS config validation
+if [[ -n "$FRONTEND_URL" ]]; then
+  if [[ "$FRONTEND_URL" =~ ^https?://[^/[:space:]]+$ ]] && [[ "$FRONTEND_URL" != */ ]]; then
+    pass "FRONTEND_URL is a single origin without trailing slash"
+  else
+    fail "FRONTEND_URL must be a single origin (scheme://host[:port]) with no trailing slash or path: '$FRONTEND_URL'"
+  fi
+fi
+
 # Basic transport consistency hints
 if [[ "$PUBLIC_URL" == https://* && "$SITE_ADDRESS" == http://* ]]; then
   warn "PUBLIC_URL is https but SITE_ADDRESS is http - verify reverse proxy/TLS termination is intentional"

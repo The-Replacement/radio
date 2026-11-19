@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from typing import Any, Literal
 
 import yaml  # type: ignore[import-untyped]
@@ -124,7 +127,8 @@ def load_weather_snapshot(path: Path) -> WeatherSnapshot | None:
     try:
         raw = path.read_text(encoding="utf-8")
         data = json.loads(raw)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("weather snapshot load failed: %s", type(exc).__name__)
         return None
     if not isinstance(data, dict):
         return None

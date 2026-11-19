@@ -8,11 +8,14 @@ break a generation cycle.
 
 from __future__ import annotations
 
+import logging
 import re
 import urllib.error
 import urllib.request
 
 from .rss import DEFAULT_RSS_MAX_BYTES
+
+logger = logging.getLogger(__name__)
 
 _SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*)://")
 _ALLOWED_SCHEMES: tuple[str, ...] = ("http", "https")
@@ -64,5 +67,6 @@ def fetch_feed(
         if not payload or len(payload) > max_bytes:
             return None
         return payload
-    except Exception:  # noqa: BLE001 - defensive by contract: never raise
+    except Exception as exc:  # noqa: BLE001 - defensive by contract: never raise
+        logger.debug("fetch failed: %s", type(exc).__name__)
         return None
