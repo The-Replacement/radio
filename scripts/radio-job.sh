@@ -226,7 +226,10 @@ cmd_verify() {
 
   # --- door: no token must not get through
   local door_code
-  door_code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:8090/ 2>/dev/null || echo 000)
+  local http_port
+  http_port=$(sed -n 's/^HTTP_PORT=\([0-9]*\).*/\1/p' "$ROOT/.env" 2>/dev/null | tail -1)
+  [ -n "${http_port:-}" ] || http_port=8090
+  door_code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:${http_port}/" 2>/dev/null || echo 000)
 
   # --- camera: newest HLS segment
   local cam_age=-1
