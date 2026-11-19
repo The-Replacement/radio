@@ -22,11 +22,14 @@ source "$SMOKE_DIR/smoke.d/00-frontend-door.sh"
 source "$SMOKE_DIR/smoke.d/10-no-credential.sh"
 # shellcheck source=scripts/smoke.d/20-auth-and-media.sh disable=SC1091
 source "$SMOKE_DIR/smoke.d/20-auth-and-media.sh"
+# shellcheck source=scripts/smoke.d/30-tor.sh disable=SC1091
+source "$SMOKE_DIR/smoke.d/30-tor.sh"
 
 smoke_init
 smoke_group_frontend_door
 smoke_group_no_credential
 smoke_group_auth_and_media
 _smoke_mario
+smoke_group_tor
 smoke_summary
 exit $?

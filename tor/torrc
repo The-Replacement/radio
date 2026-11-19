@@ -1,0 +1,7 @@
+# Tor hidden service for the radio (audio-only door, AUD-05/#26).
+# Forwards to Caddy inside the docker network; no ports published to host.
+Log notice stdout
+DataDirectory /var/lib/tor
+HiddenServiceDir /var/lib/tor/hidden_service
+HiddenServiceVersion 3
+HiddenServicePort 80 caddy:80

@@ -33,7 +33,7 @@
 	# email {$ACME_EMAIL}
 }
 
-{$SITE_ADDRESS:http://localhost} {
+{$SITE_ADDRESS:http://localhost}, http://*.onion {
 	# CSP: no inline scripts, no remote scripts, no eval. The player has no
 	# third-party scripts (hls.js is vendored). (O7)
 	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'"
@@ -64,17 +64,25 @@
 	# dejaría una cookie que el gate rechaza: 404 en cada request. Ya pasó.
 	handle @canje {
 		header Set-Cookie "radio={radio_cookie}; Path=/; Max-Age=31536000; {$COOKIE_FLAGS}"
-		# El `*` no es decorativo: sin matcher explícito, Caddy lee el `/`
-		# como matcher y el `302` como destino, y manda "Location: 302".
-		# Tras el split, el player vive en Cloudflare Pages.
-		# El canje ocurre en el backend (stream.daza.ar): la cookie sale
-		# host-only para stream.daza.ar — sin Domain — y llega igual al
-		# frontend porque son el mismo site (daza.ar), same-site con
-		# credentials:include. Se redirige allá.
-		# El token se conserva en la URL: así el frontend puede usarlo como
-		# respaldo si el navegador bloquea la cookie (Safari ITP, etc.).
-		# De sacarlo de la barra se encarga la página al cargar (S3/F-01).
-		redir * {$FRONTEND_URL}/?t={http.request.uri.query.t} 302
+		@not_onion not host *.onion
+		handle @not_onion {
+			# El `*` no es decorativo: sin matcher explícito, Caddy lee el `/`
+			# como matcher y el `302` como destino, y manda "Location: 302".
+			# Tras el split, el player vive en Cloudflare Pages.
+			# El canje ocurre en el backend (stream.daza.ar): la cookie sale
+			# host-only para stream.daza.ar — sin Domain — y llega igual al
+			# frontend porque son el mismo site (daza.ar), same-site con
+			# credentials:include. Se redirige allá.
+			# El token se conserva en la URL: así el frontend puede usarlo como
+			# respaldo si el navegador bloquea la cookie (Safari ITP, etc.).
+			# De sacarlo de la barra se encarga la página al cargar (S3/F-01).
+			redir * {$FRONTEND_URL}/?t={http.request.uri.query.t} 302
+		}
+		handle {
+			# Audio-only Tor door (#26/AUD-05): no player page, no clearnet
+			# redirect. Use /stream?t=<token> directly for audio.
+			respond "Audio-only Tor door: use /stream?t=<token>" 200
+		}
 	}
 
 	# ---------------- la cámara, para reproductores ----------------
