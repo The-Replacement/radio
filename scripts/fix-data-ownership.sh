@@ -31,6 +31,17 @@ CAM_GID="$(get_env CAM_GID "$INDIEGEN_GID")"
 CADDY_UID="$(get_env CADDY_UID "$INDIEGEN_UID")"
 CADDY_GID="$(get_env CADDY_GID "$INDIEGEN_GID")"
 
+# Validate: UIDs/GIDs must be numeric to avoid command injection into the
+# root container's `sh -c` (O8). Reject anything else loudly.
+for _v in "$INDIEGEN_UID" "$INDIEGEN_GID" "$MARIO_UID" "$MARIO_GID" \
+          "$CAM_UID" "$CAM_GID" "$CADDY_UID" "$CADDY_GID"; do
+  if ! [[ "$_v" =~ ^[0-9]+$ ]]; then
+    echo "FAIL: non-numeric uid/gid '$_v' in .env (O8)" >&2
+    exit 2
+  fi
+done
+unset _v
+
 have_docker() {
   command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
 }
@@ -38,6 +49,12 @@ have_docker() {
 try_docker_fix() {
   # Run as root in a throwaway container to chown bind-mounted paths.
   local image="${FIX_OWNER_IMAGE:-alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab}"
+  # Allowlist: the image must be digest-pinned (no floating tag) to prevent
+  # substitution of an attacker-controlled image (O8).
+  if ! [[ "$image" == *@sha256:* ]]; then
+    echo "FAIL: FIX_OWNER_IMAGE must be digest-pinned (name@sha256:...) (O8)" >&2
+    return 1
+  fi
   docker run --rm \
     -v "$ROOT/data/indiegen:/t/indiegen" \
     -v "$ROOT/data/host:/t/host" \
