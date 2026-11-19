@@ -312,11 +312,11 @@ cmd_ls() {
   while read -r n t _ v; do
     [[ -z "${n:-}" ]] && continue
     if [[ -z "${v:-}" ]]; then
-      printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "never"
+      printf '%-20s %-16s %s\n' "$n" "****${t: -4}" "never"
     elif [[ "$v" < "$today" ]]; then
-      printf '%-20s %-16s %s  <-- EXPIRED\n' "$n" "${t:0:12}..." "$v"
+      printf '%-20s %-16s %s  <-- EXPIRED\n' "$n" "****${t: -4}" "$v"
     else
-      printf '%-20s %-16s %s\n' "$n" "${t:0:12}..." "$v"
+      printf '%-20s %-16s %s\n' "$n" "****${t: -4}" "$v"
     fi
   done < "$TOKENS_FILE"
 }
