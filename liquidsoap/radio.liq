@@ -133,19 +133,33 @@ def safe_single(uri) =
   request.dynamic(synchronous=true, next)
 end
 
+
+# Extract seed from track metadata/comment, falling back to filename suffix.
+# Helper to avoid duplicated parsing in transition policy (K4/#76).
+def parse_seed(m) =
+  c = try m.metadata["comment"] catch _ do "" end
+  s0 = seed_from_comment(c)
+  f = try m.metadata["filename"] catch _ do "" end
+  if s0 == "" then seed_from_filename(f) else s0 end
+end
+
+# Append a spacer source if the path exists, swallowing races/prune windows.
+def append_if_exists(spacers, uri) =
+  try
+    if file.exists(uri) then
+      spacers := list.append(spacers(), [safe_single(uri)])
+    end
+  catch _ do
+    ()
+  end
+end
+
 def host_transition(ending, starting) =
-  # Parse current seed.
-  ec = try ending.metadata["comment"] catch _ do "" end
-  es0 = seed_from_comment(ec)
-  ef = try ending.metadata["filename"] catch _ do "" end
-  es = if es0 == "" then seed_from_filename(ef) else es0 end
-
-  # Parse next seed.
-  sc = try starting.metadata["comment"] catch _ do "" end
-  ss0 = seed_from_comment(sc)
-  sf = try starting.metadata["filename"] catch _ do "" end
-  ss = if ss0 == "" then seed_from_filename(sf) else ss0 end
-
+  # Invariants (priority/order, max 2 spacers total): host segment, then
+  # news on rss_turn (or weather when space remains), then ident, then jingle.
+  # Unknown context -> next track only (no crossfade).
+  es = parse_seed(ending)
+  ss = parse_seed(starting)
   bucket = host_bucket()
 
   # Degrade to the next track (no crossfade) when context is unknown.
@@ -157,13 +171,7 @@ def host_transition(ending, starting) =
 
     # Host segment (always, when cached).
     host_path = "/host/#{es}_#{ss}_#{bucket}.wav"
-    try
-      if file.exists(host_path) then
-        spacers := list.append(spacers(), [safe_single(host_path)])
-      end
-    catch _ do
-      ()
-    end
+    append_if_exists(spacers, host_path)
 
     # News (RSS). One item per time bucket, so it may not air on every gap:
     # the same headline repeated between every track would be absurd. It takes
@@ -183,9 +191,7 @@ def host_transition(ending, starting) =
         else
           "/host/rss_#{bucket}.wav"
         end
-        if file.exists(rss_path) then
-          spacers := list.append(spacers(), [safe_single(rss_path)])
-        end
+        append_if_exists(spacers, rss_path)
       catch _ do
         ()
       end
@@ -202,9 +208,7 @@ def host_transition(ending, starting) =
         else
           "/host/weather_#{bucket}.wav"
         end
-        if file.exists(weather_path) then
-          spacers := list.append(spacers(), [safe_single(weather_path)])
-        end
+        append_if_exists(spacers, weather_path)
       catch _ do
         ()
       end
@@ -227,13 +231,7 @@ def host_transition(ending, starting) =
             true
           end
           if include_ident and list.length(spacers()) < 2 then
-            try
-              if file.exists(ident_path) then
-                spacers := list.append(spacers(), [safe_single(ident_path)])
-              end
-            catch _ do
-              ()
-            end
+            append_if_exists(spacers, ident_path)
           end
         end
       catch _ do
@@ -257,13 +255,7 @@ def host_transition(ending, starting) =
           if list.length(jfiles) > 0 then
             idx = n mod list.length(jfiles)
             jingle_path = "/jingles/" ^ list.nth(default="", jfiles, idx)
-            try
-              if file.exists(jingle_path) then
-                spacers := list.append(spacers(), [safe_single(jingle_path)])
-              end
-            catch _ do
-              ()
-            end
+            append_if_exists(spacers, jingle_path)
           end
         end
       catch _ do

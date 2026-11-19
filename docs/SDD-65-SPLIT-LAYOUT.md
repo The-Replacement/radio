@@ -29,3 +29,28 @@
 - Deletions from playlist still require `docker compose restart liquidsoap` (unchanged) unless separately addressed.
 - `LEEME.txt` remains operator guidance in `meta_root` (not scanned). Keep empty-library silence guarantee documented.
 - See n3rv-memory topics `sdd-separate-metadata-scanned-audio-tree-65-*` for full SDD artifacts.
+
+## Retirement plan (compatibility paths, audit Y1/#80)
+
+Compatibility logic exists to support split-layout migration and legacy callers:
+`mario/config.py` (`music_dir`/`meta_dir` sync, `metadata_dir`), CLI flags
+(`--music-dir`/`--meta-dir`), and catalog-first/sidecar fallback in track
+loading.
+
+**Removal criteria (all must hold):**
+- Split layout rolled out on all deployed boxes (meta in `./music`, audio in
+  `./music-audio`) and verified (AC1–AC6) for a sustained period.
+- Indiegenerator publishes dual-root in production; no deployment relies on the
+  legacy co-located layout.
+- No scripts/docs/envs in active use depend on `MARIO_MUSIC_DIR` as the sole
+  metadata selector where `MARIO_META_DIR` is required.
+
+**Retirement checklist:**
+1. Announce deprecation window in docs/changelog; prefer `MARIO_META_DIR` (and
+   CLI `--meta-dir`) as the canonical metadata path.
+2. Remove `music_dir`↔`meta_dir` implicit sync in `MarioConfig` once callers are
+   migrated; keep explicit aliases only if needed for one release.
+3. Drop sidecar-fallback paths only after catalog/sidecar publish is guaranteed
+   by the coordinated contract.
+4. Delete this section and update `docs/INDIEGENERATOR.md`/compose comments when
+   legacy paths are removed.

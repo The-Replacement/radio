@@ -145,8 +145,12 @@ def test_liquidsoap_spacers_are_fallible_safe_single() -> None:
     abort."""
     liq = _liq_text()
     assert "def safe_single(uri)" in liq
-    # Exactly the five spacer call sites (host, rss, weather, ident, jingle).
-    assert liq.count("[safe_single(") == 5
+    # Exactly the five spacer call sites (host, rss, weather, ident, jingle)
+    # routed through the helper that wraps safe_single (K4/#76 refactor).
+    assert "def append_if_exists(spacers, uri)" in liq
+    assert liq.count("[safe_single(uri)]") == 1
+    # 1 definition + 5 call sites
+    assert liq.count("append_if_exists(spacers,") == 6
     # The helper must keep the semantics proven in the design probes:
     # synchronous (else sequence skips the spacer before it ever fetches)
     # and a visible warning naming the skipped path (else degradation is
