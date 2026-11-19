@@ -112,7 +112,7 @@ services:
       # today, this machine only. For LAN: change to "8189:8189/udp" AND add the
       # IP to mediamtx.yml's webrtcAdditionalHosts. For the internet: also open
       # the port on the router.
-      - "127.0.0.1:${WEBRTC_UDP_PORT:-8189}:8189/udp"
+      - "${WEBRTC_BIND_ADDRESS:-127.0.0.1}:${WEBRTC_UDP_PORT:-8189}:8189/udp"
     networks:
       - radio
 
@@ -209,7 +209,7 @@ services:
     pids_limit: 256
     # Batch work runs in the low-priority slice so real-time audio keeps the CPU
     # under contention (#105). Requires infra/deploy/systemd/radio-batch.slice.
-    cgroup_parent: radio-batch.slice
+    cgroup_parent: ${BATCH_CGROUP_PARENT:-radio-batch.slice}
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -314,7 +314,7 @@ services:
     pids_limit: 128
     # Batch work runs in the low-priority slice so real-time audio keeps the CPU
     # under contention (#105). Requires infra/deploy/systemd/radio-batch.slice.
-    cgroup_parent: radio-batch.slice
+    cgroup_parent: ${BATCH_CGROUP_PARENT:-radio-batch.slice}
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -324,8 +324,8 @@ services:
     # fails with "Name or service not known". That silently kills RSS fetches.
     # Pin the real upstreams: LAN router first, public resolver as fallback.
     dns:
-      - 192.168.100.1
-      - 1.1.1.1
+      - ${MARIO_DNS_PRIMARY:-1.1.1.1}
+      - ${MARIO_DNS_FALLBACK:-8.8.8.8}
     environment:
       # SDD #65 (T0 locked): meta_root ./music holds catalog/sidecars (served at
       # /music/*). Audio lives in ./music-audio and is not needed by Mario.
@@ -355,7 +355,7 @@ services:
       - ./music:/music:ro
       - ./data/host:/data/host
       - ./config/feeds.yaml:/etc/mario/feeds.yaml:ro
-      - /home/kbdejavu/Models/kokoro:/models/kokoro:ro
+      - ${MARIO_MODELS_HOST_DIR:-./models/kokoro}:/models/kokoro:ro
     networks:
       - radio
 
