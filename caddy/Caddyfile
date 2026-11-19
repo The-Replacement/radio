@@ -140,7 +140,7 @@
 			header Access-Control-Allow-Headers Content-Type
 			header Access-Control-Allow-Credentials true
 			header Cache-Control "no-cache, no-store, must-revalidate"
-			reverse_proxy icecast:8000 {
+			reverse_proxy {$ICECAST_UPSTREAM} {
 				rewrite /stream?
 				flush_interval -1
 			}
@@ -154,7 +154,7 @@
 			header Access-Control-Allow-Methods GET, OPTIONS
 			header Access-Control-Allow-Headers Content-Type
 			header Access-Control-Allow-Credentials true
-			reverse_proxy icecast:8000 {
+			reverse_proxy {$ICECAST_UPSTREAM} {
 				rewrite /status-json.xsl?
 			}
 		}
@@ -174,7 +174,7 @@
 			# Caddy NO lo duplica: sólo aporta Allow-Credentials, que mediamtx
 			# no envía y el navegador exige con credentials:include.
 			header Access-Control-Allow-Credentials true
-			reverse_proxy mediamtx:8889 {
+			reverse_proxy {$MEDIAMTX_UPSTREAM} {
 				rewrite /cam/whep?
 			}
 		}

@@ -194,6 +194,9 @@ needed.
 Who can talk to whom. The dotted line of the box is everything NOT published
 to the internet.
 
+To run just the token-gated door on your own (no station buildout), see
+[`docs/DOOR.md`](docs/DOOR.md).
+
 There are two published surfaces since the split, and only one of them is a
 door. The page lives on Cloudflare Pages, the radio lives behind Caddy.
 Measured 2026-11-09 with no credential: `curl https://comechingona.daza.ar/`

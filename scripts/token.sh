@@ -35,14 +35,20 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TOKENS_FILE="$ROOT/secrets/tokens.txt"
-CADDY_FILE="$ROOT/caddy/tokens.caddy"
+TOKENS_FILE="${DOOR_TOKEN_FILE:-$ROOT/secrets/tokens.txt}"
+CADDY_FILE="${DOOR_MATCHER_FILE:-$ROOT/caddy/tokens.caddy}"
 GENERATOR="$ROOT/scripts/token-matcher.py"
-COMPOSE=(docker compose -f "$ROOT/docker-compose.yml")
+COMPOSE=(docker compose -f "${DOOR_COMPOSE:-$ROOT/docker-compose.yml}")
 
 ensure_secret_permissions() {
-  mkdir -p "$ROOT/secrets"
-  chmod 700 "$ROOT/secrets" 2>/dev/null || true
+  # The default token store lives under $ROOT/secrets; keep its directory
+  # permissions tight. A non-default DOOR_TOKEN_FILE inherits the caller's
+  # responsibility for the parent dir's perms (we chmod 600 the file regardless).
+  if [[ -z "${DOOR_TOKEN_FILE:-}" ]]; then
+    mkdir -p "$ROOT/secrets"
+    chmod 700 "$ROOT/secrets" 2>/dev/null || true
+  fi
+  mkdir -p "$(dirname "$TOKENS_FILE")"
   touch "$TOKENS_FILE"
   chmod 600 "$TOKENS_FILE" 2>/dev/null || true
   if [[ -f "$CADDY_FILE" ]]; then
@@ -88,6 +94,14 @@ print(d.isoformat())
 PY
 }
 
+caddy_image() {
+  if [[ -n "${CADDY_IMAGE:-}" ]]; then
+    printf '%s\n' "$CADDY_IMAGE"
+    return
+  fi
+  awk '/image:[[:space:]]*caddy:/ {print $2; exit}' "${DOOR_COMPOSE:-$ROOT/docker-compose.yml}"
+}
+
 # Validates the config with Caddy itself before reloading.
 # A broken matcher must not be able to take the radio down: if this fails,
 # regenerate_matcher restores the previous file.
@@ -96,7 +110,12 @@ validate_caddy() {
     "${COMPOSE[@]}" exec -T caddy \
       caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
   else
-    docker run --rm -v "$ROOT/caddy:/etc/caddy:ro" caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
+    docker run --rm \
+      -e ICECAST_UPSTREAM="${ICECAST_UPSTREAM:-icecast:8000}" \
+      -e MEDIAMTX_UPSTREAM="${MEDIAMTX_UPSTREAM:-mediamtx:8889}" \
+      -e FRONTEND_URL="${FRONTEND_URL:-http://localhost:8090}" \
+      -e COOKIE_FLAGS="${COOKIE_FLAGS:-}" \
+      -v "$(dirname "$CADDY_FILE"):/etc/caddy:ro" "$(caddy_image)" \
       caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
   fi
 }
@@ -136,7 +155,7 @@ regenerate_matcher() {
     cat "$backup" > "$CADDY_FILE"
     rm -f "$backup"
     echo "See the detail with:" >&2
-    echo "  docker run --rm -v \"$ROOT/caddy:/etc/caddy:ro\" caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile" >&2
+    echo "  docker run --rm -e ICECAST_UPSTREAM=\"${ICECAST_UPSTREAM:-icecast:8000}\" -e MEDIAMTX_UPSTREAM=\"${MEDIAMTX_UPSTREAM:-mediamtx:8889}\" -e FRONTEND_URL=\"${FRONTEND_URL:-http://localhost:8090}\" -e COOKIE_FLAGS=\"${COOKIE_FLAGS:-}\" -v \"$(dirname "$CADDY_FILE"):/etc/caddy:ro\" \"$(caddy_image)\" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile" >&2
     return 1
   fi
 
@@ -145,7 +164,7 @@ regenerate_matcher() {
 }
 
 reload_caddy() {
-  if docker compose -f "$ROOT/docker-compose.yml" ps --status running --services 2>/dev/null | grep -qx caddy; then
+  if "${COMPOSE[@]}" ps --status running --services 2>/dev/null | grep -qx caddy; then
     echo "-> reloading Caddy (without cutting the listeners)..."
     if "${COMPOSE[@]}" exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
       echo "-> done."
