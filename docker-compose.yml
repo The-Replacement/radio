@@ -423,6 +423,32 @@ services:
     networks:
       - radio
 
+  tor:
+    build: ./tor
+    container_name: radio-tor
+    restart: unless-stopped
+    depends_on:
+      - caddy
+    # Tor hidden service for audio-only .onion access (#26/AUD-05).
+    # No ports published: the service is reachable only via the Tor network.
+    # Hidden service keys/state persist in ./data/tor (create on host and ensure
+    # writable by the container's tor user).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    volumes:
+      - ./data/tor:/var/lib/tor
+    networks:
+      - radio
+
 networks:
   radio:
     driver: bridge
