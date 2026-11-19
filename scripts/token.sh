@@ -96,7 +96,7 @@ validate_caddy() {
     "${COMPOSE[@]}" exec -T caddy \
       caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
   else
-    docker run --rm -v "$ROOT/caddy:/etc/caddy:ro" caddy:2-alpine \
+    docker run --rm -v "$ROOT/caddy:/etc/caddy:ro" caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 \
       caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
   fi
 }
@@ -136,7 +136,7 @@ regenerate_matcher() {
     cat "$backup" > "$CADDY_FILE"
     rm -f "$backup"
     echo "See the detail with:" >&2
-    echo "  docker run --rm -v \"$ROOT/caddy:/etc/caddy:ro\" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile" >&2
+    echo "  docker run --rm -v \"$ROOT/caddy:/etc/caddy:ro\" caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile" >&2
     return 1
   fi
 

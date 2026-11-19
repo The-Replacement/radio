@@ -37,7 +37,7 @@ have_docker() {
 
 try_docker_fix() {
   # Run as root in a throwaway container to chown bind-mounted paths.
-  local image="${FIX_OWNER_IMAGE:-alpine:3.21}"
+  local image="${FIX_OWNER_IMAGE:-alpine:3.21@sha256:bc21487101ae47172509130ee1092cc273a831968d64b617776d1f69c81e42ab}"
   docker run --rm \
     -v "$ROOT/data/indiegen:/t/indiegen" \
     -v "$ROOT/data/host:/t/host" \
