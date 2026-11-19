@@ -34,6 +34,9 @@
 }
 
 {$SITE_ADDRESS:http://localhost} {
+	# CSP: no inline scripts, no remote scripts, no eval. The player has no
+	# third-party scripts (hls.js is vendored). (O7)
+	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'"
 	# tokens.caddy lo genera scripts/token.sh — define @gate y @canje.
 	import tokens.caddy
 

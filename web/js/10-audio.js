@@ -79,7 +79,7 @@
     aviso.textContent = STR.autoplayBlocked;
     estado.textContent = STR.blocked;
     dot.classList.remove('live');
-    btn.innerHTML = STR.playIcon;
+    btn.textContent = STR.playIcon;
     setLabel(STR.play);
   }
 

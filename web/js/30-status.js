@@ -135,7 +135,7 @@
       // where the button was disabled and the only sentence that mattered
       // could never be seen.
       err.style.display = 'block';
-      err.innerHTML = STR.door;
+      err.textContent = STR.door;
       aviso.style.display = 'none';
       if (toast) {
         toast.textContent = STR.doorToast;
@@ -161,7 +161,7 @@
       btn.disabled = false;
       dot.classList.add('live');
       estado.textContent = STR.live;
-      if (sonando()) { btn.innerHTML = STR.pauseIcon; setLabel(STR.pause); }
+      if (sonando()) { btn.textContent = STR.pauseIcon; setLabel(STR.pause); }
     } else {
       // 'sin-aire': it answered 200 and there is no source. This is known.
       now.textContent = '';
