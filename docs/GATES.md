@@ -69,7 +69,7 @@ gates too.
 
 ## Where gates run
 
-- **CI** (`.github/workflows/ci.yml`): ruff, mypy, pytest, shellcheck (recursive).
+- **CI** (run in the separate infra/CI setup; this repo has no `.github/`): ruff, mypy, pytest, shellcheck (recursive).
 - **Pre-commit / local**: ruff, mypy, pytest, shellcheck, ui-gate.js.
 - **Box (manual or cron)**: smoke.sh, ac1-soak.sh, prod-check.sh, token.sh check.
 

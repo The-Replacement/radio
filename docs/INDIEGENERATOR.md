@@ -8,8 +8,8 @@ The `indiegen` service (see `docker-compose.yml`) runs on the mainframe next to
 the radio and, on every cycle:
 
 1. Renders a fresh batch of tracks (preset `station`, advancing seeds).
-2. **Replaces the whole library** in `./music` (deletes old tracks, publishes
-   the new ones atomically).
+2. **Replaces the whole library** in `./music-audio` (audio) and `./music`
+   (metadata: catalog.json + sidecars), atomically.
 3. Restarts `radio-liquidsoap` so the in-memory playlist forgets the deletions.
    Liquidsoap does `reload_mode="watch"` for additions, but keeps deletions in
    memory (`radio.liq`): without a restart, the deleted tracks keep playing like
@@ -20,7 +20,8 @@ the radio and, on every cycle:
 - **Continuous**: `INDIEGEN_INTERVAL_SECONDS` (default 6 h). On start it does NOT
   run a cycle (`--no-run-on-start` in the compose): the first cycle arrives by
   interval or by trigger. On purpose — a cold cycle would replace all of
-  `./music` during `up -d` (and there is an untracked batch on the box).
+  `./music-audio` (audio) and `./music` (metadata) during `up -d` (and there is
+  an untracked batch on the box).
 - **Trigger-only**: set `INDIEGEN_INTERVAL_SECONDS=0` (or `INDIEGEN_TRIGGER_ONLY=1`)
   to disable indiegen's own timer. Cycles then run only when `data/indiegen/trigger`
   appears, driven by `radio-job render` / the `radio-render` timer, so the

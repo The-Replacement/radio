@@ -1,4 +1,4 @@
-# Private radio with a token — Icecast + Liquidsoap + Caddy (+ indiegenerator)
+# Private radio with a token — Icecast + Liquidsoap + MediaMTX + Cam + Indiegen + Mario + Caddy
 #
 # Design principle: Icecast and Liquidsoap do NOT publish ports.
 # The only thing exposed to the host is Caddy, which acts as the only door.

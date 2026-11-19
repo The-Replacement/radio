@@ -4,7 +4,7 @@
 
 A radio that exists for a closed circle. Without a credential, there is no radio.
 
-- **Liquidsoap** plays `./music` in random order.
+- **Liquidsoap** plays `./music-audio` (audio only) in random order; `./music` holds metadata.
 - **Icecast** serves the stream — and **is not announced in any public
   directory**.
 - **Caddy** is the only door to the sound: without a valid credential it
@@ -102,7 +102,7 @@ tempo centre. The identity is in the sound, not the tag.
 ## Start
 
 ```bash
-cd ~/Work/radio
+cd ~/servers/radio
 
 # 1. Configuration (generates random secrets)
 cp .env.example .env
@@ -1058,7 +1058,7 @@ blind exactly when you need to see the error.
 
 ```
 radio/
-|-- docker-compose.yml        the five services
+|-- docker-compose.yml        the services (icecast, liquidsoap, mediamtx, cam, indiegen, mario, caddy)
 |-- .env.example              configuration template
 |-- icecast/
 |   |-- Dockerfile            alpine + icecast (no third-party image)
