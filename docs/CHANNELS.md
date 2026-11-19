@@ -28,7 +28,7 @@ A channel is **Aligned** if it keeps all seven. **Partial** if it bends one or t
 - **Tested.** Ran Tor in a container, pointed a hidden service at TinyIce on loopback, fetched the `.onion` HLS playlist over Tor SOCKS → HTTP 200, ~7 s latency. Hidden service address generated and served.
 - **Client auth.** Per-client x25519 keys (`.auth` files). Revoke by deleting the file + reload. Fits the closed circle.
 - **Secure cookies over `.onion`.** Tor Browser treats `.onion` as a potentially trustworthy origin (Mozilla Bug 1633015, fixed in Firefox 77). `Secure` cookies work, but only if the onion service is on loopback — ours is (Tor daemon on the same box as Caddy).
-- **Caveat.** Our canje exchange redirects to the clearnet frontend (`radio.daza.ar` on Cloudflare Pages). A Tor listener following that redirect leaks their IP. So the Tor door as designed is **not anonymity-preserving for the player page**. Mitigations:
+- **Caveat.** Our canje exchange redirects to the clearnet frontend (`comechingona.daza.ar` on Cloudflare Pages). A Tor listener following that redirect leaks their IP. So the Tor door as designed is **not anonymity-preserving for the player page**. Mitigations:
   - Tor door = audio-only (VLC/mpv with the token in the URL, no player page), or
   - Serve a minimal player page over the `.onion` too, skipping the redirect.
 - **Verdict.** Aligned. Solve the redirect before shipping.

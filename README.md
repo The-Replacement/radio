@@ -196,7 +196,7 @@ to the internet.
 
 There are two published surfaces since the split, and only one of them is a
 door. The page lives on Cloudflare Pages, the radio lives behind Caddy.
-Measured 2026-11-09 with no credential: `curl https://radio.daza.ar/`
+Measured 2026-11-09 with no credential: `curl https://comechingona.daza.ar/`
 answers **200** and serves the whole page — byte for byte the file in
 `web/index.html` — while every route on `stream.daza.ar` answers **404**.
 So anyone can read the station's story; nobody can hear it. The page has no
@@ -207,7 +207,7 @@ instead of quietly changing meaning.
 ```mermaid
 flowchart TB
     O(["Listener"])
-    P["Cloudflare Pages<br/>radio.daza.ar - the page, no door yet"]
+    P["Cloudflare Pages<br/>comechingona.daza.ar - the page, no door yet"]
     C["Caddy :443<br/>stream.daza.ar - the only door"]
     O -->|"HTTPS"| P
     O -->|"HTTPS, no credential"| C
@@ -233,11 +233,11 @@ sequenceDiagram
     autonumber
     participant O as Listener
     participant C as Caddy (stream.daza.ar)
-    participant P as Pages (radio.daza.ar)
+    participant P as Pages (comechingona.daza.ar)
     participant I as Icecast
 
     O->>C: GET /?t=TOKEN   (once, from the link)
-    C-->>O: Set-Cookie + 302 to radio.daza.ar/?t=TOKEN
+    C-->>O: Set-Cookie + 302 to comechingona.daza.ar/?t=TOKEN
     Note over O: replaceState - the token leaves the address bar
     O->>P: GET /   (the page - public, no door)
     P-->>O: the player
@@ -402,7 +402,7 @@ Measured, not assumed. What follows is verified on this installation.
   generating traffic.
 
 **What it does NOT solve (threat model / trade-offs)**
-- **The page has no door.** `https://radio.daza.ar/` serves the whole player
+- **The page has no door.** `https://comechingona.daza.ar/` serves the whole player
   to anyone with no credential (measured: 200, issue #2). Everything behind
   it — stream, status, camera — still answers 404, but the station's story
   is readable by whoever guesses the name. `smoke.sh` group 0 measures this,
@@ -456,7 +456,7 @@ backend to the page. Write the split down in `.env`:
 
 ```
 SITE_ADDRESS=stream.daza.ar                # where the gate listens (tunnel)
-FRONTEND_URL=https://radio.daza.ar         # where the anonymous player lives
+FRONTEND_URL=https://comechingona.daza.ar         # where the anonymous player lives
 PUBLIC_URL=https://stream.daza.ar          # the URL you give people (invitations)
 COOKIE_FLAGS=HttpOnly; SameSite=Lax; Secure # here Secure DOES go
 ```
@@ -464,7 +464,7 @@ COOKIE_FLAGS=HttpOnly; SameSite=Lax; Secure # here Secure DOES go
 `FRONTEND_URL` is the one knob that matters for the split: Caddy's
 `canje` redirect points there, and every CORS header the page needs is
 inserted from the same value. There is exactly one documented
-`radio.daza.ar` line in the tree — the production example in
+`comechingona.daza.ar` line in the tree — the production example in
 `.env.example` — and `scripts/claims.sh` keeps it that way.
 
 And uncomment `email {$ACME_EMAIL}` in `caddy/Caddyfile` (there the
@@ -487,7 +487,7 @@ lacks `Secure` (override only for intentional exceptions: `ALLOW_INSECURE_COOKIE
 (the tunnel). Cloudflare's CDN rule restricts content not hosted on
 Cloudflare, and an audio stream falls right there. The frontend, by
 contrast, **is** hosted by Cloudflare (Pages builds it from `master`
-and `radio.daza.ar` is the project's alias) — push a change to `web/`
+and `comechingona.daza.ar` is the project's alias) — push a change to `web/`
 and it lands in production.
 
 Caddy gets the certificate on its own.
@@ -793,7 +793,7 @@ would be a hunt, and every copy was a chance to assert the wrong origin
 the CORS origin of the Caddyfile, the frontend origin the smoke test
 curls, the assertion that the invitation's `Location` matches the
 configured origin. `claims.sh` measures it: the exact
-`radio.daza.ar` occurrences still standing in the deployable tree are
+`comechingona.daza.ar` occurrences still standing in the deployable tree are
 an audited allowlist of two lines (the production example line in
 `.env.example`, and the station's firma in the About page — prose, not
 configuration). Any new one is red on introduction, not found in a
@@ -805,7 +805,7 @@ hunt a year from now.
 
 The frontend deploys itself: every push to `master` builds on
 Cloudflare Pages (`build_command: exit 0`, `destination_dir: web`)
-and `radio.daza.ar` is live with the new page within a minute.
+and `comechingona.daza.ar` is live with the new page within a minute.
 
 The backend is the machine that runs the compose project, and it
 follows master in the same push — without a cron and without a
