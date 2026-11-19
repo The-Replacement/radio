@@ -143,9 +143,7 @@ def test_cache_below_the_cap_is_left_alone(
     assert "build cache 3GB -> 3GB (freed 0B)" in log
 
 
-def test_second_run_frees_nothing(
-    appliance: tuple[Path, Path, Path], tmp_path: Path
-) -> None:
+def test_second_run_frees_nothing(appliance: tuple[Path, Path, Path], tmp_path: Path) -> None:
     root, df_state, calls = appliance
     df_state.write_text("8.735GB")
 
@@ -156,9 +154,7 @@ def test_second_run_frees_nothing(
     assert "gc done, freed 0B" in log
 
 
-def test_log_accounts_for_each_class(
-    appliance: tuple[Path, Path, Path], tmp_path: Path
-) -> None:
+def test_log_accounts_for_each_class(appliance: tuple[Path, Path, Path], tmp_path: Path) -> None:
     root, df_state, calls = appliance
     df_state.write_text("8.735GB")
 
@@ -168,9 +164,7 @@ def test_log_accounts_for_each_class(
         assert line in log, f"missing {line!r} in the audit log"
 
 
-def test_dry_run_prunes_nothing(
-    appliance: tuple[Path, Path, Path], tmp_path: Path
-) -> None:
+def test_dry_run_prunes_nothing(appliance: tuple[Path, Path, Path], tmp_path: Path) -> None:
     root, df_state, calls = appliance
     df_state.write_text("8.735GB")
 

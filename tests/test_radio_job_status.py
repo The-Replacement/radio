@@ -96,9 +96,7 @@ def appliance(tmp_path: Path) -> Path:
     return root
 
 
-def _run(
-    root: Path, tmp_path: Path, *args: str
-) -> subprocess.CompletedProcess[str]:
+def _run(root: Path, tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}"}
     return subprocess.run(
         ["bash", str(root / "scripts" / "radio-job.sh"), *args],
