@@ -160,6 +160,23 @@ unit lives in `infra/deploy/systemd/radio-batch.slice` and is installed by
 a host still using `cgroupfs` the slice is invisible to containers and the
 `cgroup_parent` reference fails at start — verify with `docker info | grep -i cgroup`.
 
+## Sensitive operational data (#97)
+
+- `data/status.json` is served under the door (`/host/status.json`). It carries
+  host, deploy commit, track title, and resource metrics. These are operational,
+  not secret, but treat the file as gated: never publish it outside `@gate`.
+- `data/*.log` (`job.log`, `gc.log`, `deploy.log`, `restart-on-signal.log`,
+  `mario-*.log`) persist host paths, changed-file lists, and docker output.
+  They are gitignored and stay on the box; do not copy them off-box unredacted.
+- `token.sh ls` masks tokens (last 4 chars only). `token.sh reveal` prints full
+  invitation/camera URLs by design — run it only in a trusted terminal and
+  never capture its stdout in logs or screenshots.
+- Smoke tests pass tokens via curl argv (`scripts/smoke.d/20-auth-and-media.sh`).
+  They are integration gates for the box only; do not run them on shared hosts
+  where process listings are visible to other users.
+- Container env holds Icecast passwords (`docker inspect`); Caddy logs at ERROR
+  to avoid token-in-URL logging; Liquidsoap only logs an empty password.
+
 ## Documented exceptions / constraints
 
 - **Camera device access:** `cam` requires `/dev/video0` (or configured device)
