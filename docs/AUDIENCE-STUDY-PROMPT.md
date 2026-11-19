@@ -6,7 +6,7 @@
 
 - **One circle, one laptop in the Sierras de los Comechingones.** Token-gated, unlisted, no directory announce. Current audience = the people who hold a token. Estimated 5–30 active listeners.
 - **Content is 100% own-generated.** indiegenerator (deterministic, offline, seeds → tracks, −16 LUFS / ≤−1.5 dBTP / MP3 128 gates). $0 royalties. ~10 tracks per cycle, 6 h cadence, ~7 min render.
-- **Two public surfaces exist:** `radio.daza.ar` (Cloudflare Pages, no door — serves the whole player + About to anyone) and the GitHub repo (open source). Everything else is behind Caddy's 404.
+- **Two public surfaces exist:** `comechingona.daza.ar` (Cloudflare Pages, no door — serves the whole player + About to anyone) and the GitHub repo (open source). Everything else is behind Caddy's 404.
 - **Growth channels already verified as aligned:** Tor `.onion` door, lumbung timesharing (Liquidsoap `input.http`), OpenStudio live voices, Funkwhale/Navidrome catalog, TinyIce transport. All in `docs/CHANNELS.md`.
 - **Growth channels that are anti (break the spirit):** SaaS hosts, mainstream platforms (Twitch/YouTube/Spotify), AI DJ services, CDN-dependent delivery, public fediverse announce, shortwave pirate FM.
 - **The "Ever growing" section** of README and the About page promise: more generators, voices, noises on the same stream. The door does not change; what comes through it does.
@@ -112,7 +112,7 @@ effective it is. Severity is judged by SPIRIT DAMAGE FIRST, growth second.
 | **Growth channels** | Which channels exist that do NOT violate the spirit? What is the probability each works? What is the expected reach per channel per year? |
 | **Anti-channels** | Which channels would grow reach but violate the spirit? Name them explicitly so they are never accidentally adopted. |
 | **Node multiplication** | How does a listener become a node (runs their own instance)? What is the barrier? How can it be lowered without violating spirit? |
-| **The public surface** | `radio.daza.ar` (no door) is the ONE public surface. What does it currently say? What SHOULD it say to maximize resonance without marketing? |
+| **The public surface** | `comechingona.daza.ar` (no door) is the ONE public surface. What does it currently say? What SHOULD it say to maximize resonance without marketing? |
 | **Word of mouth** | The invitation link is the only distribution mechanism. What makes someone share it? What makes someone NOT share it? |
 | **Timesharing / federation** | lumbung timesharing, OpenStudio live voices — these expand content, not audience directly. Do they indirectly grow audience? How? |
 | **The seed as currency** | "Re-listening is re-running the same number." Can seeds be shared without opening the door? Is "seed 1042, motorik" a growth vector? |
@@ -183,7 +183,7 @@ testable, with an explicit gate definition. Include a "node conversion" gate
 ### Tier 1 — Do now (low effort, high alignment)
 
 1. **Rewrite the About page as a manifesto, not a spec.** The public page
-   (`radio.daza.ar`, no door) currently explains how the radio works. It should
+   (`comechingona.daza.ar`, no door) currently explains how the radio works. It should
    explain WHY it exists. "Why does this radio exist?" is more compelling than
    "How does this radio work?" The seed-on-stage feature (S11) already makes
    determinism visible — lean into it. Make the reader want to be part of the
@@ -251,7 +251,7 @@ testable, with an explicit gate definition. Include a "node conversion" gate
 
 | Source | What it tells you | How to access |
 |---|---|---|
-| Caddy access logs | How many unique IPs hit the public page (`radio.daza.ar`) | `docker compose logs caddy` — IP + path + status, no cookies |
+| Caddy access logs | How many unique IPs hit the public page (`comechingona.daza.ar`) | `docker compose logs caddy` — IP + path + status, no cookies |
 | Icecast listener count | Peak concurrent listeners on the stream | `/status-json.xsl` (gated) — already polled by the player |
 | GitHub repo metrics | Stars, forks, clones of radio + indiegenerator | GitHub API / repo insights |
 | The-Replacement project board | Cross-satellite activity, SDD phase progress | `gh project` CLI |
