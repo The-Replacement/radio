@@ -37,6 +37,11 @@ JOB_LOG="$DATA/job.log"
 # how the scheduler is proven against the live station before it is allowed to act.
 SHADOW="${RADIO_JOB_SHADOW:-0}"
 
+# One heavy job at a time. The gate is a snapshot taken before the job starts:
+# two jobs that ask while the box is idle both get a yes, and only one of them
+# should run. Overridable so tests (and a second appliance) do not share a path.
+HEAVY_LOCK="${RADIO_JOB_HEAVY_LOCK:-/tmp/radio-heavy.lock}"
+
 # Gate thresholds. Measured envelope (2026-11-13): idle 42-46 C, hourly TTS peak
 # 72 C at the old 1.5-cpu cap, no throttle events. 78 C sat above that peak.
 # Updated 2026-11-14 after the render moved to 4 cpus: the render itself reaches
@@ -674,9 +679,25 @@ defer_or_run() {
     printf '%s would run (shadow mode)\n' "$job"
     return 0
   fi
+  # Serialize heavy jobs. `render` and `tts` both take this lock so a generator
+  # cycle cannot start under a mario render (docs/INDIEGENERATOR.md: a render
+  # that is killed mid-flight costs the CPU twice and publishes nothing).
+  # Contention is a deferral, not a failure: the next tick retries.
+  if ! exec 6>"$HEAVY_LOCK"; then
+    log_job "$job deferred: cannot open $HEAVY_LOCK"
+    printf '%s deferred: cannot open %s\n' "$job" "$HEAVY_LOCK"
+    return 0
+  fi
+  if ! flock -n 6; then
+    exec 6>&-
+    log_job "$job deferred: another heavy job holds $HEAVY_LOCK"
+    printf '%s deferred: another heavy job holds %s\n' "$job" "$HEAVY_LOCK"
+    return 0
+  fi
   log_job "$job starting"
   "$@"
   local rc=$?
+  exec 6>&- # releases the lock; the next tick can start
   log_job "$job finished rc=$rc"
   return "$rc"
 }
@@ -721,8 +742,9 @@ radio-job - scheduled work for the radio appliance
   status    print data/status.json as text
 
 Environment:
-  RADIO_JOB_SHADOW=1  evaluate the gate and log, execute nothing
-  RADIO_JOB_DRY_RUN=1 same, for gc
+  RADIO_JOB_SHADOW=1      evaluate the gate and log, execute nothing
+  RADIO_JOB_DRY_RUN=1     same, for gc
+  RADIO_JOB_HEAVY_LOCK    heavy-job lock path (default /tmp/radio-heavy.lock)
 
 Tracking: #103 (gc), #104 (status), #105 (scheduler + gate), #106 (ladder).
 USAGE
