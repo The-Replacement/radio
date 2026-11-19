@@ -77,6 +77,20 @@ FAIL = "FAIL"
 UNKNOWN = "UNKNOWN"
 NOTE = "NOTE"
 
+# The machine-readable answer, consumed by n3rv's doctor (infra#3). Frozen on
+# purpose: the verifier may add, rename or drop its own checks without the
+# consumer learning anything about this repository.
+#
+#   {"schema": 1,
+#    "verdict": "OK" | "MISMATCH" | "UNVERIFIED",
+#    "source_sha": "<the revision the box believes it runs>",
+#    "checks": [{"name": str, "status": "PASS|FAIL|UNKNOWN|NOTE", "detail": str}]}
+#
+# `source_sha` is omitted when the manifest does not carry one: an empty string
+# would be compared against GitHub and reported as a mismatch that is really an
+# absent fact.
+VERDICT_SCHEMA = 1
+
 
 # --------------------------------------------------------------------------
 # Running external commands
@@ -875,15 +889,42 @@ def render_checks(checks: Sequence[Check]) -> str:
     return "\n".join(f"  {check.status:<7} {check.name:<18} {check.detail}" for check in checks)
 
 
+def verdict_token(checks: Sequence[Check]) -> str:
+    """The bare contract word, without the human sentence around it."""
+    if any(check.status == FAIL for check in checks):
+        return "MISMATCH"
+    if any(check.status == UNKNOWN for check in checks):
+        return "UNVERIFIED"
+    return "OK"
+
+
 def verdict(checks: Sequence[Check]) -> tuple[str, int]:
     """The final word, and the exit code that goes with it."""
-    failed = [check for check in checks if check.status == FAIL]
-    unknown = [check for check in checks if check.status == UNKNOWN]
-    if failed:
+    token = verdict_token(checks)
+    if token == "MISMATCH":
+        failed = [check for check in checks if check.status == FAIL]
         return f"MISMATCH: {len(failed)} check(s) disagree with the manifest", 1
-    if unknown:
+    if token == "UNVERIFIED":
+        unknown = [check for check in checks if check.status == UNKNOWN]
         return f"UNVERIFIED: {len(unknown)} check(s) could not be evaluated", 2
     return "OK: every check agrees with the manifest", 0
+
+
+def verdict_payload(root: Path, checks: Sequence[Check]) -> dict[str, Any]:
+    """The JSON answer for a declared runtime verifier (see VERDICT_SCHEMA)."""
+    manifest = read_json(manifest_path(root)) or {}
+    payload: dict[str, Any] = {
+        "schema": VERDICT_SCHEMA,
+        "verdict": verdict_token(checks),
+        "checks": [
+            {"name": check.name, "status": check.status, "detail": check.detail}
+            for check in checks
+        ],
+    }
+    source_sha = manifest.get("source_sha")
+    if isinstance(source_sha, str) and source_sha:
+        payload["source_sha"] = source_sha
+    return payload
 
 
 # --------------------------------------------------------------------------
@@ -922,6 +963,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     verify_parser.add_argument("--root", default=".", help="repository root (default: .)")
     verify_parser.add_argument("--offline", action="store_true", help="do not contact the remote")
+    verify_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="print the machine-readable verdict on stdout (schema 1, for n3rv doctor)",
+    )
     return parser
 
 
@@ -956,11 +1002,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     checks = verify(root, runner, online=not args.offline)
+    text, code = verdict(checks)
+    if args.json:
+        # stdout must be the JSON document and nothing else: the consumer parses
+        # it whole, and one stray banner makes the verdict unparseable.
+        print(json.dumps(verdict_payload(root, checks), indent=2, sort_keys=True))
+        return code
     print(f"Deployment evidence — {root}")
     print()
     print(render_checks(checks))
     print()
-    text, code = verdict(checks)
     print(f"VERDICT: {text}")
     return code
 
