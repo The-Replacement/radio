@@ -207,6 +207,9 @@ services:
     cpus: 1.5
     cpu_shares: 512
     pids_limit: 256
+    # Batch work runs in the low-priority slice so real-time audio keeps the CPU
+    # under contention (#105). Requires infra/deploy/systemd/radio-batch.slice.
+    cgroup_parent: radio-batch.slice
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
@@ -309,6 +312,9 @@ services:
     cpus: 4
     cpu_shares: 512
     pids_limit: 128
+    # Batch work runs in the low-priority slice so real-time audio keeps the CPU
+    # under contention (#105). Requires infra/deploy/systemd/radio-batch.slice.
+    cgroup_parent: radio-batch.slice
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
