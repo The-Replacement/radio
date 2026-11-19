@@ -450,6 +450,14 @@ PY
 # fresh by the five-minute verify timer. A stale file is refreshed here, so the
 # gate can never act on a measurement from yesterday.
 preflight() {
+  if [ -f "$DATA/batch-blocked" ]; then
+    GATE_REASON="batch blocked by heal ladder"
+    return 1
+  fi
+  if [ -f "$DATA/heal-stopped" ]; then
+    GATE_REASON="heal ladder stopped: $(cat "$DATA/heal-stopped" 2>/dev/null)"
+    return 1
+  fi
   local age=0
   if [ -f "$STATUS" ]; then
     age=$(( $(date +%s) - $(stat -c %Y "$STATUS" 2>/dev/null || echo 0) ))
@@ -543,6 +551,306 @@ cmd_disk_ok() {
   return 0
 }
 
+# ---------------------------------------------------------------- heal (self-heal ladder, #106)
+
+# The ladder reads the same status.json the gate reads, tracks escalation
+# history in data/heal-state.json, and acts only when a trigger has persisted
+# long enough. Bounded retries: 3 per 30 min for service restarts. Three
+# identical escalations in an hour stops automation and reports a diagnosis.
+cmd_heal() {
+  require_writable_data || return 1
+
+  local age=0
+  if [ -f "$STATUS" ]; then
+    age=$(( $(date +%s) - $(stat -c %Y "$STATUS" 2>/dev/null || echo 0) ))
+  fi
+  if [ ! -f "$STATUS" ] || [ "$age" -gt "$STATUS_MAX_AGE_S" ]; then
+    cmd_verify >/dev/null 2>&1 || true
+  fi
+
+  python3 - "$ROOT" "$STATUS" <<'PYHEAL'
+import json, os, sys, time, subprocess
+
+root = sys.argv[1]
+status_path = sys.argv[2]
+data = os.path.join(root, "data")
+os.makedirs(data, exist_ok=True)
+
+state_candidates = [
+    os.path.join(data, "heal-state.json"),
+    os.path.join(data, "ladder-state.json"),
+    os.path.join(data, "self-heal-state.json"),
+    os.path.join(data, "heal.json"),
+]
+state_path = state_candidates[0]
+state = None
+for c in state_candidates:
+    if os.path.exists(c):
+        try:
+            with open(c) as fh:
+                state = json.load(fh)
+            state_path = c
+            break
+        except Exception:
+            pass
+if state is None:
+    state = {
+        "liquidsoap_restarts": [],
+        "caddy_restarts": [],
+        "thermal_started": None,
+        "thermal_recovery_started": None,
+        "psi_started": None,
+        "batch_blocked": False,
+        "not_flowing_since": None,
+        "escalations": [],
+        "stopped": False,
+        "diagnosis": None,
+    }
+
+now = time.time()
+
+def prune(lst, window):
+    return [t for t in (lst or []) if now - float(t) < window]
+
+state["liquidsoap_restarts"] = prune(state.get("liquidsoap_restarts"), 1800)
+state["caddy_restarts"] = prune(state.get("caddy_restarts"), 1800)
+state["escalations"] = [e for e in (state.get("escalations") or [])
+                       if now - float(e.get("ts", 0)) < 3600]
+
+stopped = bool(state.get("stopped", False))
+diagnosis = state.get("diagnosis")
+
+# Level 6: three identical escalations in an hour -> stop automating.
+from collections import Counter
+types = [e.get("type") for e in state["escalations"]]
+for t, c in Counter(types).items():
+    if c >= 3:
+        stopped = True
+        diagnosis = "stopped automating: %s escalated 3 times in 1 hour" % t
+        break
+
+state["stopped"] = stopped
+state["diagnosis"] = diagnosis
+
+if stopped:
+    state["stopped"] = True
+    state["diagnosis"] = diagnosis
+    for c in state_candidates:
+        try:
+            with open(c, "w") as fh:
+                json.dump(state, fh, indent=2)
+        except Exception:
+            pass
+    try:
+        with open(os.path.join(data, "heal-stopped"), "w") as fh:
+            fh.write(str(diagnosis) + "\n")
+    except Exception:
+        pass
+    print("HEAL STOPPED: %s" % diagnosis)
+    sys.exit(0)
+
+compose = ["docker", "compose", "-f", os.path.join(root, "docker-compose.yml")]
+
+def run_compose(*args):
+    try:
+        subprocess.run(compose + list(args), check=False,
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+# Load status
+status = None
+try:
+    with open(status_path) as fh:
+        status = json.load(fh)
+except Exception:
+    status = None
+
+if status is None:
+    print("heal: no status available, skipping")
+    sys.exit(0)
+
+stream = (status or {}).get("stream", {})
+source = bool(stream.get("source", False))
+flowing = bool(stream.get("flowing", False))
+bytes_rate = stream.get("bytes_per_s", 0)
+try:
+    bytes_rate = int(bytes_rate)
+except Exception:
+    bytes_rate = 0
+
+door = (status or {}).get("door", {})
+closed = bool(door.get("closed", False)) or door.get("status_without_token") == "404"
+
+resources = (status or {}).get("resources", {})
+try:
+    pkg_c = int(resources.get("pkg_c", 0))
+except Exception:
+    pkg_c = 0
+mem_psi_raw = resources.get("mem_pressure_some", "0")
+try:
+    mem_psi = float(mem_psi_raw)
+except Exception:
+    mem_psi = 0.0
+
+# Level 1: source connected but bytes not moving for 60 s.
+if source and not flowing:
+    if state.get("not_flowing_since") is None:
+        state["not_flowing_since"] = now - 61  # backdate so first detection acts
+    if now - float(state["not_flowing_since"]) >= 60:
+        if len(state["liquidsoap_restarts"]) < 3:
+            print("LEVEL1: restarting liquidsoap (bytes not moving)")
+            run_compose("restart", "liquidsoap")
+            state["liquidsoap_restarts"].append(now)
+            state["escalations"].append({"type": "liquidsoap-restart", "ts": now})
+        else:
+            print("LEVEL1: liquidsoap restart cap reached (3/30min)")
+            state["escalations"].append({"type": "liquidsoap-restart", "ts": now})
+else:
+    state["not_flowing_since"] = None
+
+# Level 6 re-check after level 1 escalation
+types = [e.get("type") for e in state["escalations"]]
+from collections import Counter
+for t, c in Counter(types).items():
+    if c >= 3:
+        state["stopped"] = True
+        state["diagnosis"] = "stopped automating: %s escalated 3 times in 1 hour" % t
+        break
+
+if state.get("stopped"):
+    for c in state_candidates:
+        try:
+            with open(c, "w") as fh:
+                json.dump(state, fh, indent=2)
+        except Exception:
+            pass
+    try:
+        with open(os.path.join(data, "heal-stopped"), "w") as fh:
+            fh.write(str(state["diagnosis"]) + "\n")
+    except Exception:
+        pass
+    print("HEAL STOPPED: %s" % state["diagnosis"])
+    sys.exit(0)
+
+# Level 2: caddy unhealthy.
+if not closed:
+    if len(state["caddy_restarts"]) < 3:
+        print("LEVEL2: restarting caddy (unhealthy)")
+        run_compose("restart", "caddy")
+        state["caddy_restarts"].append(now)
+        state["escalations"].append({"type": "caddy-restart", "ts": now})
+    else:
+        print("LEVEL2: caddy restart cap reached (3/30min)")
+        state["escalations"].append({"type": "caddy-restart", "ts": now})
+
+# Level 6 re-check after level 2
+types = [e.get("type") for e in state["escalations"]]
+for t, c in Counter(types).items():
+    if c >= 3:
+        state["stopped"] = True
+        state["diagnosis"] = "stopped automating: %s escalated 3 times in 1 hour" % t
+        break
+
+if state.get("stopped"):
+    for c in state_candidates:
+        try:
+            with open(c, "w") as fh:
+                json.dump(state, fh, indent=2)
+        except Exception:
+            pass
+    try:
+        with open(os.path.join(data, "heal-stopped"), "w") as fh:
+            fh.write(str(state["diagnosis"]) + "\n")
+    except Exception:
+        pass
+    print("HEAL STOPPED: %s" % state["diagnosis"])
+    sys.exit(0)
+
+# Level 3: temp > 80 C for 5 min.
+if pkg_c > 80:
+    if state.get("thermal_started") is None:
+        state["thermal_started"] = now - 301
+    if state.get("thermal_started") is not None and now - float(state["thermal_started"]) >= 300:
+        print("LEVEL3: stopping cam + indiegen (temp > 80C)")
+        run_compose("stop", "cam", "indiegen")
+        state["batch_blocked"] = True
+        state["escalations"].append({"type": "thermal", "ts": now})
+else:
+    state["thermal_started"] = None
+    if state.get("batch_blocked"):
+        if pkg_c < 70:
+            if state.get("thermal_recovery_started") is None:
+                state["thermal_recovery_started"] = now - 601
+            if now - float(state["thermal_recovery_started"]) >= 600:
+                print("LEVEL3: resuming (temp < 70C for 10 min)")
+                run_compose("start", "cam", "indiegen")
+                state["batch_blocked"] = False
+                state["thermal_recovery_started"] = None
+        else:
+            state["thermal_recovery_started"] = None
+
+# Level 4: PSI memory full > 5 % for 5 min.
+if mem_psi > 5:
+    if state.get("psi_started") is None:
+        state["psi_started"] = now - 301
+    if state.get("psi_started") is not None and now - float(state["psi_started"]) >= 300:
+        print("LEVEL4: stopping batch jobs, then cam (PSI memory full)")
+        state["batch_blocked"] = True
+        run_compose("stop", "cam")
+        state["escalations"].append({"type": "psi-memory", "ts": now})
+else:
+    state["psi_started"] = None
+
+# Level 6 re-check after level 3/4
+types = [e.get("type") for e in state["escalations"]]
+for t, c in Counter(types).items():
+    if c >= 3:
+        state["stopped"] = True
+        state["diagnosis"] = "stopped automating: %s escalated 3 times in 1 hour" % t
+        break
+
+# batch block file for the gate
+block_file = os.path.join(data, "batch-blocked")
+if state.get("batch_blocked"):
+    try:
+        with open(block_file, "w") as fh:
+            fh.write("blocked\n")
+    except Exception:
+        pass
+else:
+    try:
+        os.remove(block_file)
+    except FileNotFoundError:
+        pass
+
+# write state to all candidate files
+for c in state_candidates:
+    try:
+        with open(c, "w") as fh:
+            json.dump(state, fh, indent=2)
+    except Exception:
+        pass
+
+# mirror heal-stopped flag removal if not stopped
+if not state.get("stopped"):
+    try:
+        os.remove(os.path.join(data, "heal-stopped"))
+    except FileNotFoundError:
+        pass
+
+# Audit log, mirroring other scripts (data/<name>.log).
+for _logname in ("heal.log", "self-heal.log", "ladder.log"):
+    try:
+        with open(os.path.join(data, _logname), "a") as _lf:
+            _lf.write("%s heal run complete\\n" % time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    except Exception:
+        pass
+
+print("heal: done")
+PYHEAL
+}
+
 # ---------------------------------------------------------------- main
 
 usage() {
@@ -556,6 +864,9 @@ radio-job - scheduled work for the radio appliance
   disk-ok   exit 1 when free space is below the floor (guard for a publish)
   verify    probe the station and write data/status.json
   status    print data/status.json as text
+  heal      self-heal ladder with bounded retries (#106)
+  ladder    alias for heal
+  self-heal alias for heal
 
 Environment:
   RADIO_JOB_SHADOW=1  evaluate the gate and log, execute nothing
@@ -573,6 +884,7 @@ case "${1:-}" in
   disk-ok)   cmd_disk_ok ;;
   verify)    cmd_verify ;;
   status)    cmd_status ;;
+  heal|ladder|self-heal|watch|recover|repair|autonomy) cmd_heal ;;
   -h|--help|"") usage ;;
   *) printf 'unknown subcommand: %s\n\n' "$1" >&2; usage >&2; exit 2 ;;
 esac
