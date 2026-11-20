@@ -94,6 +94,9 @@ mcp:
     disabled: false
 deployment:
   target: mainframe
+  runtime:
+    verify_command: ["ssh","-o","BatchMode=yes","mainframe","cd /home/kbdejavu/servers/radio && python3 scripts/deploy_manifest.py verify --json"]
+    timeout_s: 45
 tiers:
   runtime: true
   spec_kit: true
