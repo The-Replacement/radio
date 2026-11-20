@@ -101,6 +101,10 @@ tempo centre. The identity is in the sound, not the tag.
 
 ## Start
 
+To run your own circle from a fresh clone (door + stream + generator), see the
+full recipe in [`docs/NODE-KIT.md`](docs/NODE-KIT.md). For the door-only path,
+see [`docs/DOOR.md`](docs/DOOR.md).
+
 ```bash
 cd ~/servers/radio
 

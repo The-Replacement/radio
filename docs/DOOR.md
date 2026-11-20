@@ -3,8 +3,8 @@
 This is the **door-only** path for the radio: token-gated streaming that answers
 **404** (never 401) without a valid credential, with cookie exchange, per-person
 revocation, query stripping, and no published upstream ports. It is the narrower
-"run your own" recipe (see #29 for the full node kit): the door and its gates,
-not station content/buildout.
+"run your own" recipe (see [`docs/NODE-KIT.md`](NODE-KIT.md) for the full
+circle recipe): the door and its gates, not station content/buildout.
 
 The door is Caddy. `caddy/Caddyfile` holds the routing/handlers; `scripts/token.sh`
 manages credentials and generates `caddy/tokens.caddy` (gitignored, bearer-equivalent).
