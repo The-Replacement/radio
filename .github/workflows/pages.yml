@@ -33,6 +33,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Split deployment: the page (this Pages project) and the stream
+      # (tunnel backend on the box) live on different origins. The player
+      # defaults BACKEND_URL to location.origin, so without this step it
+      # would fetch /stream and /status-json.xsl from the Pages origin,
+      # get HTML back, and loop on "reconnecting". Inject the backend
+      # origin into web/js/00-backend.js as a deploy-time working-tree
+      # change only — the committed shim stays empty on purpose, and
+      # claims.sh stays green (it does not scan .github/).
+      - name: Inject backend origin
+        run: bash scripts/inject-backend-origin.sh https://stream.daza.ar
+
       - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
