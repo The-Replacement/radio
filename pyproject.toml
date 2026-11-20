@@ -35,9 +35,10 @@ dev = [
 
 [project.scripts]
 mario = "mario.cli:main"
+circle-door = "circle_door.cli:entrypoint"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mario"]
+packages = ["src/mario", "src/circle_door"]
 
 [tool.ruff]
 line-length = 100
@@ -49,5 +50,5 @@ ignore = ["B008"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-packages = ["mario"]
+packages = ["mario", "circle_door"]
 mypy_path = "src"
