@@ -23,13 +23,21 @@ From the repository root:
 ```bash
 # 1. Configuration (local defaults are fine for the door path)
 cp .env.example .env
+# Icecast passwords in .env.example are placeholders; set real values before
+# starting the stack (Liquidsoap connects to Icecast as source):
+sed -i "s|^ICECAST_SOURCE_PASSWORD=.*|ICECAST_SOURCE_PASSWORD=$(openssl rand -hex 24)|" .env
+sed -i "s|^ICECAST_RELAY_PASSWORD=.*|ICECAST_RELAY_PASSWORD=$(openssl rand -hex 24)|" .env
+sed -i "s|^ICECAST_ADMIN_PASSWORD=.*|ICECAST_ADMIN_PASSWORD=$(openssl rand -hex 24)|" .env
 
 # 2. Grant one credential (creates secrets/tokens.txt + caddy/tokens.caddy)
 chmod +x scripts/*.sh scripts/*.js scripts/*.py 2>/dev/null || true
 ./scripts/token.sh add you
 
-# 3. Start the stack (brings up the door and its upstream services)
-docker compose up -d
+# 3. Start the door and its upstream services
+#    In a full checkout this is usually: docker compose up -d
+#    In a standalone clone without ../indiegenerator (or other non-door build
+#    contexts), start the core services explicitly:
+docker compose up -d caddy icecast liquidsoap mediamtx
 
 # 4. Verify the door and gates
 ./scripts/smoke.sh
@@ -37,7 +45,9 @@ docker compose up -d
 
 `scripts/smoke.sh` reads `.env` (`PUBLIC_URL`, `FRONTEND_URL`) and `secrets/tokens.txt`.
 With local defaults it probes `http://localhost:8090` against the frontend origin.
-The camera/Mario groups are skipped automatically when their data is absent.
+For the stream-bytes check to pass, `music-audio/` must contain at least one audio
+asset that Liquidsoap can play. The camera/Mario/Tor groups are skipped automatically
+when their data/config is absent.
 
 To print the invitation/camera URLs for the granted credential (sensitive):
 
@@ -100,8 +110,14 @@ working-tree change). The door path does not call it.
 
 - `caddy/tokens.caddy` and `secrets/tokens.txt` are bearer-equivalent secrets
   (gitignored, mode 600). Treat revealed links as secrets.
+- Replace placeholder `ICECAST_*` passwords from `.env.example` before starting;
+  weak/placeholder values prevent a healthy Icecast/Liquidsoap stream.
+- `smoke.sh` validates door behavior and stream delivery; without at least one
+  playable file in `music-audio/`, stream-bytes checks cannot pass even if the
+  door is correct.
 - The credential exchange redirects to `FRONTEND_URL`; on `.onion` hosts the door
   serves an audio-only response (no clearnet redirect).
 - Revocation: `./scripts/token.sh rm <name>` (then reload happens automatically).
 - This recipe covers the door, not the full station (content generation, camera,
-  Mario, Tor hardening, etc.).
+  Mario, Tor hardening, etc.). In standalone clones, non-door services may require
+  extra build contexts, models, or devices.
