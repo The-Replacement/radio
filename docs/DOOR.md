@@ -6,9 +6,11 @@ revocation, query stripping, and no published upstream ports. It is the narrower
 "run your own" recipe (see [`docs/NODE-KIT.md`](NODE-KIT.md) for the full
 circle recipe): the door and its gates, not station content/buildout.
 
-The door is Caddy. `caddy/Caddyfile` holds the routing/handlers; `scripts/token.sh`
-manages credentials and generates `caddy/tokens.caddy` (gitignored, bearer-equivalent).
-Gates: `scripts/smoke.sh`, `scripts/query-gate.sh`, `scripts/claims.sh`.
+The door is Caddy. `caddy/Caddyfile` holds the routing/handlers; credentials are
+managed by the `circle-door` CLI (`scripts/token.sh` is a compatible wrapper),
+which maintains `secrets/tokens.txt` and generates `caddy/tokens.caddy`
+(gitignored, bearer-equivalent). Gates: `scripts/smoke.sh`, `scripts/query-gate.sh`,
+`scripts/claims.sh`.
 
 ## Prerequisites
 

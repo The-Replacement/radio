@@ -102,6 +102,7 @@ in the README and set `COOKIE_FLAGS` to include `Secure` over HTTPS.
 ```bash
 chmod +x scripts/*.sh scripts/*.js scripts/*.py 2>/dev/null || true
 ./scripts/token.sh add you
+# equivalent packaged CLI: circle-door add you
 ```
 
 This creates `secrets/tokens.txt` and `caddy/tokens.caddy` (bearer-equivalent,
@@ -109,7 +110,10 @@ gitignored, mode 600). To print the invitation link (sensitive):
 
 ```bash
 ./scripts/token.sh reveal you
+# equivalent: circle-door reveal you
 ```
+
+`scripts/token.sh` remains a compatible wrapper around the `circle-door` CLI.
 
 Treat revealed links and token artifacts as secrets.
 

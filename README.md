@@ -155,6 +155,9 @@ access, copy the template: `cp caddy/tokens.caddy.example caddy/tokens.caddy`
 ./scripts/token.sh check             # validates cookie/transport config and credential posture (perms/lifecycle)
 ```
 
+Packaged as the `circle-door` CLI (`circle-door add|reveal|rm|list|regen|rotate|prune|check`);
+`scripts/token.sh` remains a compatible wrapper (no silent breakage).
+
 **Per-person credentials.** That is the reason for doing it this way instead
 of a single shared password: if someone leaks their link, rotate/revoke that
 credential without changing anyone else's.
