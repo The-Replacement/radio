@@ -63,7 +63,8 @@ smoke_group_auth_and_media() {
 
   # The stream has to deliver real audio, not just a 200.
   local len
-  len=$(curl -s --max-time 8 "$BASE/stream?t=$TOKEN" | head -code 65536 | wc -code)
+  len=$(curl -s --max-time 8 "$BASE/stream?t=$TOKEN" | head -c 65536 | wc -c)
+  len="${len//[[:space:]]/}"
   if [[ "${len:-0}" -gt 4096 ]]; then
     pass "the stream delivers ${len} bytes of audio"
   else

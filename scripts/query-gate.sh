@@ -130,7 +130,7 @@ mutate() { # stdin: block; $1 = path — removes the '?' from the rewrite (pre-S
 }
 
 localize() { # the file's upstream -> this gate's origin
-  sed -E "s|reverse_proxy[[:space:]]+[^ {]+|reverse_proxy 127.0.0.1:$ORIGIN|g"
+  sed -E "s|reverse_proxy[[:space:]]+(\\{[^}]*\\}\\|[^ {]+)|reverse_proxy 127.0.0.1:$ORIGIN|g"
 }
 
 # ----------------------------------------------------------------- origen
@@ -144,7 +144,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 LOG = sys.argv[2]
 
 class Origin(BaseHTTPRequestHandler):
-    def handle(self):
+    def handle_request(self):
         n = int(self.headers.get("Content-Length") or 0)
         if n:
             self.rfile.read(n)  # consume the body (whep's SDP)
@@ -154,7 +154,7 @@ class Origin(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
-    do_GET = do_POST = handle
+    do_GET = do_POST = handle_request
 
     def log_message(self, *args):
         pass  # what matters is in the file, not on stderr

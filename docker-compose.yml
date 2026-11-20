@@ -393,6 +393,11 @@ services:
       # CAREFUL: no trailing slash — it is used as the origin in CORS and the
       # Location.
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8090}
+      # The upstream services Caddy proxies to on the `radio` docker network.
+      # Seam so a door-only / alternate layout can repoint without editing the
+      # Caddyfile. Defaults are today's literal targets.
+      ICECAST_UPSTREAM: ${ICECAST_UPSTREAM:-icecast:8000}
+      MEDIAMTX_UPSTREAM: ${MEDIAMTX_UPSTREAM:-mediamtx:8889}
     ports:
       - "${HTTP_PORT:-8090}:80"
       - "${HTTPS_PORT:-8443}:443"

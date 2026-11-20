@@ -94,12 +94,9 @@
     history.replaceState(null, '', location.pathname + (resto ? '?' + resto : ''));
   }
 
-  // After the split the backend (Icecast/Caddy) lives on another origin: the
-  // frontend is on Cloudflare Pages, the backend on the tunnel. On localhost
-  // the backend is this same origin (no split); from anywhere else it is the
-  // tunnel, with nothing to configure.
-  var BACKEND_URL = 'https://stream.daza.ar';
-  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
-    BACKEND_URL = location.origin;
-  }
+  // Backend origin seam. Same-origin deployments (the door serves both player
+  // and stream) need zero config: default to location.origin. Split deployments
+  // (e.g. Cloudflare Pages frontend + tunnel backend) inject the origin at
+  // deploy time via web/js/00-backend.js (window.RADIO_BACKEND_URL).
+  var BACKEND_URL = window.RADIO_BACKEND_URL || location.origin;
 

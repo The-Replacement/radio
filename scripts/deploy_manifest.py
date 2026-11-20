@@ -917,8 +917,7 @@ def verdict_payload(root: Path, checks: Sequence[Check]) -> dict[str, Any]:
         "schema": VERDICT_SCHEMA,
         "verdict": verdict_token(checks),
         "checks": [
-            {"name": check.name, "status": check.status, "detail": check.detail}
-            for check in checks
+            {"name": check.name, "status": check.status, "detail": check.detail} for check in checks
         ],
     }
     source_sha = manifest.get("source_sha")

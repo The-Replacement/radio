@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # claims.sh — the promise of F-13 and F-06, measured: in the config that goes
-# to the site nobody hand-writes the production domain. Everything goes through
-# the FRONTEND_URL seam (Caddyfile, the player's JS, smoke, token.sh).
+# to the site nobody hand-writes the production domains. Everything goes through
+# the FRONTEND_URL / RADIO_BACKEND_URL seams (Caddyfile, the player's JS, smoke,
+# token.sh).
 #
-# It exits 0 if every occurrence of comechingona.daza.ar is on the allowlist
-# below; it exits 1 if a new one appears. The allowlist is complete and
-# explicit; nothing else slips in.
+# It exits 0 if every occurrence of comechingona.daza.ar or stream.daza.ar is on
+# the allowlist below; it exits 1 if a new one appears. The allowlist is complete
+# and explicit; nothing else slips in.
 #
 # It searches with git grep over the tree that is deployed (the configs + the
 # site's living docs, not the PLAN-LEGAL nor the audit prompt).
@@ -18,13 +19,17 @@ GREEN=$'\033[32m'; RED=$'\033[31m'; RESET=$'\033[0m'
 
 # The documented allowlist, one line per explicit permission. Anything not here,
 # in this config, is a new hardcode and the gate goes red.
-#   .env.example  — the seam's documented line (S8, F-06 / F-13)
+#   .env.example   — seam/documentation lines (S8, F-06 / F-13; door seams)
 #   web/index.html — the station's public signature, not an origin
+#   caddy/Caddyfile — prose comments documenting the split/backend host
 # claims.sh does not scan itself: the script literally contains the allowed
 # lines BY definition.
 ALLOWED=(
   '.env.example|FRONTEND_URL=https://comechingona.daza.ar'
+  '.env.example|Production:  stream.daza.ar'
   'web/index.html|comechingona.daza.ar · sierras de los comechingones'
+  'caddy/Caddyfile|backend (stream.daza.ar)'
+  'caddy/Caddyfile|host-only para stream.daza.ar'
 )
 
 allowed() {
@@ -40,10 +45,10 @@ allowed() {
 }
 
 echo
-echo "Claims — nobody hand-writes the domain in the config"
+echo "Claims — nobody hand-writes the production domains in the config"
 echo
 
-mapfile -t HITS < <(git grep -niF 'comechingona.daza.ar' -- \
+mapfile -t HITS < <(git grep -niE 'comechingona\.daza\.ar|stream\.daza\.ar' -- \
   caddy web docker-compose.yml .env.example \
   icecast liquidsoap cam mediamtx ':!scripts/claims.sh' 2>/dev/null || true)
 
