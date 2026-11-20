@@ -92,6 +92,16 @@ mcp:
     environment: null
     description: Chrome DevTools for debugging and inspecting web pages
     disabled: false
+  - name: n3rv-hub
+    type: local
+    command:
+    - /home/estrocondoso/.local/share/mise/installs/python/3.14.8/bin/n3rv-hub
+    url: null
+    environment:
+      N3RV_AGENT_SOURCE: opencode
+      N3RV_AGENT_ID: radio
+    description: ''
+    disabled: false
 deployment:
   target: mainframe
   runtime:
